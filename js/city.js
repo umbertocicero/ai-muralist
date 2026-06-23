@@ -84,7 +84,7 @@ export class City {
         this.wallSlots.push({ px: cx - W / 2, py, pz: cz, nx: -1, nz: 0, wallW: Math.min(D * 0.7, 4.4), wallH: wh, buildingIdx: idx, used: false, mesh: null });
 
         const r = CONFIG.charRadius;
-        this.bboxes.push({ minX: cx - W / 2 - r, maxX: cx + W / 2 + r, minZ: cz - D / 2 - r, maxZ: cz + D / 2 + r });
+        this.bboxes.push({ minX: cx - W / 2 - r, maxX: cx + W / 2 + r, minZ: cz - D / 2 - r, maxZ: cz + D / 2 + r, top: H });
         idx++;
       }
     }
@@ -343,10 +343,16 @@ export class City {
   // ── Collision / navigation ────────────────────────────────────────────────
   isColliding(x, z) {
     if (Math.abs(x) > BOUND || Math.abs(z) > BOUND) return true;
+    return this.hitsBuilding(x, z);
+  }
+
+  // building footprints only (no world-edge clamp); returns the block's roof
+  // height at (x,z), or 0 if none — used for 3D camera collision.
+  hitsBuilding(x, z) {
     for (const b of this.bboxes) {
-      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
+      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return b.top;
     }
-    return false;
+    return 0;
   }
 
   randomReachablePoint() {

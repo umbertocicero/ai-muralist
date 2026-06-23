@@ -236,10 +236,29 @@ export class CameraRig {
     this.pivot.lerp(this.pivotTarget, pf);
 
     const sinP = Math.sin(this.polar), cosP = Math.cos(this.polar);
+    const dirX = Math.cos(this.azimuth) * sinP, dirZ = Math.sin(this.azimuth) * sinP;
+
+    // camera collision (3D): never push the lens through a building — march out
+    // from the focus and stop just shy of the first wall the view-ray would
+    // actually pass *through*. High overview angles clear the rooftops, so they
+    // aren't blocked; only low street-level views get pulled into the lane.
+    let eff = this.radius;
+    if (this.city) {
+      const camYFull = cosP * this.radius + 1.5;
+      const STEP = 0.6;
+      for (let d = STEP; d < this.radius; d += STEP) {
+        const top = this.city.hitsBuilding(this.pivot.x + dirX * d, this.pivot.z + dirZ * d);
+        if (top > 0) {
+          const rayY = CONFIG.camLookY + (camYFull - CONFIG.camLookY) * (d / this.radius);
+          if (rayY < top + 0.4) { eff = Math.max(2.4, d - STEP); break; }
+        }
+      }
+    }
+
     this.camera.position.set(
-      this.pivot.x + Math.cos(this.azimuth) * sinP * this.radius,
-      cosP * this.radius + 1.5,
-      this.pivot.z + Math.sin(this.azimuth) * sinP * this.radius,
+      this.pivot.x + dirX * eff,
+      cosP * eff + 1.5,
+      this.pivot.z + dirZ * eff,
     );
     this.camera.lookAt(this.pivot.x, CONFIG.camLookY, this.pivot.z);
   }

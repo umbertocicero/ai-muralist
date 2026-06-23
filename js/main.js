@@ -101,6 +101,7 @@ class App {
 
     // Wire follow-button callback: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos);
+    if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; }
 
     // Clock
     this.clock   = new THREE.Clock();
