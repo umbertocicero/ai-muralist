@@ -123,7 +123,7 @@
 
     // --- World ---
     sky: '#87CEEB',
-    fog: { color: '#c9e8f5', near: 40, far: 90 },
+    fog: { color: '#aacbe0', near: 65, far: 170 },
     buildingColors: ['#d4c9b8', '#c2b9a7', '#b8c4c2', '#cfc8be'],
     buildingPositions: [
       [-12,-12],[12,-12],[-12,12],[12,12],
@@ -189,7 +189,7 @@
     _buildGround() {
       const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(200, 200),
-        new THREE.MeshStandardMaterial({ color: '#9a9a9a', roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: '#7f7f7f', roughness: 1 })
       );
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
@@ -456,6 +456,7 @@ HARD RULES for the SVG:
             URL.revokeObjectURL(url);
 
             const tex = new THREE.CanvasTexture(canvas);
+            tex.encoding = THREE.sRGBEncoding;
             tex.needsUpdate = true;
             tex.anisotropy = this.maxAniso;
 
@@ -691,6 +692,11 @@ HARD RULES for the SVG:
       this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      // Correct color output + filmic tone mapping so bright surfaces don't blow
+      // out to pure white (the scene was heavily overexposed without these).
+      this.renderer.outputEncoding = THREE.sRGBEncoding;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.0;
       document.getElementById('app').appendChild(this.renderer.domElement);
 
       this._lights();
@@ -713,15 +719,16 @@ HARD RULES for the SVG:
     }
 
     _lights() {
-      const sun = new THREE.DirectionalLight('#fff5e0', 1.8);
+      // Intensities tuned for ACES tone mapping — a sunny look without clipping.
+      const sun = new THREE.DirectionalLight('#fff5e0', 2.4);
       sun.position.set(50, 80, 30);
       sun.castShadow = true;
       sun.shadow.mapSize.set(2048, 2048);
       Object.assign(sun.shadow.camera, { near: 1, far: 200, left: -70, right: 70, top: 70, bottom: -70 });
       sun.shadow.bias = -0.0004;
       this.scene.add(sun);
-      this.scene.add(new THREE.AmbientLight('#c9dff0', 0.9));
-      this.scene.add(new THREE.HemisphereLight('#87CEEB', '#6b8e6b', 0.4));
+      this.scene.add(new THREE.AmbientLight('#c9dff0', 0.35));
+      this.scene.add(new THREE.HemisphereLight('#87CEEB', '#6b8e6b', 0.5));
     }
 
     _onResize() {
