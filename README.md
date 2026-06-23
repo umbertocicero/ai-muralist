@@ -136,6 +136,62 @@ Your site is live at `https://ai-muralist.pages.dev` 🎉
 
 ---
 
+## ☁️ Deploy from GitHub Codespaces / CI (API token)
+
+In a Codespace or CI runner, **`wrangler login` does not work**: its OAuth flow
+redirects to `http://localhost:8976/...`, which points at the browser's machine,
+not the remote container — so the callback times out
+(`Timed out waiting for authorization code`).
+
+Use an **API token** instead. It skips the browser entirely.
+
+### 1 · Create the token
+
+Cloudflare Dashboard → **My Profile → API Tokens → Create Token** → start from the
+**"Edit Cloudflare Workers"** template, then add the **Cloudflare Pages** permission.
+Minimum permissions for this project:
+
+| Type | Permission | Level |
+|---|---|---|
+| Account | Workers Scripts | Edit |
+| Account | Workers KV Storage | Edit |
+| Account | Cloudflare Pages | Edit |
+| Account | Account Settings | Read |
+
+Copy the token (shown only once). Grab your **Account ID** from
+**Workers & Pages** (right sidebar) or the dashboard URL
+`dash.cloudflare.com/<ACCOUNT_ID>`.
+
+### 2 · Export the credentials
+
+```bash
+export CLOUDFLARE_API_TOKEN="your-token"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
+```
+
+> **Make it persistent** (recommended): GitHub → **Settings → Codespaces →
+> Secrets → New secret** → add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`,
+> granting access to this repo. They'll be present on every Codespace rebuild.
+
+### 3 · Deploy — no login needed
+
+```bash
+wrangler whoami                              # should print your account
+wrangler kv namespace create RATE_LIMIT_KV   # paste the id into wrangler.toml
+wrangler deploy
+wrangler secret put ANTHROPIC_API_KEY
+wrangler pages deploy . --project-name ai-muralist
+```
+
+> Wrangler v3+ uses `wrangler kv namespace create` (with a space). Older versions
+> use `wrangler kv:namespace create` (with a colon).
+
+**Still want interactive `wrangler login`?** It only works if you forward port
+**8976** first: open the **PORTS** tab → *Forward a Port* → `8976`, then rerun
+`wrangler login`. The API-token route above is more reliable.
+
+---
+
 ## 🔌 Alternative: same-origin `/api/claude` (no CORS, no separate URL)
 
 Instead of a standalone Worker, you can use **Pages Functions** so the API lives at the same origin as the site. Create `functions/api/claude.js`:
