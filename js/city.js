@@ -21,6 +21,7 @@ export class City {
     this._buildBuildings();
     this._buildUtilityPoles();
     this._buildProps();
+    this._buildDetails();
   }
 
   // ── Ground, roads, sidewalks ──────────────────────────────────────────────
@@ -68,6 +69,10 @@ export class City {
 
       this._hipRoof(x, z, w, d, h);
       this._addWindows(x, z, w, d, h, idx);
+      // Drainpipe down a back corner (sits in the wall margin, clear of murals)
+      this._drainpipe(x - w/2 + 0.14, z - d/2 + 0.14, h);
+      // Rooftop TV antenna on some buildings
+      if (idx % 2 === 0) this._antenna(x + w * 0.24, h, z - d * 0.24);
 
       const r = CONFIG.charRadius;
       this.bboxes.push({
@@ -129,7 +134,7 @@ export class City {
     const wireMat = new THREE.LineBasicMaterial({ color: '#161412' });
 
     rowZ.forEach(rz => {
-      posX.forEach(px => this._pole(px, rz, PH));
+      posX.forEach((px, i) => this._pole(px, rz, PH, Math.abs(rz) < 6 && i % 2 === 0));
       for (let i = 0; i < posX.length - 1; i++) {
         const x0 = posX[i], x1 = posX[i + 1], mx = (x0 + x1) / 2;
         [PH - 0.5, PH - 1.0, PH - 1.6].forEach(wh => {
@@ -158,7 +163,7 @@ export class City {
     });
   }
 
-  _pole(x, z, h) {
+  _pole(x, z, h, transformer = false) {
     const shaft = inkedMesh(new THREE.CylinderGeometry(0.07, 0.10, h, 6), '#2a2620', { k: 1.06 });
     shaft.position.set(x, h / 2, z);
     this.scene.add(shaft);
@@ -167,6 +172,12 @@ export class City {
       arm.position.set(x, ay, z);
       this.scene.add(arm);
     });
+    // Cylindrical transformer can — a constant of Japanese utility poles
+    if (transformer) {
+      const tf = inkedMesh(new THREE.CylinderGeometry(0.17, 0.17, 0.55, 8), '#34302a', { k: 1.07, cast: false });
+      tf.position.set(x + 0.22, h - 2.5, z);
+      this.scene.add(tf);
+    }
   }
 
   // ── Decorative props ──────────────────────────────────────────────────────
@@ -210,6 +221,136 @@ export class City {
       const c = inkedMesh(new THREE.SphereGeometry(r, 7, 5), '#2e2c28', { k: 1.035 });
       c.position.set(x + ox, oy, z);
       this.scene.add(c);
+    });
+  }
+
+  // ── Alley clutter (bikes, plants, crates, manholes, lanterns…) ────────────
+  _buildDetails() {
+    // Potted plants line the alleys — the references are full of greenery
+    const plantSpots = [
+      [4.7, -8], [4.7, -2], [4.7, 6], [4.7, 16], [4.7, 28],
+      [-4.7, -6], [-4.7, 4], [-4.7, 13], [-4.7, 24],
+      [-8, 4.7], [2, 4.7], [14, 4.7], [26, 4.7],
+      [-14, -4.7], [6, -4.7], [20, -4.7],
+    ];
+    plantSpots.forEach(([x, z], i) => this._pottedPlant(x, z, 0.82 + (i % 3) * 0.20));
+
+    // Bicycles leaning here and there
+    this._bicycle(6.3, -9, -0.35);
+    this._bicycle(-6.3, 7, Math.PI * 0.9);
+    this._bicycle(9, 5.3, Math.PI * 0.5);
+    this._bicycle(-5.6, -17, 0.15);
+
+    // Stacked crates against the walls
+    this._crateStack(5.1, 20);
+    this._crateStack(-5.3, -11);
+    this._crateStack(13, -5.2);
+
+    // Manhole covers on the roads
+    [[0, -9], [0, 13], [8, 0], [-16, 0], [0, 27]].forEach(([x, z]) => this._manhole(x, z));
+
+    // Paper lanterns hanging at shop corners
+    [[8.4, 8.4], [-8.4, 8.4], [8.4, -8.4]].forEach(([x, z]) => this._lantern(x, z));
+  }
+
+  _pottedPlant(x, z, s = 1) {
+    const pot = inkedMesh(new THREE.CylinderGeometry(0.16 * s, 0.20 * s, 0.34 * s, 8), '#dcdad6', { k: 1.05 });
+    pot.position.set(x, 0.17 * s, z);
+    this.scene.add(pot);
+    const f1 = inkedMesh(new THREE.SphereGeometry(0.30 * s, 7, 6), '#2c2a26', { k: 1.04 });
+    f1.position.set(x, 0.34 * s + 0.20 * s, z);
+    this.scene.add(f1);
+    const f2 = inkedMesh(new THREE.SphereGeometry(0.20 * s, 7, 6), '#363430', { k: 1.04 });
+    f2.position.set(x + 0.13 * s, 0.34 * s + 0.40 * s, z - 0.05 * s);
+    this.scene.add(f2);
+  }
+
+  _bicycle(x, z, angle) {
+    const g = new THREE.Group();
+    const tone = '#1f1d1a';
+    const wheel = (wx) => {
+      const w = inkedMesh(new THREE.TorusGeometry(0.30, 0.045, 6, 16), tone, { k: 1.08 });
+      w.position.set(wx, 0.30, 0);
+      g.add(w);
+    };
+    wheel(-0.46); wheel(0.46);
+    const bar = (len, px, py, rotZ) => {
+      const b = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, len, 6), tone, { k: 1.1, cast: false });
+      b.position.set(px, py, 0);
+      b.rotation.z = rotZ;
+      g.add(b);
+    };
+    bar(0.95, 0, 0.50, Math.PI / 2);   // top tube
+    bar(0.62, -0.16, 0.42, 0.5);       // seat tube
+    bar(0.58, 0.40, 0.42, -0.4);       // fork
+    const seat = inkedMesh(new THREE.BoxGeometry(0.22, 0.06, 0.10), tone, { k: 1.1, cast: false });
+    seat.position.set(-0.34, 0.70, 0);
+    g.add(seat);
+    const handle = inkedMesh(new THREE.BoxGeometry(0.08, 0.28, 0.30), tone, { k: 1.1, cast: false });
+    handle.position.set(0.50, 0.68, 0);
+    g.add(handle);
+    g.position.set(x, 0, z);
+    g.rotation.y = angle;
+    g.rotation.z = 0.05;               // slight lean
+    this.scene.add(g);
+  }
+
+  _crateStack(x, z) {
+    const tones = ['#d2ccc0', '#c8c2b6', '#d8d2c6'];
+    const n = 2 + ((Math.random() * 2) | 0);
+    for (let i = 0; i < n; i++) {
+      const s = 0.5;
+      const c = inkedMesh(new THREE.BoxGeometry(s, s, s), tones[i % 3], { k: 1.04 });
+      c.position.set(x + (i % 2 ? 0.12 : -0.1), s / 2 + i * s, z + (i % 2 ? -0.08 : 0.06));
+      c.rotation.y = (Math.random() - 0.5) * 0.3;
+      this.scene.add(c);
+    }
+  }
+
+  _manhole(x, z) {
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(0.42, 20),
+      new THREE.MeshBasicMaterial({ color: '#5f5d59' })
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(x, 0.03, z);
+    this.scene.add(disc);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.30, 0.40, 20),
+      new THREE.MeshBasicMaterial({ color: '#3a3835' })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.031, z);
+    this.scene.add(ring);
+  }
+
+  _lantern(x, z) {
+    const body = inkedMesh(new THREE.CylinderGeometry(0.16, 0.16, 0.32, 10), '#ededed', { k: 1.06, cast: false });
+    body.position.set(x, 2.3, z);
+    this.scene.add(body);
+    const cap = inkedMesh(new THREE.CylinderGeometry(0.06, 0.16, 0.06, 10), '#1a1814', { k: 1.06, cast: false });
+    cap.position.set(x, 2.49, z);
+    this.scene.add(cap);
+    const pts = [new THREE.Vector3(x, 2.52, z), new THREE.Vector3(x, 3.1, z)];
+    const g = new THREE.BufferGeometry().setFromPoints(pts);
+    this.scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: '#161412' })));
+  }
+
+  _drainpipe(cx, cz, h) {
+    const pipe = inkedMesh(new THREE.CylinderGeometry(0.07, 0.07, h, 6), '#bcbab6', { k: 1.08, cast: false });
+    pipe.position.set(cx, h / 2, cz);
+    this.scene.add(pipe);
+  }
+
+  _antenna(x, baseY, z) {
+    const mast = inkedMesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5), '#1c1a17', { k: 1.12, cast: false });
+    mast.position.set(x, baseY + 0.65, z);
+    this.scene.add(mast);
+    [0.95, 1.2].forEach((cy, i) => {
+      const cw = 0.55 - i * 0.16;
+      const bar = inkedMesh(new THREE.BoxGeometry(cw, 0.03, 0.03), '#1c1a17', { k: 1.15, cast: false });
+      bar.position.set(x, baseY + cy, z);
+      this.scene.add(bar);
     });
   }
 

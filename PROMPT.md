@@ -276,12 +276,19 @@ Posizioni edifici (x, z):
 
 ### 5.5 Dettagli scenici (iconici delle reference)
 
-- **Pali della luce** alti con doppia traversa, lungo tutte le strade
+- **Pali della luce** alti con doppia traversa + **trasformatore** cilindrico
 - **Fili elettrici** che si incurvano tra i pali (QuadraticBezierCurve3) — anche
   cavi che attraversano la strada: l'intrico di fili è l'elemento più riconoscibile
 - **Alberi** a silhouette scura (chioma a sfere sovrapposte)
+- **Grondaie** verticali agli angoli degli edifici, **antenne TV** sui tetti
+- **Vasi di piante** lungo i vicoli (tantissimi nelle foto), **biciclette** appoggiate
+- **Cassette** impilate, **tombini** sull'asfalto, **lanterne di carta** appese agli angoli
 - Muri bassi di cemento tra i lotti, distributori automatici
 - Strisce/crepe scure sull'asfalto, marciapiedi rialzati
+
+> Tutti i prop usano lo stesso pipeline cel + contorno d'inchiostro + retino.
+> Sono decorativi (fuori dai bounding box di collisione): arricchiscono la scena
+> senza interferire con il movimento di KAI o con gli slot dei murales.
 
 ---
 
