@@ -28,6 +28,7 @@ export class Agent {
     this.apiPending  = false;
     this.pendingResult = null;
     this.currentSlot   = null;
+    this._finishing    = false;   // guards the async finish from re-entry
 
     this._setState(STATE.WANDERING);
     this._newWanderTarget();
@@ -107,6 +108,7 @@ export class Agent {
     this.ui.thoughtVisible = false;
     this.pendingResult     = null;
     this.currentSlot       = null;
+    this._finishing        = false;
     this._newWanderTarget();
     this._setState(STATE.WANDERING);
   }
@@ -162,7 +164,13 @@ export class Agent {
       case STATE.PAINTING: {
         this.paintTimer += dt;
         this.char.paint(t);
-        if (this.paintTimer > CONFIG.paintSeconds) this._finishPainting();
+        // _finishPainting is async (it awaits the SVG image load); guard so the
+        // still-PAINTING state can't re-enter it across frames → exactly one
+        // mural + one log entry per wall.
+        if (this.paintTimer > CONFIG.paintSeconds && !this._finishing) {
+          this._finishing = true;
+          this._finishPainting();
+        }
         break;
       }
 
