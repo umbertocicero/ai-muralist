@@ -12,7 +12,7 @@ function box(w, h, d, color, emissive = null, emissiveIntensity = 0.12) {
   return m;
 }
 
-// MURO — manga-style Japanese street artist
+// KAI (カイ) — manga-style Japanese teenage street artist
 // Silhouette: dark jacket, light undershirt flash, black trousers
 export class Character {
   constructor(scene, start) {

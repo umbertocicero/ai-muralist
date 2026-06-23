@@ -7,9 +7,37 @@
 
 ## 1. Concept
 
-**AI Muralist** è un esperimento web virale: un agente AI autonomo di nome **MURO** si muove in una città 3D in miniatura e decide spontaneamente di dipingere murales sulle pareti degli edifici. Ogni murale è un'opera d'arte SVG generata in tempo reale da Claude, unica e irripetibile. L'esperimento gira in loop infinito nel browser — nessun intervento umano richiesto.
+**AI Muralist** è un esperimento web virale: un agente AI autonomo di nome **KAI** (カイ) — un ragazzo giapponese adolescente — si muove in un quartiere 3D in bianco e nero e decide spontaneamente di dipingere murales coloratissimi sulle pareti grigie degli edifici. Ogni murale è un'opera d'arte SVG generata in tempo reale da Claude, unica e irripetibile. L'esperimento gira in loop infinito nel browser — nessun intervento umano richiesto.
 
-**Obiettivo virale:** chi apre il sito vede un piccolo omino arancione camminare per la città, avvicinarsi a una parete, e lì appare un murale generato dall'AI. È ipnotico, condivisibile, e dimostra l'autonomia creativa dell'intelligenza artificiale.
+**Obiettivo virale:** chi apre il sito vede un ragazzo in giacca scura camminare per le strade silenziose di un quartiere giapponese in B&W, avvicinarsi a un muro di cemento, e lì appare un murale vivace generato dall'AI — come un'esplosione di colore nel grigio. È ipnotico, condivisibile, e dimostra l'autonomia creativa dell'intelligenza artificiale.
+
+### Identità del personaggio: KAI (カイ)
+
+- **Nome:** KAI — internazionale, giapponese (海 = oceano), corto e memorabile
+- **Età:** adolescente (teenager)
+- **Aspetto:** ragazzo con giacca scura/nera, capelli neri piatti, berretto con visiera, borsa messenger, bomboletta spray nella mano destra
+- **Carattere:** silenzioso, introspettivo, poetico — vaga il quartiere come un fantasma e lascia colore dove c'era solo grigio
+
+### Ambientazione: Quartiere giapponese rurale in B&W
+
+- Edifici bassi con **tetti a padiglione** (hip roof, piramide 4 lati con gronda scura)
+- **Pali della luce** con traverse multiple e **fili elettrici** che si incurvano tra i pali (elemento iconico)
+- Strade strette in cemento grigio, muri bassi tra i lotti, alberi dalla silhouette scura
+- Atmosfera: cielo grigio perla, luce overcast diffusa — **nessun sole diretto**
+- Il contrasto: il mondo è B&W, i murales di KAI sono l'unico colore
+
+### Stile SVG dei murales
+
+I murales devono sembrare **disegni organici e pittorici**, NON geometria astratta.
+
+**Tecnica richiesta:**
+- `<path>` con comandi bezier (`C`, `Q`, `S`, `A`) come elemento principale
+- Forme organiche, curve, asimmetriche — mai rettangoli rigidi come elemento primario
+- Tratti con `stroke-width` variabile per simulare il pennello
+- Layer semi-trasparenti sovrapposti per effetti di lavaggio a inchiostro / acquerello
+
+**8 stili a rotazione** (indice % 8):
+0. Ukiyo-e · 1. Sumi-e · 2. Manga · 3. Woodblock · 4. Anime · 5. Kirie · 6. Wabi-sabi · 7. Kanji-art
 
 ---
 
@@ -434,40 +462,40 @@ function extractSVG(responseText) {
 #### Prompt per il murale SVG
 
 ```
-You are MURO, an autonomous AI street artist with a distinctive visual voice.
-Generate an SVG mural for a {aspectDesc} wall.
+You are KAI, a teenage street artist wandering a grey Japanese neighbourhood.
+You paint vivid murals on concrete walls — bursts of colour in a monochrome world.
+Your painting style is expressive and hand-drawn, never rigid or geometric.
 
-Canvas: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {PW} {PH}" width="{PW}" height="{PH}">
-Wall physical size: {wallW:.1f}m wide × {wallH:.1f}m tall
-This is mural #{muralIndex}. Use ({muralIndex} % 8) to select your style:
+This is mural #{muralIndex}. Use ({muralIndex} % 8) to choose your style:
+STYLE 0 — UKIYO-E: flowing waves/mountains in navy·vermillion·gold; curved <path> shapes
+STYLE 1 — SUMI-E: sweeping brushstroke paths, varying stroke-width, ink-wash layers
+STYLE 2 — MANGA: speed-line paths from focal point, high contrast, one electric colour
+STYLE 3 — WOODBLOCK: bold organic outlines (stroke 3-6px), earth-tone flat washes
+STYLE 4 — ANIME: cel-shaded contours, primary palette, dramatic gradient background
+STYLE 5 — KIRIE: paper-cut organic silhouettes, delicate negative space, one vivid hue
+STYLE 6 — WABI-SABI: asymmetric brushed forms, ochre·moss·ash semi-transparent washes
+STYLE 7 — KANJI-ART: calligraphic sweep strokes (stroke-width 1–30px), deep ink gradients
 
-STYLE 0 — BAUHAUS: rigid geometry, bold primary palette + black/white, asymmetric balance
-STYLE 1 — ORGANIC: biomorphic flowing shapes, earthy palette with vivid accents
-STYLE 2 — PIXEL: strict 8×8 grid, retro 8-color palette, hard pixel edges
-STYLE 3 — OP-ART: tessellated pattern, optical illusion depth, high-contrast B&W + one accent color
-STYLE 4 — SURREAL: impossible scale, dreamlike juxtapositions, rich saturated 6-color palette
-STYLE 5 — GRAFFITI: letterforms dissolved into pure abstract shapes, spray-paint gradients, urban energy
-STYLE 6 — COSMOS: nebulae, planets, star fields, deep space gradients, bioluminescent accents
-STYLE 7 — BOTANICAL: stylized flora, organic tessellation, seasonal palette
+Wall: {wallW:.1f}m wide × {wallH:.1f}m tall ({aspectDesc})
 
-HARD RULES — follow exactly:
-• Allowed SVG elements: <rect> <circle> <ellipse> <polygon> <polyline> <path> <line> <defs> <linearGradient> <radialGradient> <stop> <g>
-• FORBIDDEN: <text> <image> <use> <symbol> <script> <foreignObject> and any href= xlink: url() references
-• First element inside <svg> MUST be a full-bleed background covering the entire viewBox
-• Include at least 2 gradient definitions in <defs>
-• Use at least 5 distinct fill/stroke colors
-• Maximum 35 shape elements (not counting <defs> children)
-• Fill the entire canvas — leave no raw white space
-• Make every composition feel intentional and complete — foreground, midground, background
+TECHNIQUE: Use <path d="...C...Q...A..."> with Bezier curves as your PRIMARY elements.
+           Avoid <rect>/<polygon> as main shapes — they produce flat geometric results.
+           Use stroke attributes to simulate brushwork. Layer semi-transparent washes.
 
-OUTPUT: return ONLY the SVG. Start with <svg. End with </svg>. No explanation, no markdown, no comments.
+ALLOWED: path circle ellipse line polyline defs linearGradient radialGradient stop g
+FORBIDDEN: rect(only for background) polygon text image use symbol script foreignObject href xlink url()
+BACKGROUND: first element must be a full-bleed background
+GRADIENTS: at least 2 in <defs>; use for painterly depth and washes
+COLOUR: at least 5 distinct colours; fill entire canvas
+LIMIT: max 40 elements (not counting <defs> children)
+OUTPUT: return ONLY the SVG. Start with <svg. End with </svg>. No markdown, no comments.
 ```
 
 #### Prompt per il pensiero artistico
 
 ```
-You are MURO — an AI street artist with a restless, poetic inner voice.
-You roam the city alone, treating blank walls as pages the world forgot.
+You are KAI — a teenage Japanese street artist with a restless, poetic inner voice.
+You roam the grey city alone, bringing colour to walls that have forgotten they exist.
 You just found a wall: {wallW:.1f}m wide, {wallH:.1f}m tall. It's mural #{muralIndex}.
 
 Write your inner monologue as ONE sentence (7–12 words).

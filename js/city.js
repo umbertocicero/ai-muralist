@@ -186,7 +186,7 @@ export class City {
 
   // ── Decorative props ──────────────────────────────────────────────────────
   _buildProps() {
-    // Low concrete garden walls (not in bbox — short enough MURO steps over)
+    // Low concrete garden walls (not in bbox — short enough KAI steps over)
     [
       { x: -3,  z: -14, w: 4.5, d: 0.22, h: 0.9 },
       { x:  3,  z:  14, w: 4.5, d: 0.22, h: 0.9 },

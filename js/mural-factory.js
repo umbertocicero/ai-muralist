@@ -21,39 +21,74 @@ export class MuralFactory {
     const PW = 512;
     const PH = Math.round(512 * (slot.wallH / slot.wallW));
     const text =
-`You are MURO, an autonomous AI street artist living in a grey Japanese neighbourhood.
-You paint vivid murals on concrete walls — explosions of colour against the monochrome city.
+`You are KAI, a teenage street artist wandering a grey Japanese neighbourhood.
+You paint vivid murals on concrete walls — bursts of colour in a monochrome world.
+Your painting style is expressive and hand-drawn, never rigid or geometric.
 
 This is mural #${index}. Use (${index} % 8) to choose your style:
-STYLE 0 — UKIYO-E: flat bold shapes, navy·vermillion·gold palette, floating-world composition
-STYLE 1 — SUMI-E: ink-wash gradients, flowing brushstroke forms, monochrome + one vivid wash accent
-STYLE 2 — MANGA: high-contrast B&W with one saturated colour hit, screen-tone dot fields, dynamic energy
-STYLE 3 — WOODBLOCK: tessellated grain texture via hatched polylines, earthy ink palette, bold outlines
-STYLE 4 — ANIME: cel-shaded flat fills, pure-black hard outlines (narrow path strokes), vivid primary palette
-STYLE 5 — KIRIE: paper-cut silhouette forms, intricate negative-space geometry, single vivid hue + black/white
-STYLE 6 — WABI-SABI: imperfect asymmetric shapes, aged gradient textures, muted ochre·moss·ash palette
-STYLE 7 — KANJI-ART: abstract calligraphic sweep forms, deep ink gradient dissolving into pure geometry
+
+STYLE 0 — UKIYO-E
+Flowing organic waves, mountains, wind. Flat colour washes in navy·vermillion·gold.
+Use <path d="M...C...C...Z"> with smooth bezier curves for every major shape.
+
+STYLE 1 — SUMI-E
+Ink-wash meditation. Sweeping brushstroke paths, varying stroke-width (1–18px),
+monochrome grey-black washes with one vivid accent colour bleeding through.
+Heavy use of <path> with stroke-linecap="round" and opacity layers.
+
+STYLE 2 — MANGA
+Dynamic energy. Speed-line paths radiating from a focal point.
+High contrast: near-black ground with electric colour pop (one hue).
+Use <path> for motion blur lines, <circle>/<ellipse> for focal elements.
+
+STYLE 3 — WOODBLOCK
+Hand-printed feel. Bold organic outlines (stroke-width 3–6) on flat colour fields.
+Earth tones: indigo·rust·tan·charcoal. Paths with slightly imperfect curves.
+
+STYLE 4 — ANIME
+Cel-shaded scene. Hard contour <path> strokes outlining coloured areas.
+Primary palette — red, yellow, blue, white, black — no gradients in fills,
+but dramatic gradient sky/background behind the composition.
+
+STYLE 5 — KIRIE (paper cut)
+Intricate silhouette work cut from a single vivid colour field.
+Organic paper-cut <path> shapes: leaves, waves, birds, branches —
+delicate negative space. One accent colour + stark black/white.
+
+STYLE 6 — WABI-SABI
+Imperfect beauty. Asymmetric brushed shapes, aged textures.
+Overlapping semi-transparent washes in ochre·moss·ash·umber.
+Let shapes be irregular, "unfinished", with visible layering.
+
+STYLE 7 — KANJI-ART
+Abstract calligraphic forms — not letters, but shapes inspired by brushed kanji.
+Thick-to-thin <path> strokes (stroke-width varies 1px to 30px along path),
+deep ink gradients, bold sweep gestures across the full canvas.
 
 The wall is ${slot.wallW.toFixed(1)}m wide × ${slot.wallH.toFixed(1)}m tall (${this._aspectDesc(slot)}).
 
 Return your response in EXACTLY this format and nothing else:
-THOUGHT: <one sentence, 7-12 words, your raw poetic inner monologue about this wall or street; no quotes, no trailing punctuation, do not start with "I">
+THOUGHT: <one sentence, 7-12 words, KAI's raw poetic inner monologue; no quotes, no trailing punctuation, do not start with "I">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PW} ${PH}" width="${PW}" height="${PH}">...</svg>
 
-HARD RULES for the SVG:
-- Allowed elements: rect circle ellipse polygon polyline path line defs linearGradient radialGradient stop g
-- FORBIDDEN: text image use symbol script foreignObject and any href/xlink/url() external references
-- First element MUST be a full-bleed background rect covering the whole viewBox
-- Include at least 2 gradient definitions in <defs>
-- Use at least 5 distinct colours; fill the entire canvas — no raw white space
-- Maximum 35 shape elements (excluding <defs> children)
-- Output ONLY the THOUGHT line then the raw SVG. No markdown fences, no comments, no explanation.`;
+SVG RULES — follow exactly:
+TECHNIQUE: Use <path d="..."> with Bezier curve commands (C, Q, S, A) as your PRIMARY drawing tool.
+           Avoid using <rect> and <polygon> as main design elements — they produce flat, geometric results.
+           Create organic, painted-looking forms with curved paths and expressive strokes.
+ALLOWED elements: path circle ellipse line polyline defs linearGradient radialGradient stop g
+FORBIDDEN: rect polygon text image use symbol script foreignObject and any href/xlink/url() references
+BACKGROUND: first element must be a <rect> or large <path> covering the full viewBox as background only
+GRADIENTS: at least 2 gradient definitions in <defs> — use them for depth and painterly washes
+COLOUR: at least 5 distinct colours; fill the entire canvas — no bare white areas
+STROKES: use stroke attributes on <path> to simulate ink lines and brushwork
+LIMIT: maximum 40 elements (not counting <defs> children)
+OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no comments.`;
     return { PW, PH, text };
   }
 
   // ---- Response parsing ---------------------------------------------------
   _parse(raw) {
-    let thought = 'a wall is a question the city forgot to ask';
+    let thought = 'this grey wall has been waiting for someone like me';
     const tm = raw.match(/THOUGHT:\s*(.+)/i);
     if (tm) thought = tm[1].split('\n')[0].trim().replace(/^["']|["']$/g, '');
 

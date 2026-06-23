@@ -11,7 +11,7 @@ export default {
       aria-label="Follow character"
       @click="$emit('follow')"
     >
-      <span class="icon">⊙</span> FOLLOW MURO
+      <span class="icon">⊙</span> FOLLOW KAI
     </button>
   `,
 };
