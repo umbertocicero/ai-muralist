@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createApp, reactive } from 'vue';
 
 import { CONFIG } from './config.js';
+import { MangaPost }     from './postfx.js';
 import { City }          from './city.js';
 import { Character }     from './character.js';
 import { MuralFactory }  from './mural-factory.js';
@@ -88,6 +89,7 @@ class App {
     document.getElementById('canvas-root').appendChild(this.renderer.domElement);
 
     this._buildLights();
+    this.post = new MangaPost(this.renderer);
 
     // Systems
     this.city       = new City(this.scene);
@@ -134,6 +136,7 @@ class App {
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(innerWidth, innerHeight);
+    this.post.setSize();
   }
 
   // Pause while tab is hidden — saves GPU and prevents huge dt spikes.
@@ -150,7 +153,7 @@ class App {
     this.agent.update(dt, t);
     this.rig.update(dt, this.character.pos);
     this.atmosphere.update(dt, t, this.camera);
-    this.renderer.render(this.scene, this.camera);
+    this.post.render(this.scene, this.camera);
     if (!ui.booted) {
       ui.booted  = true;
       ui.status  = 'wandering the streets';
