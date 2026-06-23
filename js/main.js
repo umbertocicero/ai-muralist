@@ -9,6 +9,7 @@ import { MuralFactory }  from './mural-factory.js';
 import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
+import { sunPosition, clockIn } from './solar.js';
 
 import BootScreen    from '../components/BootScreen.js';
 import TitlePanel    from '../components/TitlePanel.js';
@@ -18,6 +19,13 @@ import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
 import FollowButton  from '../components/FollowButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
+import TimeBar       from '../components/TimeBar.js';
+
+// Day/night sky tones (kept greyscale so the world stays B&W manga).
+const NIGHT = new THREE.Color('#16161c');
+const DAY   = new THREE.Color('#e7e5e0');
+const col   = new THREE.Color();
+const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // ==========================================================================
 //  Shared reactive state — the bridge between Three.js and Vue.
@@ -33,6 +41,8 @@ const ui = reactive({
   thoughtVisible:  false,
   flashActive:     false,
   cameraFollowing: true,
+  clock:           '--:--:--',  // JST wall-clock (Setagaya, Tokyo)
+  phase:           'day',       // day · night · dawn · dusk
   // Callback slots: Vue → Three.js CameraRig
   onFollowRequest: null,
   onMuralFocus:    null,
@@ -43,7 +53,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, StatusBar, MuralCounter, ThoughtBubble, FollowButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, StatusBar, MuralCounter, ThoughtBubble, FollowButton, FlashOverlay, TimeBar },
   setup() {
     return { ui };
   },
@@ -59,6 +69,7 @@ const VueRoot = {
     <FlashOverlay  :active="ui.flashActive" />
     <BootScreen    :hidden="ui.booted" :error="ui.bootError" />
     <TitlePanel />
+    <TimeBar       :clock="ui.clock" :phase="ui.phase" />
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
@@ -116,6 +127,10 @@ class App {
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
     if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
 
+    // Day/night: set the sky to the real Tokyo time right away, then track it.
+    this._lastSky = -1e9;
+    this._updateSky();
+
     // Clock
     this.clock   = new THREE.Clock();
     this.running = true;
@@ -128,22 +143,61 @@ class App {
   }
 
   _buildLights() {
-    // One key light gives the cel material a clean light/shade split (the
-    // toon gradient map turns it into hard bands). High ambient keeps shaded
-    // areas as light grey — manga shadows are tone, not black.
-    const key = new THREE.DirectionalLight('#ffffff', 1.7);
+    // The key light IS the sun — its position/intensity are driven each frame
+    // by the real solar position for Tokyo (_updateSky). The cel gradient turns
+    // its clean light/shade split into hard manga bands.
+    const key = new THREE.DirectionalLight('#fff6e8', 1.7);
     key.position.set(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z);
-    key.target.position.set(0, 0, 0);     // aim at the grid centre
+    key.target.position.set(0, 0, 0);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     Object.assign(key.shadow.camera, { near: 1, far: 300, left: -72, right: 72, top: 72, bottom: -72 });
     key.shadow.bias = -0.0004;
     this.scene.add(key);
     this.scene.add(key.target);
-    // Lower ambient so grazed/shaded walls drop into the cel mid-band and pick
-    // up screentone — that contrast is what makes it read as inked manga, not
-    // a flat white model.
-    this.scene.add(new THREE.AmbientLight('#ffffff', 0.5));
+    this.key = key;
+
+    // A dim, cool moon light that only matters at night (no shadow).
+    const moon = new THREE.DirectionalLight('#aab6d6', 0.0);
+    moon.position.set(-46, 74, -52);
+    this.scene.add(moon);
+    this.moonLight = moon;
+
+    // Ambient: lifts shaded walls just into the cel mid-band (manga tone). Its
+    // level rides the day/night cycle too.
+    this.ambient = new THREE.AmbientLight('#ffffff', 0.5);
+    this.scene.add(this.ambient);
+  }
+
+  // ── Day/night: track the real sun over Setagaya, Tokyo ────────────────────
+  _updateSky() {
+    const now = (typeof window !== 'undefined' && window.__forceDate) ? new Date(window.__forceDate) : new Date();
+    const L = CONFIG.location;
+    const sp = sunPosition(now, L.lat, L.lon);
+    const elDeg = sp.elevation * 180 / Math.PI;
+
+    // day factor: 0 below −6° (night), 1 above +6° (full day), smooth twilight
+    const day = smoothstep(-6, 6, elDeg);
+
+    // Sun world position drives the directional light + the atmosphere glow.
+    const R = 130;
+    const sx = sp.dir.x * R, sy = sp.dir.y * R, sz = sp.dir.z * R;
+    this.key.position.set(sx, Math.max(sy, 3), sz);   // keep above ground so shadows resolve
+    this.key.intensity = 0.12 + 1.5 * day;
+    this.ambient.intensity = 0.16 + 0.42 * day;
+    this.moonLight.intensity = (1 - day) * 0.45;
+
+    // Sky + fog ride the cycle: night → day (greyscale, stays monochrome).
+    col.copy(NIGHT).lerp(DAY, day);
+    this.scene.background.copy(col);
+    this.scene.fog.color.copy(col);
+
+    // Atmosphere: glow/shafts follow the sun and fade out at night (moon fades in).
+    this.atmosphere.setSun({ x: sx, y: sy, z: sz }, day);
+
+    // Clock + phase for the UI (morning sun is in the east → az > 0 = dawn).
+    ui.clock = clockIn(L.tz, now).text;
+    ui.phase = day > 0.85 ? 'day' : day < 0.15 ? 'night' : (sp.azimuth > 0 ? 'dawn' : 'dusk');
   }
 
   _onResize() {
@@ -166,6 +220,10 @@ class App {
     const t  = this.clock.elapsedTime;
     this.agent.update(dt, t);
     this.rig.update(dt, this.character.pos);
+    // track the real sun ~3×/s on wall-clock time (frame-rate independent, so the
+    // clock keeps ticking even when the scene runs slowly)
+    const nowMs = performance.now();
+    if (nowMs - this._lastSky >= 330) { this._lastSky = nowMs; this._updateSky(); }
     this.atmosphere.update(dt, t, this.camera);
     this.post.render(this.scene, this.camera);
     if (!ui.booted) {

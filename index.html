@@ -36,6 +36,11 @@
   #title .sub { font-size: 11px; letter-spacing: 1px; color: #666655; }
   #title .accent { color: #ff6b35; }
 
+  #clock { top: 18px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+  #clock .ico { font-size: 14px; color: #ff6b35; }
+  #clock .t { font-size: 15px; font-weight: bold; letter-spacing: 1px; }
+  #clock .z { font-size: 10px; letter-spacing: 1px; color: #666655; }
+
   #log { top: 18px; right: 18px; width: 230px; }
   #log .hdr { font-size: 10px; letter-spacing: 2px; color: #666655; margin-bottom: 8px; }
   #log .entry { font-size: 11px; line-height: 1.5; padding: 4px 0; border-top: 1px solid rgba(0,0,0,0.08); transition: color 0.15s; }
@@ -111,6 +116,8 @@
     #thought .text { font-size: 15px; }
     #counter .num { font-size: 32px; }
     #follow-btn { bottom: 80px; }
+    #clock .z { display: none; }
+    #clock { padding: 6px 10px; }
   }
 </style>
 </head>

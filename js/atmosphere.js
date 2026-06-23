@@ -60,9 +60,34 @@ export class Atmosphere {
   constructor(scene, sun) {
     this.scene = scene;
     this.sun   = new THREE.Vector3(sun.x, sun.y, sun.z);
+    this._day  = 1;            // 0 = night, 1 = day (drives all visibility)
     this._buildGlow();
     this._buildShafts();
+    this._buildMoon();
     this._buildDust();
+  }
+
+  // Move the sun (and its glow/shafts) to a new world position, and set the
+  // day factor so everything fades out at night. A moon takes over in the dark.
+  setSun(pos, day) {
+    this._day = day;
+    this.glow.position.set(pos.x, pos.y, pos.z);
+    this.core.position.copy(this.glow.position);
+    this.shafts.position.copy(this.glow.position);
+    if (this.moon) this.moon.material.opacity = (1 - day) * 0.85;
+  }
+
+  _buildMoon() {
+    const m = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: discTexture(0.45), color: 0xd2d8e8,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+      transparent: true, opacity: 0,
+    }));
+    m.scale.setScalar(CONFIG.atmo.glowSize * 0.42);
+    m.position.set(-46, 74, -52);
+    m.renderOrder = 998;
+    this.scene.add(m);
+    this.moon = m;
   }
 
   // Blown-out highlight where the light pours in — the white-out at the
@@ -159,14 +184,18 @@ export class Atmosphere {
     // Face the shaft fan toward the camera (rays splay across screen).
     if (camera) this.shafts.lookAt(camera.position);
 
-    // Gentle breathing on each beam's opacity (the fan keeps facing camera).
+    const day = this._day;
+    // Gentle breathing on each beam's opacity (faded out at night).
     for (const b of this._beams) {
-      b.material.opacity = b._baseOp * (0.7 + 0.3 * Math.sin(t * 0.7 + b._phase));
+      b.material.opacity = b._baseOp * (0.7 + 0.3 * Math.sin(t * 0.7 + b._phase)) * day;
     }
-    // Subtle pulse on the glow so the white-out feels alive.
+    // Subtle pulse on the glow so the white-out feels alive (day only).
     const pulse = 1 + Math.sin(t * 0.5) * 0.04;
     this.glow.scale.setScalar(CONFIG.atmo.glowSize * pulse);
     this.core.scale.setScalar(CONFIG.atmo.glowSize * 0.42 * pulse);
+    this.glow.material.opacity = 0.9 * day;
+    this.core.material.opacity = 1.0 * day;
+    this.dust.material.opacity = 0.12 + 0.45 * day;
 
     // Drift the dust upward; recycle past the ceiling back to the floor.
     const p = this.dust.geometry.attributes.position;

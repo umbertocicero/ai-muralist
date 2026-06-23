@@ -19,6 +19,11 @@ export const CONFIG = {
   // the world half-extent (bigger world).
   world: { half: 60 },
 
+  // The town is "in" Setagaya, Tokyo: the sun tracks the real solar position
+  // for this location and the current time, so it's day or night in sync with
+  // real Japan time.
+  location: { lat: 35.6762, lon: 139.6503, tz: 'Asia/Tokyo', name: 'Setagaya, Tokyo' },
+
   // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
   sun: { x: 34, y: 22, z: -78 },
   atmo: {
