@@ -6,10 +6,12 @@ export const CONFIG = {
   requestTimeoutMs: 30000,
   maxSvgBytes: 60000,
 
-  // --- World (Japanese neighborhood — overcast B&W palette) ---
-  sky: '#d4d0cc',
-  fog: { color: '#bebab6', near: 55, far: 145 },
-  buildingColors: ['#ccc8c2', '#c4c0ba', '#d0ccc6', '#bab6b0', '#dad6d0'],
+  // --- World (Japanese neighborhood — B&W manga / inked line-art) ---
+  // Paper-white sky; buildings near-white so cel shading + ink outlines read
+  // as a hand-drawn panel. Murals are the only colour in the scene.
+  sky: '#f4f2ee',
+  fog: { color: '#f4f2ee', near: 48, far: 140 },
+  buildingColors: ['#ffffff', '#f3f1ed', '#ebe9e5', '#f7f5f1', '#eeece8'],
   buildingPositions: [
     [-12,-12],[12,-12],[-12,12],[12,12],
     [-30,-12],[-30,12],[30,-12],[30,12],

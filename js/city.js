@@ -1,17 +1,16 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { rotateY2D } from './helpers.js';
+import { toonMat, addInk, inkedMesh } from './toon.js';
 
-// Shared materials (created once, reused across all geometry)
-const MAT = {
-  roof:    new THREE.MeshStandardMaterial({ color: '#1c1a18', roughness: 0.96 }),
-  eave:    new THREE.MeshStandardMaterial({ color: '#121010', roughness: 0.85 }),
-  pole:    new THREE.MeshStandardMaterial({ color: '#2e2820', roughness: 0.95 }),
-  trunk:   new THREE.MeshStandardMaterial({ color: '#28201a', roughness: 1.0  }),
-  foliage: new THREE.MeshStandardMaterial({ color: '#181816', roughness: 1.0  }),
-  lowWall: new THREE.MeshStandardMaterial({ color: '#aeaaa4', roughness: 0.98 }),
-  wire:    new THREE.LineBasicMaterial({ color: '#141212' }),
+// Flat materials for ground/roads — receive shadows as hard cel bands.
+const GROUND = {
+  base:     toonMat('#eae8e4'),
+  road:     toonMat('#dad8d4'),
+  road2:    toonMat('#d2d0cc'),
+  sidewalk: toonMat('#f1efeb'),
 };
+const DASH = new THREE.MeshBasicMaterial({ color: '#3a3a3a' });
 
 export class City {
   constructor(scene) {
@@ -26,33 +25,32 @@ export class City {
 
   // ── Ground, roads, sidewalks ──────────────────────────────────────────────
   _buildGround() {
-    const flat = (w, d, color, x = 0, y = 0.01, z = 0, rough = 0.98) => {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(w, d),
-        new THREE.MeshStandardMaterial({ color, roughness: rough })
-      );
+    const flat = (w, d, mat, x = 0, y = 0.01, z = 0) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
       m.rotation.x = -Math.PI / 2;
       m.position.set(x, y, z);
       m.receiveShadow = true;
       this.scene.add(m);
+      return m;
     };
 
-    flat(200, 200, '#8e8a86');          // base — worn asphalt
-    flat(7,   200, '#6a6a6a');          // main road (x-axis)
-    flat(200, 7,   '#6a6a6a');          // main road (z-axis)
+    flat(200, 200, GROUND.base, 0, 0, 0);
+    flat(7,   200, GROUND.road);
+    flat(200, 7,   GROUND.road);
     [-21, 21].forEach(c => {
-      flat(5, 200, '#606060', c, 0.01, 0);
-      flat(200, 5, '#606060', 0, 0.01, c);
+      flat(5, 200, GROUND.road2, c, 0.011, 0);
+      flat(200, 5, GROUND.road2, 0, 0.011, c);
     });
-    // Sidewalks — aged concrete slabs
     [-4.2, 4.2].forEach(o => {
-      flat(1.4, 200, '#bcb8b2', o, 0.05, 0);
-      flat(200, 1.4, '#bcb8b2', 0, 0.05, o);
+      flat(1.4, 200, GROUND.sidewalk, o, 0.05, 0);
+      flat(200, 1.4, GROUND.sidewalk, 0, 0.05, o);
     });
-    // Centre-line road dashes
+    // Centre-line road dashes (flat ink marks)
     for (let v = -88; v < 90; v += 8) {
-      flat(0.25, 3.2, '#d8d4ce', v,    0.02, 0);
-      flat(3.2, 0.25, '#d8d4ce', 0,    0.02, v);
+      const d1 = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3.2), DASH);
+      d1.rotation.x = -Math.PI / 2; d1.position.set(v, 0.02, 0); this.scene.add(d1);
+      const d2 = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.25), DASH);
+      d2.rotation.x = -Math.PI / 2; d2.position.set(0, 0.02, v); this.scene.add(d2);
     }
   }
 
@@ -61,15 +59,11 @@ export class City {
     CONFIG.buildingPositions.forEach(([x, z], idx) => {
       const w = 6 + (idx % 4);
       const d = 5 + ((idx + 1) % 4);
-      const h = 2.8 + (idx % 4) * 1.3;  // 2.8 / 4.1 / 5.4 / 6.7 m
+      const h = 2.8 + (idx % 4) * 1.3;
       const color = CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
 
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(w, h, d),
-        new THREE.MeshStandardMaterial({ color, roughness: 0.94 })
-      );
+      const mesh = inkedMesh(new THREE.BoxGeometry(w, h, d), color, { k: 1.022, receive: true });
       mesh.position.set(x, h / 2, z);
-      mesh.castShadow = mesh.receiveShadow = true;
       this.scene.add(mesh);
 
       this._hipRoof(x, z, w, d, h);
@@ -89,42 +83,38 @@ export class City {
     });
   }
 
-  // Japanese hip roof — 4-sided pyramid + dark eave trim
+  // Japanese hip roof — dark pyramid + eave band, with ink outline
   _hipRoof(x, z, w, d, h) {
-    const oh  = 0.38;
+    const oh  = 0.4;
     const rH  = 0.9 + Math.min(w, d) * 0.13;
     const dia = Math.hypot(w + oh * 2, d + oh * 2) * 0.5;
 
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(dia, rH, 4), MAT.roof);
+    const cone = inkedMesh(new THREE.ConeGeometry(dia, rH, 4), '#26241f', { k: 1.03 });
     cone.position.set(x, h + rH / 2, z);
     cone.rotation.y = Math.PI / 4;
-    cone.castShadow = true;
     this.scene.add(cone);
 
-    // Eave — dark overhang band
-    const eave = new THREE.Mesh(new THREE.BoxGeometry(w + oh * 2, 0.14, d + oh * 2), MAT.eave);
-    eave.position.set(x, h + 0.07, z);
+    const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
+    eave.position.set(x, h + 0.08, z);
     this.scene.add(eave);
   }
 
-  // Simple rectangular windows inset into faces
+  // Dark manga windows, flat (no outline — kept as small detail)
   _addWindows(x, z, w, d, h, idx) {
-    const glassMat = new THREE.MeshStandardMaterial({ color: '#8898a8', roughness: 0.08, metalness: 0.45 });
-    const floors   = Math.max(1, Math.round(h / 2.8));
-    const cols     = 1 + (idx % 2);
+    const glass  = new THREE.MeshBasicMaterial({ color: '#2c2c2c' });
+    const floors = Math.max(1, Math.round(h / 2.8));
+    const cols   = 1 + (idx % 2);
 
     for (let fl = 0; fl < floors; fl++) {
       const wy = 1.1 + fl * 2.6;
       if (wy + 0.6 > h) continue;
       for (let c = 0; c < cols; c++) {
         const ox = (c - (cols - 1) / 2) * 2.0;
-        // north face
-        const wN = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.0), glassMat);
-        wN.position.set(x + ox, wy, z + d / 2 + 0.01);
+        const wN = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.0), glass);
+        wN.position.set(x + ox, wy, z + d / 2 + 0.02);
         this.scene.add(wN);
-        // south face
         const wS = wN.clone();
-        wS.position.set(x + ox, wy, z - d / 2 - 0.01);
+        wS.position.set(x + ox, wy, z - d / 2 - 0.02);
         wS.rotation.y = Math.PI;
         this.scene.add(wS);
       }
@@ -136,26 +126,24 @@ export class City {
     const PH   = 7.8;
     const rowZ = [4.9, -4.9, 22.5, -22.5];
     const posX = [-26, -15, -4, 4, 15, 26];
+    const wireMat = new THREE.LineBasicMaterial({ color: '#161412' });
 
     rowZ.forEach(rz => {
       posX.forEach(px => this._pole(px, rz, PH));
-      // Wires between adjacent poles in same row
       for (let i = 0; i < posX.length - 1; i++) {
-        const x0 = posX[i], x1 = posX[i + 1];
-        const mx = (x0 + x1) / 2;
+        const x0 = posX[i], x1 = posX[i + 1], mx = (x0 + x1) / 2;
         [PH - 0.5, PH - 1.0, PH - 1.6].forEach(wh => {
           const curve = new THREE.QuadraticBezierCurve3(
             new THREE.Vector3(x0, wh, rz),
-            new THREE.Vector3(mx,  wh - 0.42, rz),
+            new THREE.Vector3(mx, wh - 0.42, rz),
             new THREE.Vector3(x1, wh, rz)
           );
           const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(14));
-          this.scene.add(new THREE.Line(geo, MAT.wire));
+          this.scene.add(new THREE.Line(geo, wireMat));
         });
       }
     });
 
-    // Cross wires connecting opposite sidewalk rows (main road crossing)
     [-26, -15, -4, 4, 15, 26].forEach(px => {
       const z0 = 4.9, z1 = -4.9, mz = 0;
       [PH - 0.5, PH - 1.2].forEach(wh => {
@@ -165,20 +153,17 @@ export class City {
           new THREE.Vector3(px, wh, z1)
         );
         const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(12));
-        this.scene.add(new THREE.Line(geo, MAT.wire));
+        this.scene.add(new THREE.Line(geo, wireMat));
       });
     });
   }
 
   _pole(x, z, h) {
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.10, h, 6), MAT.pole);
+    const shaft = inkedMesh(new THREE.CylinderGeometry(0.07, 0.10, h, 6), '#2a2620', { k: 1.06 });
     shaft.position.set(x, h / 2, z);
-    shaft.castShadow = true;
     this.scene.add(shaft);
-
-    // Two cross-arms at different heights
     [[h - 0.55, 1.7], [h - 1.55, 1.1]].forEach(([ay, aw]) => {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.07, 0.07), MAT.pole);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.07, 0.07), toonMat('#2a2620'));
       arm.position.set(x, ay, z);
       this.scene.add(arm);
     });
@@ -195,9 +180,8 @@ export class City {
       { x: -22, z:  7,  w: 4.0, d: 0.22, h: 0.85 },
       { x:  22, z: -7,  w: 4.0, d: 0.22, h: 0.85 },
     ].forEach(({ x, z, w, d, h }) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MAT.lowWall);
+      const m = inkedMesh(new THREE.BoxGeometry(w, h, d), '#dedcd8', { k: 1.03 });
       m.position.set(x, h / 2, z);
-      m.castShadow = true;
       this.scene.add(m);
     });
 
@@ -208,33 +192,23 @@ export class City {
       [24, -18], [-24, 18],
     ].forEach(([tx, tz]) => this._tree(tx, tz));
 
-    // Vending machines (boxes with accent colour — small detail near buildings)
+    // Vending machines — flat light boxes
     [
-      { x: -10, z: -14, c: '#c8c4c0' },
-      { x:  10, z:  14, c: '#b8b4b0' },
-      { x: -14, z:  10, c: '#c0bcb8' },
-    ].forEach(({ x, z, c }) => {
-      const vm = new THREE.Mesh(
-        new THREE.BoxGeometry(0.7, 1.8, 0.4),
-        new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 })
-      );
+      [-10, -14], [10, 14], [-14, 10],
+    ].forEach(([x, z]) => {
+      const vm = inkedMesh(new THREE.BoxGeometry(0.7, 1.8, 0.4), '#e6e4e0', { k: 1.04 });
       vm.position.set(x, 0.9, z);
-      vm.castShadow = true;
       this.scene.add(vm);
     });
   }
 
   _tree(x, z) {
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.14, 2.6, 6), MAT.trunk);
+    const trunk = inkedMesh(new THREE.CylinderGeometry(0.10, 0.14, 2.6, 6), '#231d18', { k: 1.05 });
     trunk.position.set(x, 1.3, z);
-    trunk.castShadow = true;
     this.scene.add(trunk);
-
-    // Layered canopy — two overlapping spheres for organic silhouette
     [[0, 3.8, 1.8], [0.3, 4.4, 1.3]].forEach(([ox, oy, r]) => {
-      const c = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 5), MAT.foliage);
+      const c = inkedMesh(new THREE.SphereGeometry(r, 7, 5), '#2e2c28', { k: 1.035 });
       c.position.set(x + ox, oy, z);
-      c.castShadow = true;
       this.scene.add(c);
     });
   }

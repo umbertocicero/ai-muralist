@@ -163,9 +163,12 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           tex.needsUpdate  = true;
           tex.anisotropy   = this.maxAniso;
 
+          // Unlit material — the mural keeps its full vivid colour regardless
+          // of the B&W scene lighting, so it reads as a burst of paint on a
+          // grey wall (the only colour in the world).
           const plane = new THREE.Mesh(
             new THREE.PlaneGeometry(slot.wallW * CONFIG.muralCoverW, slot.wallH * CONFIG.muralCoverH),
-            new THREE.MeshStandardMaterial({ map: tex, roughness: 0.4 })
+            new THREE.MeshBasicMaterial({ map: tex })
           );
 
           // Rotate plane to match wall normal

@@ -81,8 +81,9 @@ class App {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
     this.renderer.outputEncoding    = THREE.sRGBEncoding;
-    this.renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    // Flat output (no filmic tone mapping) keeps whites pure white and the
+    // cel bands crisp — essential for the inked manga look.
+    this.renderer.toneMapping       = THREE.NoToneMapping;
     document.getElementById('canvas-root').appendChild(this.renderer.domElement);
 
     this._buildLights();
@@ -109,18 +110,17 @@ class App {
   }
 
   _buildLights() {
-    // Overcast Japanese sky — soft diffuse light, no harsh noon sun
-    const sun = new THREE.DirectionalLight('#f0eeea', 0.85);
-    sun.position.set(40, 70, 25);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { near: 1, far: 200, left: -70, right: 70, top: 70, bottom: -70 });
-    sun.shadow.bias = -0.0004;
-    this.scene.add(sun);
-    // Heavy ambient keeps shadows soft (manga flat-shade feel)
-    this.scene.add(new THREE.AmbientLight('#d8d8d4', 1.5));
-    // Hemisphere: cool grey sky, dark ground
-    this.scene.add(new THREE.HemisphereLight('#d0cece', '#686460', 0.7));
+    // One key light gives the cel material a clean light/shade split (the
+    // toon gradient map turns it into hard bands). High ambient keeps shaded
+    // areas as light grey — manga shadows are tone, not black.
+    const key = new THREE.DirectionalLight('#ffffff', 1.45);
+    key.position.set(34, 58, 26);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    Object.assign(key.shadow.camera, { near: 1, far: 200, left: -70, right: 70, top: 70, bottom: -70 });
+    key.shadow.bias = -0.0004;
+    this.scene.add(key);
+    this.scene.add(new THREE.AmbientLight('#ffffff', 0.72));
   }
 
   _onResize() {

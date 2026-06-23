@@ -190,48 +190,73 @@ ai-muralist/
 
 ---
 
-## 5. Specifiche mondo 3D
+## 5. Specifiche mondo 3D — stile manga in bianco e nero
+
+> **OBIETTIVO VISIVO:** la scena NON deve sembrare un modello 3D low-poly liscio.
+> Deve sembrare un **disegno manga/anime in bianco e nero** — line-art a inchiostro,
+> campiture piatte bianco·grigio, quasi identico alle illustrazioni di riferimento
+> (vicoli giapponesi, tetti sovrapposti, intrico di fili elettrici).
+> L'unico colore in tutta la scena sono i murales che KAI dipinge.
+
+### 5.0 Pipeline di rendering NPR (non-photorealistic)
+
+Il look "disegnato" si ottiene con due tecniche combinate (`js/toon.js`), **senza
+cambiare framework** — Three.js resta, ma renderizza in stile cel/manga:
+
+1. **Cel / toon shading** — `MeshToonMaterial` con un `gradientMap` a 3 step
+   (nearest-filtered). La luce diventa a bande piatte (bianco · grigio · ombra)
+   invece di un gradiente liscio → aspetto a campiture da fumetto.
+
+2. **Contorno d'inchiostro (inverted-hull)** — ogni mesh viene disegnato una
+   seconda volta, ingrandito di pochi % lungo le normali, con sole back-face in
+   nero (`MeshBasicMaterial`, `side: BackSide`). Il guscio sporge oltre la
+   silhouette → un contorno nero netto, come le linee a pennino dei disegni.
+   Il fattore di scala proporzionale dà una **variazione di spessore** naturale
+   (forme grandi = linee più marcate).
+
+3. **Output piatto** — `renderer.toneMapping = NoToneMapping`, sfondo e fog
+   bianco-carta (`#f4f2ee`) per la dissolvenza nebbiosa in lontananza tipica
+   delle reference.
+
+> Alternativa valutata e scartata: post-processing con edge-detection (Sobel su
+> depth+normal via EffectComposer). Più "vero" ma in r128 gli addon `examples/jsm`
+> via CDN duplicano il modulo `three` (problemi di `instanceof`). L'inverted-hull
+> usa solo il core, è robusto e zero-dipendenze.
 
 ### 5.1 Ambientazione
 
-- **Ora del giorno:** giorno soleggiato (non notte)
-- **Atmosfera:** cielo azzurro chiaro (`#87CEEB`), luce solare diurna calda
-- **Fog:** leggera nebbia distanza (`#c9e8f5`, da 40 a 90 unità)
-- **Ground:** grigio asfalto chiaro (`#9a9a9a`), con strade più scure
+- **Atmosfera:** quartiere giapponese, cielo grigio-carta (`#f4f2ee`), luce diffusa
+- **Fog:** dissolvenza al bianco (`#f4f2ee`, da 48 a 140 unità) — effetto foschia
+- **Ground:** cemento chiaro cel-shaded; strade grigie con strisce/crepe scure
+- **Palette:** solo bianco/grigio/nero — i murales sono l'unica eccezione a colori
 
 ### 5.2 Illuminazione
 
 ```
-DirectionalLight (sole):
-  color: #fff5e0
-  intensity: 1.8
-  position: (50, 80, 30)
-  castShadow: true
-  shadow.mapSize: 2048×2048
+DirectionalLight (key):
+  color: #ffffff   intensity: 1.45   position: (34, 58, 26)
+  castShadow: true   shadow.mapSize: 2048×2048
+  → crea lo split luce/ombra che il gradientMap trasforma in bande nette
 
-AmbientLight (cielo):
-  color: #c9dff0
-  intensity: 0.9
-
-HemisphereLight:
-  skyColor: #87CEEB
-  groundColor: #6b8e6b
-  intensity: 0.4
+AmbientLight:
+  color: #ffffff   intensity: 0.72
+  → le ombre restano grigio chiaro (tono), non nero — come nei manga
 ```
 
 ### 5.3 Edifici
 
-- **Stile:** parallelepipedi semplici (BoxGeometry) — no dettagli architettonici
-- **Altezza:** massimo 6–7 unità (edifici bassi, v1)
-- **Colori:** variazione di grigi caldi e beige (`#d4c9b8`, `#c2b9a7`, `#b8c4c2`, `#cfc8be`)
-- **Numero:** 16 edifici disposti in una griglia urbana con strade ortogonali
-- **Materiale:** MeshStandardMaterial, roughness 0.85, nessuna reflettività
+- **Stile:** case giapponesi basse con **tetto a padiglione** (ConeGeometry 4 lati
+  + fascia di gronda scura), finestre scure
+- **Altezza:** 2.8 / 4.1 / 5.4 / 6.7 unità (variazione per isolato)
+- **Colori:** quasi-bianchi (`#ffffff`→`#eeece8`) — il colore lo dà l'ombra cel + contorno
+- **Materiale:** `MeshToonMaterial` + contorno inverted-hull nero
+- **Numero:** 16 edifici in griglia urbana ortogonale
 
 ### 5.4 Layout urbano
 
 ```
-Strade principali: asse X e asse Z (larghezza 6 unità)
-Strade secondarie: a -20 e +20 su entrambi gli assi
+Strade principali: asse X e asse Z (larghezza 7 unità)
+Strade secondarie: a -21 e +21 su entrambi gli assi
 Isolati: 4 edifici per isolato, disposti agli angoli
 
 Posizioni edifici (x, z):
@@ -241,11 +266,14 @@ Posizioni edifici (x, z):
 (-30,-30), (30,-30), (-30,30), (30,30)    ← angoli
 ```
 
-### 5.5 Dettagli scenici
+### 5.5 Dettagli scenici (iconici delle reference)
 
-- Lampioni (CylinderGeometry sottile + sfera emissiva) ogni 3 edifici
-- Marciapiedi (PlaneGeometry rialzata di 0.05) lungo le strade principali
-- Nessun veicolo, nessun NPC aggiuntivo in v1
+- **Pali della luce** alti con doppia traversa, lungo tutte le strade
+- **Fili elettrici** che si incurvano tra i pali (QuadraticBezierCurve3) — anche
+  cavi che attraversano la strada: l'intrico di fili è l'elemento più riconoscibile
+- **Alberi** a silhouette scura (chioma a sfere sovrapposte)
+- Muri bassi di cemento tra i lotti, distributori automatici
+- Strisce/crepe scure sull'asfalto, marciapiedi rialzati
 
 ---
 
@@ -359,19 +387,29 @@ function isWallApproachFree(slot) {
 
 ---
 
-## 7. Personaggio (omino)
+## 7. Personaggio — KAI (カイ)
+
+**Identità:** ragazzo giapponese adolescente, artista di strada silenzioso e poetico.
+Giacca scura, capelli neri + berretto con visiera, borsa messenger, bomboletta spray
+nella mano destra. Reso in **cel-shading + contorno d'inchiostro nero** come la città,
+così legge come una figura disegnata (alla volta di spalle, come nelle reference).
 
 ### 7.1 Geometria
 
-Costruire con primitive Three.js (BoxGeometry). Tutti i mesh sono figli di un `THREE.Group` radice centrato ai piedi del personaggio (y=0):
+Primitive Three.js (BoxGeometry) con `MeshToonMaterial` + contorno inverted-hull.
+Tutti i mesh sono figli di un `THREE.Group` centrato ai piedi (y=0):
 
 ```
-Testa:      0.4 × 0.4 × 0.4   y=1.55   colore: #ffd6b0
-Corpo:      0.5 × 0.7 × 0.3   y=0.90   colore: #ff6b35  ← arancione icona
-Gamba sx:   0.2 × 0.5 × 0.25  y=0.30   x=-0.13   colore: #2d2d44
-Gamba dx:   0.2 × 0.5 × 0.25  y=0.30   x=+0.13   colore: #2d2d44
-Braccio sx: 0.18 × 0.5 × 0.2  y=0.85   x=-0.38   colore: #ff6b35
-Braccio dx: 0.18 × 0.5 × 0.2  y=0.85   x=+0.38   colore: #ff6b35
+Testa:      0.44×0.44×0.40  y=1.58   pelle chiara  #e6d6c0   + ink
+Capelli:    0.48×0.13×0.44  y=1.84   nero          #0a0808   + ink
+Visiera:    0.46×0.06×0.18  y=1.76   nero          #141210
+Corpo/giacca:0.50×0.68×0.30 y=0.92   quasi-nero    #1a1a1a   + ink
+Colletto:   0.28×0.10×0.31  y=1.24   bianco        #e8e4e0
+Borsa:      0.28×0.24×0.10  hip sx   nero          #171510   + ink
+Spray can:  cilindro r0.05 h0.22     bianco        #e2dfda   + ink
+Braccia:    0.17×0.50×0.20  y=0.88   giacca        #1a1a1a   + ink
+Gambe:      0.20×0.54×0.25  y=0.30   nero          #0c0c0c   + ink
+Scarpe:     0.22×0.09×0.30  y=0.02   nero-bruno    #100c08   + ink
 ```
 
 ### 7.2 Animazioni
