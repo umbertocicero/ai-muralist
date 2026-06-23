@@ -96,7 +96,7 @@ class App {
     this.character  = new Character(this.scene, CONFIG.charStart);
     this.factory    = new MuralFactory(this.scene, this.renderer);
     this.agent      = new Agent(this.city, this.character, this.factory, ui);
-    this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui);
+    this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
 
     // Wire follow-button callback: Vue → Three.js
@@ -119,10 +119,10 @@ class App {
     // areas as light grey — manga shadows are tone, not black.
     const key = new THREE.DirectionalLight('#ffffff', 1.7);
     key.position.set(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z);
-    key.target.position.set(0, 0, -20);   // aim down the alley
+    key.target.position.set(0, 0, 0);     // aim at the grid centre
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { near: 1, far: 240, left: -28, right: 28, top: 28, bottom: -28 });
+    Object.assign(key.shadow.camera, { near: 1, far: 260, left: -58, right: 58, top: 58, bottom: -58 });
     key.shadow.bias = -0.0004;
     this.scene.add(key);
     this.scene.add(key.target);

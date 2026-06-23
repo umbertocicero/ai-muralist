@@ -6,31 +6,37 @@ export const CONFIG = {
   requestTimeoutMs: 30000,
   maxSvgBytes: 60000,
 
-  // --- World (narrow Japanese alley — B&W manga / inked line-art) ---
+  // --- World (Japanese neighbourhood GRID — B&W manga / inked line-art) ---
   // Soft paper-grey sky (NOT pure white): gives the additive sun-glow and
   // light-shafts a surface to register against, and lets distance haze read.
   sky: '#e7e5e0',
-  fog: { color: '#edebe6', near: 30, far: 96 },
+  fog: { color: '#edebe6', near: 44, far: 150 },
 
-  // --- Sun / atmosphere (manga backlight down the alley) ---
-  // Sun sits low, centred over the FAR end of the lane → the bright white-out
-  // at the vanishing point, long shadows thrown toward the viewer, and god-rays
-  // pouring straight down the corridor, exactly like the reference photos.
-  sun: { x: 9, y: 15, z: -84 },
+  // A grid of low apartment blocks separated by narrow lanes (= the traverse
+  // cross-streets). Wider world than the single alley.
+  grid: {
+    n: 5,          // 5×5 blocks
+    spacing: 17,   // block-centre to block-centre
+    laneHalf: 3.4, // visual lane half-width reference
+  },
+
+  // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
+  sun: { x: 34, y: 22, z: -78 },
   atmo: {
-    glowSize:   46,    // diameter of the blown highlight at the sun
+    glowSize:   58,    // diameter of the blown highlight at the sun
     shaftCount: 12,    // number of radiating light-shafts
-    shaftLen:   150,   // shaft length (world units)
-    shaftWidth: 8,     // shaft base width
-    shaftOpacity: 0.30, // base beam opacity (jittered per beam)
-    dustCount:  340,   // floating motes
-    dustRange:  44,    // box the motes drift within (kept to the alley width)
-    dustSize:   0.14,
+    shaftLen:   170,   // shaft length (world units)
+    shaftWidth: 9,     // shaft base width
+    shaftOpacity: 0.28, // base beam opacity (jittered per beam)
+    dustCount:  360,   // floating motes
+    dustRange:  100,   // box the motes drift within
+    dustSize:   0.15,
   },
   // Concrete-grey facade palette (apartment blocks).
   buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
 
   // --- Agent / physics ---
+  charStart: { x: 8.5, z: 8.5 },  // a lane intersection (open ground)
   charRadius: 0.4,
   moveSpeed: 3.2,
   approachOffset: 1.5,
@@ -41,25 +47,26 @@ export const CONFIG = {
   muralCoverW: 0.88,
   muralCoverH: 0.85,
 
-  // --- Character / camera start (near, open end of the lane) ---
-  charStart: { x: 0, z: 24 },
-
-  // --- Camera ---
-  // Locked to look DOWN the alley toward the bright end. Azimuth is clamped to
-  // a narrow arc (± range) and gently sways, so the framing stays a one-point
-  // perspective corridor instead of orbiting outside the walls.
+  // --- Camera (Apple-style: damped orbit with inertia, smooth zoom-to-cursor,
+  //     two-finger / shift-drag pan). Open-world free orbit. ---
   camFov: 52,
-  camRadius: 17,
-  camPolar: 1.3,
-  camPolarMin: 0.55,
-  camPolarMax: 1.46,
-  camRadiusMin: 6,
-  camRadiusMax: 34,
-  camAzimuth: Math.PI / 2,   // looking toward −z (down the lane)
-  camAzimuthRange: 0.6,      // how far the view may swing each way
-  camOrbitSpeed: 0.05,
-  camFollowLerp: 0.05,
-  camDragSensitivity: 0.006,
+  camRadius: 30,
+  camPolar: 1.12,
+  camPolarMin: 0.32,
+  camPolarMax: 1.45,
+  camRadiusMin: 7,
+  camRadiusMax: 96,
+  camAzimuth: Math.PI * 0.25,   // pleasant 3/4 view to start
+  camLookY: 2.4,                // height the camera aims at
+
+  camDragSensitivity: 0.005,    // rad per pixel of drag
+  camInertiaTau: 0.13,          // orbit momentum decay time-constant (s)
+  camZoomStep: 0.0016,          // wheel delta → fractional radius change
+  camZoomLerp: 13,              // radius easing rate (higher = snappier)
+  camZoomToCursor: 0.55,        // 0..1 how much zoom pulls focus to the cursor
+  camPanSpeed: 1.0,             // pan gain (scaled by distance)
+  camFollowLerp: 3.2,           // pivot follow easing rate (per second)
+  camAutoSpin: 0.015,           // tiny idle drift while following (rad/s)
 
   // --- UI ---
   maxLogEntries: 5,
