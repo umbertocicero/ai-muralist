@@ -214,7 +214,15 @@ cambiare framework** — Three.js resta, ma renderizza in stile cel/manga:
    Il fattore di scala proporzionale dà una **variazione di spessore** naturale
    (forme grandi = linee più marcate).
 
-3. **Output piatto** — `renderer.toneMapping = NoToneMapping`, sfondo e fog
+3. **Screen-tone / retino** — `MeshToonMaterial` patchato via `onBeforeCompile`:
+   dopo che luce e ombre sono risolte, i fragment con luminanza sotto soglia
+   (cioè in ombra) ricevono puntini half-tone neri in **spazio schermo**
+   (`gl_FragCoord`), con raggio crescente al buio — la "patina" di retino stesa
+   sopra la tavola. Le facce illuminate restano bianche pulite; anche le ombre
+   proiettate a terra diventano campi di puntini. È agnostico rispetto alle luci
+   (legge il colore già ombreggiato) e non tocca outline/murales (MeshBasic).
+
+4. **Output piatto** — `renderer.toneMapping = NoToneMapping`, sfondo e fog
    bianco-carta (`#f4f2ee`) per la dissolvenza nebbiosa in lontananza tipica
    delle reference.
 
