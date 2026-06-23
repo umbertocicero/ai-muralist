@@ -14,11 +14,10 @@ export const CONFIG = {
 
   // A grid of low apartment blocks separated by narrow lanes (= the traverse
   // cross-streets). Wider world than the single alley.
-  grid: {
-    n: 6,          // 6×6 blocks — bigger neighbourhood
-    spacing: 16.5, // block-centre to block-centre
-    laneHalf: 3.4, // visual lane half-width reference
-  },
+  // Procedural Setagaya-style town: organic, crooked streets of varying width,
+  // irregular plots, a couple of winding main roads, some open lots. `half` is
+  // the world half-extent (bigger world).
+  world: { half: 60 },
 
   // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
   sun: { x: 34, y: 22, z: -78 },
@@ -29,14 +28,14 @@ export const CONFIG = {
     shaftWidth: 9,     // shaft base width
     shaftOpacity: 0.28, // base beam opacity (jittered per beam)
     dustCount:  360,   // floating motes
-    dustRange:  100,   // box the motes drift within
+    dustRange:  130,   // box the motes drift within
     dustSize:   0.15,
   },
   // Concrete-grey facade palette (apartment blocks).
   buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
 
   // --- Agent / physics ---
-  charStart: { x: 16.5, z: 0 },  // an open lane crossing (clear of the centre tree)
+  charStart: { x: 0, z: 0 },  // relocated to city.spawn at startup if blocked
   charRadius: 0.4,
   moveSpeed: 3.2,
   approachOffset: 1.5,
@@ -50,12 +49,12 @@ export const CONFIG = {
   // --- Camera (Apple-style: damped orbit with inertia, smooth zoom-to-cursor,
   //     two-finger / shift-drag pan). Open-world free orbit. ---
   camFov: 52,
-  camRadius: 30,
+  camRadius: 32,
   camPolar: 1.12,
   camPolarMin: 0.32,
   camPolarMax: 1.52,
   camRadiusMin: 7,
-  camRadiusMax: 96,
+  camRadiusMax: 120,
   camAzimuth: Math.PI * 0.25,   // pleasant 3/4 view to start
   camLookY: 2.4,                // height the camera aims at
 

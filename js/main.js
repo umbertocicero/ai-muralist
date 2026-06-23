@@ -103,15 +103,13 @@ class App {
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
 
-    // Safety: if the spawn ever lands inside a block (e.g. grid retuned),
-    // relocate KAI to a guaranteed-open lane point so he's never stuck/hidden.
-    if (this.city.isColliding(this.character.pos.x, this.character.pos.z)) {
-      const p = this.city.randomReachablePoint();
-      this.character.pos.x = p.x; this.character.pos.z = p.z;
-      this.character.group.position.set(p.x, 0, p.z);
-      this.rig.pivot.set(p.x, 0, p.z);
-      this.rig.pivotTarget.set(p.x, 0, p.z);
-    }
+    // Spawn KAI on a guaranteed-open street point chosen by the city generator
+    // (the procedural town has no fixed open cell), and centre the camera there.
+    const sp = this.city.spawn;
+    this.character.pos.x = sp.x; this.character.pos.z = sp.z;
+    this.character.group.position.set(sp.x, 0, sp.z);
+    this.rig.pivot.set(sp.x, 0, sp.z);
+    this.rig.pivotTarget.set(sp.x, 0, sp.z);
 
     // Wire callbacks: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos);
@@ -138,7 +136,7 @@ class App {
     key.target.position.set(0, 0, 0);     // aim at the grid centre
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { near: 1, far: 260, left: -58, right: 58, top: 58, bottom: -58 });
+    Object.assign(key.shadow.camera, { near: 1, far: 300, left: -72, right: 72, top: 72, bottom: -72 });
     key.shadow.bias = -0.0004;
     this.scene.add(key);
     this.scene.add(key.target);

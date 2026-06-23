@@ -4,127 +4,237 @@ import { rotateY2D } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
 
 // ===========================================================================
-//  A grid neighbourhood of narrow Japanese lanes.
+//  A procedurally generated Setagaya-style neighbourhood.
 //
-//  Low apartment blocks laid out on a grid; the gaps between them are the
-//  streets and cross-streets (traverse) you walk and drive the camera down —
-//  a one-point-perspective corridor in every direction, with the same manga
-//  dressing as the alley: overhead power-line net, gutters, balconies, AC
-//  units, drainpipes, potted plants, bicycles, vending machines.
-//
-//  The wall-slot contract is unchanged (px/py/pz, nx/nz, wallW/wallH,
-//  buildingIdx, used, mesh) so the agent + mural factory keep working.
+//  Not a grid: an organic mesh of crooked streets of varying width, like the
+//  Soshigaya reference map. Built from a jittered, non-uniform set of plots —
+//  every block is a different size and is rotated a little, so the gaps between
+//  them form irregular, asymmetric lanes. A couple of wider winding "main
+//  roads" are carved through, and some plots are left as open lots. Buildings
+//  are oriented (rotated), so collision is oriented-box and wall murals rotate
+//  to match each wall's true normal.
 // ===========================================================================
 
-const N      = CONFIG.grid.n;
-const S      = CONFIG.grid.spacing;
-const HALF   = (N - 1) / 2;
-const BOUND  = HALF * S + S / 2 + 1.5;   // world edge for wander/collision
+// deterministic RNG so the town is stable between loads
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
-const ASPHALT = toonMat('#d4d2ce');
-const CURB    = toonMat('#e6e4e0');
-const GUTTER  = new THREE.MeshBasicMaterial({ color: '#9d9b97' });
-const GLASS   = new THREE.MeshBasicMaterial({ color: '#2b2b2b' });
-const SHUTTER = new THREE.MeshBasicMaterial({ color: '#9a9894' });
-const WIRE    = new THREE.LineBasicMaterial({ color: '#141210' });
-const WIN_GEO = new THREE.PlaneGeometry(1.0, 1.2);
-const SHU_GEO = new THREE.PlaneGeometry(1.5, 1.9);
+const ASPHALT  = toonMat('#d4d2ce');
+const ASPHALT2 = toonMat('#cbc9c5');   // main-road ribbon (slightly darker)
+const CURB     = toonMat('#e6e4e0');
+const GLASS    = new THREE.MeshBasicMaterial({ color: '#2b2b2b' });
+const SHUTTER  = new THREE.MeshBasicMaterial({ color: '#9a9894' });
+const WIRE     = new THREE.LineBasicMaterial({ color: '#141210' });
+const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
+const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
+const LEAF     = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
 
 export class City {
   constructor(scene) {
     this.scene     = scene;
-    this.bboxes    = [];
+    this.buildings = [];   // {cx,cz,hw,hd,rot,top}
     this.wallSlots = [];
     this.poles     = [];
+    this.rng       = mulberry32(20260623);
+
+    this.HALF = CONFIG.world.half;
+    this.mainRoads = this._genMainRoads();
+
     this._buildGround();
-    this._buildBlocks();
+    this._generate();
     this._buildPolesAndWires();
-    this._buildClutter();
-    this._buildGreenery();
+
+    this.spawn = this._findOpen(0, 0);
   }
 
-  // ── Ground: one big asphalt sheet; lanes are the gaps between blocks ───────
+  _rand(a, b) { return a + this.rng() * (b - a); }
+
+  // local→world offset for a plot rotated by `rot` (Three Ry convention)
+  _toWorld(cx, cz, rot, lx, lz) {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    return { x: cx + lx * c + lz * s, z: cz - lx * s + lz * c };
+  }
+  _dir(rot, lx, lz) {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    return { x: lx * c + lz * s, z: -lx * s + lz * c };
+  }
+
+  // ── Winding main roads (polylines) ────────────────────────────────────────
+  _genMainRoads() {
+    const H = this.HALF, roads = [];
+    const make = (vertical) => {
+      const pts = [];
+      const cross = this._rand(-H * 0.4, H * 0.4);
+      let perp = cross;
+      const steps = 7;
+      for (let i = 0; i <= steps; i++) {
+        const along = -H + (2 * H) * (i / steps);
+        perp += this._rand(-7, 7);
+        perp = Math.max(-H * 0.7, Math.min(H * 0.7, perp));
+        pts.push(vertical ? { x: perp, z: along } : { x: along, z: perp });
+      }
+      return { pts, half: this._rand(3.0, 3.8) };
+    };
+    roads.push(make(true));
+    roads.push(make(false));
+    if (this.rng() > 0.4) roads.push(make(this.rng() > 0.5));
+    return roads;
+  }
+
+  _distToMainRoad(x, z) {
+    let best = Infinity;
+    for (const r of this.mainRoads) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const d = segDist(x, z, r.pts[i], r.pts[i + 1]) - r.half;
+        if (d < best) best = d;
+      }
+    }
+    return best;
+  }
+
+  // ── Ground + main-road ribbons ────────────────────────────────────────────
   _buildGround() {
-    const span = BOUND * 2 + 24;
+    const span = this.HALF * 2 + 30;
     const road = new THREE.Mesh(new THREE.PlaneGeometry(span, span), ASPHALT);
-    road.rotation.x = -Math.PI / 2;
-    road.receiveShadow = true;
+    road.rotation.x = -Math.PI / 2; road.receiveShadow = true;
     this.scene.add(road);
 
-    // manhole covers at the lane intersections
-    this._laneCoords().forEach(lx =>
-      this._laneCoords().forEach(lz => { if ((lx + lz) % 2 === 0) this._manhole(lx, lz); }));
+    // paint the winding main roads as slightly darker ribbons
+    for (const r of this.mainRoads) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const a = r.pts[i], b = r.pts[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz);
+        const rib = new THREE.Mesh(new THREE.PlaneGeometry(r.half * 2, len + r.half), ASPHALT2);
+        rib.rotation.x = -Math.PI / 2;
+        rib.rotation.z = -Math.atan2(dz, dx) + Math.PI / 2;
+        rib.position.set((a.x + b.x) / 2, 0.01, (a.z + b.z) / 2);
+        this.scene.add(rib);
+      }
+    }
   }
 
-  // lane centre-lines (between blocks): n-1 interior + 2 outer
-  _laneCoords() {
-    const c = [];
-    for (let i = 0; i <= N; i++) c.push((i - HALF - 0.5) * S);
-    return c;
-  }
-
-  // ── The grid of apartment blocks ──────────────────────────────────────────
-  _buildBlocks() {
+  // ── Generate plots → buildings + open lots ────────────────────────────────
+  _generate() {
+    const H = this.HALF;
+    // non-uniform column / row boundaries → variable street widths
+    const axis = () => {
+      const cuts = [];
+      let p = -H;
+      while (p < H - 6) {
+        const block = this._rand(7, 14);
+        const gap   = this._rand(2.4, 6.0);   // street width varies a lot
+        cuts.push({ a: p, b: p + block });
+        p += block + gap;
+      }
+      return cuts;
+    };
+    const cols = axis(), rows = axis();
     let idx = 0;
-    for (let ix = 0; ix < N; ix++) {
-      for (let iz = 0; iz < N; iz++) {
-        const cx = (ix - HALF) * S;
-        const cz = (iz - HALF) * S;
-        const seed = ix * 3 + iz * 7;
-        const W = 9.6 + (seed % 3) * 0.4;
-        const D = 9.6 + ((seed + 1) % 3) * 0.4;
-        const H = 4.5 + (seed % 3) * 1.4 + ((ix + iz) % 4 === 0 ? 2.2 : 0); // lower, a few accents
 
-        this._block(cx, cz, W, D, H, seed, idx);
+    for (const cxr of cols) {
+      for (const czr of rows) {
+        const cx = (cxr.a + cxr.b) / 2 + this._rand(-0.6, 0.6);
+        const cz = (czr.a + czr.b) / 2 + this._rand(-0.6, 0.6);
+        // carve the main roads: leave those plots open
+        if (this._distToMainRoad(cx, cz) < 1.5) continue;
+        // ~15% of plots are left as open lots / pocket gardens
+        const open = this.rng() < 0.15;
+        const hw = Math.max(2.4, (cxr.b - cxr.a) / 2 - this._rand(0.4, 1.1));
+        const hd = Math.max(2.4, (czr.b - czr.a) / 2 - this._rand(0.4, 1.1));
+        const rot = this._rand(-0.22, 0.22);   // crooked
 
-        // four lane-facing ground-floor wall slots
-        const py = 1.55, wh = 2.7;
-        this.wallSlots.push({ px: cx, py, pz: cz + D / 2, nx: 0, nz:  1, wallW: Math.min(W * 0.7, 4.4), wallH: wh, buildingIdx: idx, used: false, mesh: null });
-        this.wallSlots.push({ px: cx, py, pz: cz - D / 2, nx: 0, nz: -1, wallW: Math.min(W * 0.7, 4.4), wallH: wh, buildingIdx: idx, used: false, mesh: null });
-        this.wallSlots.push({ px: cx + W / 2, py, pz: cz, nx:  1, nz: 0, wallW: Math.min(D * 0.7, 4.4), wallH: wh, buildingIdx: idx, used: false, mesh: null });
-        this.wallSlots.push({ px: cx - W / 2, py, pz: cz, nx: -1, nz: 0, wallW: Math.min(D * 0.7, 4.4), wallH: wh, buildingIdx: idx, used: false, mesh: null });
+        if (open) { this._openLot(cx, cz, hw, hd, rot); continue; }
 
-        const r = CONFIG.charRadius;
-        this.bboxes.push({ minX: cx - W / 2 - r, maxX: cx + W / 2 + r, minZ: cz - D / 2 - r, maxZ: cz + D / 2 + r, top: H });
+        const H2 = 4.5 + (this.rng() * 3 | 0) * 1.4 + (this.rng() < 0.18 ? 2.4 : 0); // low, a few accents
+        this._block(cx, cz, hw, hd, rot, H2, idx);
+        this.buildings.push({ cx, cz, hw, hd, rot, top: H2 });
+        this._addSlots(cx, cz, hw, hd, rot, idx);
         idx++;
       }
     }
   }
 
-  _block(cx, cz, W, D, H, seed, idx) {
-    const tone = CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
-    const body = inkedMesh(new THREE.BoxGeometry(W, H, D), tone, { k: 1.014, receive: true });
-    body.position.set(cx, H / 2, cz);
-    this.scene.add(body);
-
-    // curb ring delineating the block footprint
-    const curb = new THREE.Mesh(new THREE.BoxGeometry(W + 0.5, 0.12, D + 0.5), CURB);
-    curb.position.set(cx, 0.06, cz);
-    curb.receiveShadow = true;
-    this.scene.add(curb);
-
-    // roof: flat parapet, or a tiled hip roof on some houses
-    if (seed % 4 === 3) {
-      this._hipRoof(cx, cz, W, D, H);
-    } else {
-      const cap = inkedMesh(new THREE.BoxGeometry(W + 0.3, 0.36, D + 0.3), '#cdcbc7', { k: 1.02 });
-      cap.position.set(cx, H + 0.18, cz);
-      this.scene.add(cap);
-      if (seed % 2 === 0) this._antenna(cx + W * 0.25, H, cz - D * 0.25);
+  _openLot(cx, cz, hw, hd, rot) {
+    // a low wall or hedge ring + greenery so empty plots still read
+    if (this.rng() < 0.5) {
+      const wall = inkedMesh(new THREE.BoxGeometry(hw * 2, 0.8, 0.14), '#dedcd8', { k: 1.03 });
+      const f = this._toWorld(cx, cz, rot, 0, hd);
+      wall.position.set(f.x, 0.4, f.z); wall.rotation.y = rot;
+      this.scene.add(wall);
     }
-
-    // facade detail on all four lane-facing walls
-    this._wallDetail(cx, cz, H, 0,  1, D / 2, W, seed);
-    this._wallDetail(cx, cz, H, 0, -1, D / 2, W, seed + 1);
-    this._wallDetail(cx, cz, H, 1,  0, W / 2, D, seed + 2);
-    this._wallDetail(cx, cz, H, -1, 0, W / 2, D, seed + 3);
+    const n = 1 + (this.rng() * 3 | 0);
+    for (let i = 0; i < n; i++) {
+      const p = this._toWorld(cx, cz, rot, this._rand(-hw, hw), this._rand(-hd, hd));
+      if (this.rng() < 0.5) this._bush(p.x, p.z, 0.7 + this.rng() * 0.4);
+      else this._bigTree(p.x, p.z);
+    }
   }
 
-  // Windows · shutters · balconies · AC units · drainpipe on one wall.
-  _wallDetail(cx, cz, H, nx, nz, faceHalf, wallLen, seed) {
-    const fx = cx + nx * faceHalf, fz = cz + nz * faceHalf;
-    const tx = -nz, tz = nx;                          // tangent along the wall
-    const rotY = nz === 1 ? 0 : nz === -1 ? Math.PI : nx === 1 ? Math.PI / 2 : -Math.PI / 2;
+  // ── A building (oriented box) + roof + facades ────────────────────────────
+  _block(cx, cz, hw, hd, rot, H, idx) {
+    const tone = CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
+    const body = inkedMesh(new THREE.BoxGeometry(hw * 2, H, hd * 2), tone, { k: 1.014, receive: true });
+    body.position.set(cx, H / 2, cz); body.rotation.y = rot;
+    this.scene.add(body);
+
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(hw * 2 + 0.5, 0.12, hd * 2 + 0.5), CURB);
+    curb.position.set(cx, 0.06, cz); curb.rotation.y = rot; curb.receiveShadow = true;
+    this.scene.add(curb);
+
+    if (this.rng() < 0.28) {
+      this._hipRoof(cx, cz, hw * 2, hd * 2, H, rot);
+    } else {
+      const cap = inkedMesh(new THREE.BoxGeometry(hw * 2 + 0.3, 0.36, hd * 2 + 0.3), '#cdcbc7', { k: 1.02 });
+      cap.position.set(cx, H + 0.18, cz); cap.rotation.y = rot;
+      this.scene.add(cap);
+      if (this.rng() < 0.5) {
+        const a = this._toWorld(cx, cz, rot, hw * 0.5, -hd * 0.5);
+        this._antenna(a.x, H, a.z);
+      }
+    }
+
+    // four facades
+    this._facade(cx, cz, rot, hw, hd, H,  0,  1, idx);      // +local z
+    this._facade(cx, cz, rot, hw, hd, H,  0, -1, idx + 1);  // -local z
+    this._facade(cx, cz, rot, hw, hd, H,  1,  0, idx + 2);  // +local x
+    this._facade(cx, cz, rot, hw, hd, H, -1,  0, idx + 3);  // -local x
+  }
+
+  // wall slot per street-facing face (only if its approach is on open ground)
+  _addSlots(cx, cz, hw, hd, rot, idx) {
+    const py = 1.55, wh = 2.7;
+    const faces = [
+      { nlx: 0, nlz: 1, half: hd, len: hw },
+      { nlx: 0, nlz: -1, half: hd, len: hw },
+      { nlx: 1, nlz: 0, half: hw, len: hd },
+      { nlx: -1, nlz: 0, half: hw, len: hd },
+    ];
+    for (const f of faces) {
+      const fc = this._toWorld(cx, cz, rot, f.nlx * f.half, f.nlz * f.half);
+      const n  = this._dir(rot, f.nlx, f.nlz);
+      const ap = { x: fc.x + n.x * CONFIG.approachOffset, z: fc.z + n.z * CONFIG.approachOffset };
+      if (this.isColliding(ap.x, ap.z)) continue;   // wall faces a building → skip
+      this.wallSlots.push({
+        px: fc.x, py, pz: fc.z, nx: n.x, nz: n.z,
+        wallW: Math.min(f.len * 1.4, 4.4), wallH: wh,
+        buildingIdx: idx, used: false, mesh: null,
+      });
+    }
+  }
+
+  _facade(cx, cz, rot, hw, hd, H, nlx, nlz, seed) {
+    const half = (nlx !== 0) ? hw : hd;
+    const wallLen = ((nlx !== 0) ? hd : hw) * 2;
+    const tlx = -nlz, tlz = nlx;                       // tangent (local)
+    const n = this._dir(rot, nlx, nlz);
+    const rotY = Math.atan2(n.x, n.z);
     const floors = Math.min(3, Math.max(1, Math.round(H / 2.4)));
     const cols   = Math.min(3, Math.max(1, Math.round(wallLen / 2.8)));
 
@@ -133,327 +243,127 @@ export class City {
       if (wy + 0.6 > H) continue;
       for (let c = 0; c < cols; c++) {
         const tc = (c - (cols - 1) / 2) * 2.4;
-        const px = fx + nx * 0.04 + tx * tc;
-        const pz = fz + nz * 0.04 + tz * tc;
-
+        const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
+        const ox = n.x * 0.04, oz = n.z * 0.04;
         if (f === 0 && (c + seed) % 3 === 0) {
           const sh = new THREE.Mesh(SHU_GEO, SHUTTER);
-          sh.position.set(px, 1.05, pz); sh.rotation.y = rotY;
-          this.scene.add(sh);
-          continue;
+          sh.position.set(w.x + ox, 1.05, w.z + oz); sh.rotation.y = rotY;
+          this.scene.add(sh); continue;
         }
         const win = new THREE.Mesh(WIN_GEO, GLASS);
-        win.position.set(px, wy, pz); win.rotation.y = rotY;
+        win.position.set(w.x + ox, wy, w.z + oz); win.rotation.y = rotY;
         this.scene.add(win);
 
         if (f >= 1 && (c + f + seed) % 2 === 0) {
+          const b = this._toWorld(cx, cz, rot, nlx * (half + 0.26) + tlx * tc, nlz * (half + 0.26) + tlz * tc);
           const slab = inkedMesh(new THREE.BoxGeometry(0.5, 0.08, 1.5), '#d8d6d2', { k: 1.05, cast: false });
-          slab.position.set(fx + nx * 0.26 + tx * tc, wy - 0.6, fz + nz * 0.26 + tz * tc);
-          slab.rotation.y = rotY;
-          this.scene.add(slab);
+          slab.position.set(b.x, wy - 0.6, b.z); slab.rotation.y = rotY; this.scene.add(slab);
           const rail = inkedMesh(new THREE.BoxGeometry(0.46, 0.42, 0.05), '#3a3834', { k: 1.06, cast: false });
-          rail.position.set(fx + nx * 0.48 + tx * tc, wy - 0.38, fz + nz * 0.48 + tz * tc);
-          rail.rotation.y = rotY;
-          this.scene.add(rail);
+          const rb = this._toWorld(cx, cz, rot, nlx * (half + 0.48) + tlx * tc, nlz * (half + 0.48) + tlz * tc);
+          rail.position.set(rb.x, wy - 0.38, rb.z); rail.rotation.y = rotY; this.scene.add(rail);
         } else if (f >= 1 && (c + seed) % 3 === 1) {
+          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.22) + tlx * (tc + 0.7), nlz * (half + 0.22) + tlz * (tc + 0.7));
           const ac = inkedMesh(new THREE.BoxGeometry(0.42, 0.38, 0.55), '#dcdad6', { k: 1.06, cast: false });
-          ac.position.set(fx + nx * 0.22 + tx * (tc + 0.7), wy - 0.5, fz + nz * 0.22 + tz * (tc + 0.7));
-          ac.rotation.y = rotY;
-          this.scene.add(ac);
+          ac.position.set(a.x, wy - 0.5, a.z); ac.rotation.y = rotY; this.scene.add(ac);
         }
       }
     }
-
-    // drainpipe down one edge of the wall
-    const e = wallLen / 2 - 0.3;
+    // drainpipe + base plants on the street side
+    const e = this._toWorld(cx, cz, rot, nlx * half + tlx * (wallLen / 2 - 0.3), nlz * half + tlz * (wallLen / 2 - 0.3));
     const pipe = inkedMesh(new THREE.CylinderGeometry(0.06, 0.06, H, 6), '#bcbab6', { k: 1.08, cast: false });
-    pipe.position.set(fx + nx * 0.08 + tx * e, H / 2, fz + nz * 0.08 + tz * e);
-    this.scene.add(pipe);
+    pipe.position.set(e.x + n.x * 0.08, H / 2, e.z + n.z * 0.08); this.scene.add(pipe);
+    if ((seed % 2) === 0) {
+      const pb = this._toWorld(cx, cz, rot, nlx * (half + 0.5), nlz * (half + 0.5));
+      this._pottedPlant(pb.x, pb.z, 0.7 + (seed % 3) * 0.16);
+      if (this.rng() < 0.4) this._vine(e.x + n.x * 0.16, e.z + n.z * 0.16, 2.6 + this.rng() * 2);
+    }
   }
 
-  // ── Poles + overhead wire net along the lanes ─────────────────────────────
+  // ── Poles + organic overhead wire net ─────────────────────────────────────
   _buildPolesAndWires() {
-    const lanes = this._laneCoords();
-    // place poles at a subset of intersections (every other one) for the net
-    const poleH = 8.6;
-    for (let i = 0; i < lanes.length; i++) {
-      for (let j = 0; j < lanes.length; j++) {
-        if ((i + j) % 2 !== 0) continue;
-        const x = lanes[i], z = lanes[j];
-        if (Math.abs(x) > BOUND || Math.abs(z) > BOUND) continue;
-        this._pole(x, z, poleH, (i + j) % 4 === 0);
-        this.poles.push({ x, z, i, j, top: poleH });
-      }
-    }
-    // link neighbouring poles (same lane row/col) with sagging wires
-    for (const a of this.poles) {
-      for (const b of this.poles) {
-        if (a === b) continue;
-        const sameRow = a.j === b.j && b.i === a.i + 2;
-        const sameCol = a.i === b.i && b.j === a.j + 2;
-        if (sameRow || sameCol) {
-          [8.1, 7.5].forEach(h => this._wire(a.x, h, a.z, b.x, h, b.z, 0.55));
+    // poles strung along the main roads + a scatter on open ground
+    for (const r of this.mainRoads) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const a = r.pts[i], b = r.pts[i + 1];
+        for (let t = 0; t < 1; t += 0.5) {
+          const x = a.x + (b.x - a.x) * t + r.half + 0.3;
+          const z = a.z + (b.z - a.z) * t;
+          if (!this.isColliding(x, z) && Math.abs(x) < this.HALF && Math.abs(z) < this.HALF)
+            { this._pole(x, z, 8.6, this.rng() < 0.3); this.poles.push({ x, z }); }
         }
       }
     }
-    // a convex traffic mirror at a corner
-    this._convexMirror(lanes[1] + 0.4, 3.0, lanes[1]);
-  }
-
-  _pole(x, z, h, transformer = false) {
-    const shaft = inkedMesh(new THREE.CylinderGeometry(0.08, 0.11, h, 6), '#2a2620', { k: 1.05 });
-    shaft.position.set(x, h / 2, z);
-    this.scene.add(shaft);
-    [[h - 0.6, 1.9], [h - 1.5, 1.3]].forEach(([ay, aw]) => {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.07, 0.07), toonMat('#2a2620'));
-      arm.position.set(x, ay, z);
-      this.scene.add(arm);
-      const arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, aw), toonMat('#2a2620'));
-      arm2.position.set(x, ay - 0.18, z);
-      this.scene.add(arm2);
-    });
-    if (transformer) {
-      const tf = inkedMesh(new THREE.CylinderGeometry(0.18, 0.18, 0.6, 8), '#34302a', { k: 1.06, cast: false });
-      tf.position.set(x + 0.26, h - 2.4, z);
-      this.scene.add(tf);
+    for (let k = 0; k < 60; k++) {
+      const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
+      if (!this.isColliding(x, z) && this._distToMainRoad(x, z) > 2) { this._pole(x, z, 8.4, this.rng() < 0.2); this.poles.push({ x, z }); }
     }
-  }
-
-  _wire(x0, y0, z0, x1, y1, z1, sag) {
-    const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 - sag, (z0 + z1) / 2);
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(x0, y0, z0), mid, new THREE.Vector3(x1, y1, z1));
-    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(14));
-    this.scene.add(new THREE.Line(geo, WIRE));
-  }
-
-  _convexMirror(x, y, z) {
-    const arm = inkedMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 5), '#2a2620', { k: 1.1, cast: false });
-    arm.position.set(x + 0.45, y, z); arm.rotation.z = Math.PI / 2;
-    this.scene.add(arm);
-    const rim = inkedMesh(new THREE.CylinderGeometry(0.5, 0.5, 0.12, 18), '#c0532a', { k: 1.04, cast: false });
-    rim.position.set(x + 0.95, y, z); rim.rotation.z = Math.PI / 2; rim.rotation.x = Math.PI / 2;
-    this.scene.add(rim);
-  }
-
-  // ── Lane clutter ──────────────────────────────────────────────────────────
-  _buildClutter() {
-    let k = 0;
-    for (let ix = 0; ix < N; ix++) {
-      for (let iz = 0; iz < N; iz++) {
-        const cx = (ix - HALF) * S, cz = (iz - HALF) * S;
-        const seed = ix * 3 + iz * 7;
-        const W = 9.6 + (seed % 3) * 0.4, D = 9.6 + ((seed + 1) % 3) * 0.4;
-        // a couple of plants at the lane-facing base, varied per block
-        this._pottedPlant(cx + W / 2 + 0.7, cz + D / 2 - 1.5, 0.8 + (seed % 3) * 0.15);
-        this._pottedPlant(cx - W / 2 - 0.7, cz - D / 2 + 1.5, 0.75 + (seed % 2) * 0.2);
-        if (seed % 3 === 0) this._bicycle(cx + W / 2 + 0.8, cz - D / 2 + 2.0, Math.PI / 2);
-        if (seed % 4 === 1) {
-          const vm = inkedMesh(new THREE.BoxGeometry(0.5, 1.9, 0.7), '#e6e4e0', { k: 1.04 });
-          vm.position.set(cx - W / 2 - 0.9, 0.95, cz + D / 2 - 2.2);
-          this.scene.add(vm);
-        }
-        if (seed % 5 === 2) this._crateStack(cx + W / 2 + 0.9, cz + 0.5);
-        if (seed % 6 === 3) this._tree(cx - W / 2 - 1.4, cz + D / 2 + 1.4);
-        if (seed % 7 === 0) this._lantern(cx + W / 2 + 0.5, cz + D / 2 + 0.5);
-        k++;
+    // wire each pole to its 2 nearest neighbours → tangled net
+    for (let i = 0; i < this.poles.length; i++) {
+      const a = this.poles[i];
+      const near = this.poles
+        .map((p, j) => ({ j, d: (p.x - a.x) ** 2 + (p.z - a.z) ** 2 }))
+        .filter(o => o.j !== i && o.d < 18 * 18).sort((u, v) => u.d - v.d).slice(0, 2);
+      for (const o of near) {
+        if (o.j < i) continue;
+        const b = this.poles[o.j];
+        [8.0, 7.5].forEach(h => this._wire(a.x, h, a.z, b.x, h, b.z, 0.5));
       }
     }
   }
 
-  // ── Vegetation: the alleys are overgrown — vines, bushes, trees, pots ─────
-  _buildGreenery() {
-    const LEAF = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
-    for (let ix = 0; ix < N; ix++) {
-      for (let iz = 0; iz < N; iz++) {
-        const cx = (ix - HALF) * S, cz = (iz - HALF) * S;
-        const seed = ix * 5 + iz * 11;
-        const W = 9.6 + (seed % 3) * 0.4, D = 9.6 + ((seed + 1) % 3) * 0.4;
-
-        // climbing ivy up a lane-facing wall (every few blocks)
-        if (seed % 3 === 0) {
-          const nx = (seed % 2 ? 1 : -1);
-          this._vine(cx + nx * (W / 2 + 0.18), cz + (D / 2 - 1.4), 3.4 + (seed % 3), LEAF);
-        }
-        // a leafy bush tucked at a block corner
-        if (seed % 2 === 0) {
-          this._bush(cx + (W / 2 + 0.7) * (seed % 4 < 2 ? 1 : -1), cz - D / 2 - 0.7, 0.7 + (seed % 3) * 0.12, LEAF);
-        }
-        // overgrown cluster of pots crowding the base of a wall
-        const nz = (seed % 2 ? 1 : -1);
-        const baseZ = cz + nz * (D / 2 + 0.55);
-        for (let p = -1; p <= 1; p++) {
-          this._pottedPlant(cx + p * 0.95, baseZ, 0.7 + ((seed + p + 3) % 3) * 0.18);
-        }
-        // a plant hanging from an upper balcony edge
-        if (seed % 4 === 1) {
-          this._hangingPlant(cx + (W / 2 + 0.2) * (seed % 2 ? 1 : -1), 3.0, cz + (D * 0.2), LEAF);
-        }
-      }
-    }
-    // bigger trees standing at some lane intersections
-    const lanes = this._laneCoords();
-    for (let i = 1; i < lanes.length - 1; i += 2) {
-      for (let j = 1; j < lanes.length - 1; j += 2) {
-        if ((i * 3 + j) % 3 !== 0) continue;
-        if (Math.abs(lanes[i]) > BOUND - 2 || Math.abs(lanes[j]) > BOUND - 2) continue;
-        this._bigTree(lanes[i], lanes[j], LEAF);
-      }
-    }
-  }
-
-  // a single faceted leaf-mass (manga dark clump)
-  _leaf(x, y, z, r, tone) {
-    const m = inkedMesh(new THREE.IcosahedronGeometry(r, 0), tone, { k: 1.05, cast: false });
-    m.position.set(x, y, z);
-    m.rotation.set(Math.random(), Math.random(), Math.random());
-    this.scene.add(m);
-    return m;
-  }
-
-  _vine(x, z, h, LEAF) {
-    for (let y = 0.4; y < h; y += 0.55) {
-      const r = 0.26 + Math.random() * 0.12;
-      this._leaf(x + (Math.random() - 0.5) * 0.18, y, z + (Math.random() - 0.5) * 0.5, r, LEAF[(y * 7 | 0) % LEAF.length]);
-    }
-  }
-
-  _bush(x, z, s, LEAF) {
-    [[0, 0.32, 0], [0.32, 0.30, 0.1], [-0.28, 0.34, -0.12], [0.05, 0.55, 0.0]].forEach(([ox, oy, oz], i) =>
-      this._leaf(x + ox * s, oy * s + 0.1, z + oz * s, (0.28 + (i % 2) * 0.08) * s, LEAF[i % LEAF.length]));
-  }
-
-  _hangingPlant(x, y, z, LEAF) {
-    const pot = inkedMesh(new THREE.CylinderGeometry(0.16, 0.13, 0.22, 8), '#cfcdc9', { k: 1.06, cast: false });
-    pot.position.set(x, y, z); this.scene.add(pot);
-    for (let k = 0; k < 3; k++) this._leaf(x + (Math.random() - 0.5) * 0.25, y - 0.2 - k * 0.22, z + (Math.random() - 0.5) * 0.25, 0.16, LEAF[k % LEAF.length]);
-  }
-
-  _bigTree(x, z, LEAF) {
-    const trunk = inkedMesh(new THREE.CylinderGeometry(0.16, 0.22, 3.4, 7), '#231d18', { k: 1.05 });
-    trunk.position.set(x, 1.7, z); this.scene.add(trunk);
-    [[0, 4.0, 0, 1.4], [0.7, 4.5, 0.3, 1.0], [-0.6, 4.4, -0.4, 1.05], [0.1, 5.1, 0.0, 0.9]].forEach(([ox, oy, oz, r], i) =>
-      this._leaf(x + ox, oy, z + oz, r, LEAF[i % LEAF.length]));
-  }
-
-  _pottedPlant(x, z, s = 1) {
-    const pot = inkedMesh(new THREE.CylinderGeometry(0.16 * s, 0.20 * s, 0.34 * s, 8), '#dcdad6', { k: 1.05 });
-    pot.position.set(x, 0.17 * s, z);
-    this.scene.add(pot);
-    const f1 = inkedMesh(new THREE.SphereGeometry(0.30 * s, 7, 6), '#2c2a26', { k: 1.04 });
-    f1.position.set(x, 0.34 * s + 0.20 * s, z);
-    this.scene.add(f1);
-    const f2 = inkedMesh(new THREE.SphereGeometry(0.20 * s, 7, 6), '#363430', { k: 1.04 });
-    f2.position.set(x + 0.13 * s, 0.34 * s + 0.40 * s, z - 0.05 * s);
-    this.scene.add(f2);
-  }
-
-  _tree(x, z) {
-    const trunk = inkedMesh(new THREE.CylinderGeometry(0.10, 0.14, 2.6, 6), '#231d18', { k: 1.05 });
-    trunk.position.set(x, 1.3, z);
-    this.scene.add(trunk);
-    [[0, 3.6, 1.5], [0.3, 4.2, 1.1]].forEach(([ox, oy, r]) => {
-      const c = inkedMesh(new THREE.SphereGeometry(r, 7, 5), '#2e2c28', { k: 1.035 });
-      c.position.set(x + ox, oy, z);
-      this.scene.add(c);
-    });
-  }
-
-  _bicycle(x, z, angle) {
-    const g = new THREE.Group();
-    const tone = '#1f1d1a';
-    const wheel = (wx) => { const w = inkedMesh(new THREE.TorusGeometry(0.30, 0.045, 6, 16), tone, { k: 1.08 }); w.position.set(wx, 0.30, 0); g.add(w); };
-    wheel(-0.46); wheel(0.46);
-    const bar = (len, px, py, rotZ) => { const b = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, len, 6), tone, { k: 1.1, cast: false }); b.position.set(px, py, 0); b.rotation.z = rotZ; g.add(b); };
-    bar(0.95, 0, 0.50, Math.PI / 2); bar(0.62, -0.16, 0.42, 0.5); bar(0.58, 0.40, 0.42, -0.4);
-    const seat = inkedMesh(new THREE.BoxGeometry(0.22, 0.06, 0.10), tone, { k: 1.1, cast: false }); seat.position.set(-0.34, 0.70, 0); g.add(seat);
-    const handle = inkedMesh(new THREE.BoxGeometry(0.08, 0.28, 0.30), tone, { k: 1.1, cast: false }); handle.position.set(0.50, 0.68, 0); g.add(handle);
-    g.position.set(x, 0, z); g.rotation.y = angle; g.rotation.z = 0.05;
-    this.scene.add(g);
-  }
-
-  _crateStack(x, z) {
-    const tones = ['#d2ccc0', '#c8c2b6', '#d8d2c6'];
-    const n = 2 + ((Math.random() * 2) | 0);
-    for (let i = 0; i < n; i++) {
-      const s = 0.5;
-      const c = inkedMesh(new THREE.BoxGeometry(s, s, s), tones[i % 3], { k: 1.04 });
-      c.position.set(x + (i % 2 ? 0.12 : -0.1), s / 2 + i * s, z + (i % 2 ? -0.08 : 0.06));
-      c.rotation.y = (Math.random() - 0.5) * 0.3;
-      this.scene.add(c);
-    }
-  }
-
-  _manhole(x, z) {
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 18), new THREE.MeshBasicMaterial({ color: '#5f5d59' }));
-    disc.rotation.x = -Math.PI / 2; disc.position.set(x, 0.03, z); this.scene.add(disc);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.30, 0.40, 18), new THREE.MeshBasicMaterial({ color: '#3a3835' }));
-    ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.031, z); this.scene.add(ring);
-  }
-
-  _lantern(x, z) {
-    const body = inkedMesh(new THREE.CylinderGeometry(0.16, 0.16, 0.32, 10), '#ededed', { k: 1.06, cast: false });
-    body.position.set(x, 2.3, z); this.scene.add(body);
-    const cap = inkedMesh(new THREE.CylinderGeometry(0.06, 0.16, 0.06, 10), '#1a1814', { k: 1.06, cast: false });
-    cap.position.set(x, 2.49, z); this.scene.add(cap);
-  }
-
-  _antenna(x, baseY, z) {
-    const mast = inkedMesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5), '#1c1a17', { k: 1.12, cast: false });
-    mast.position.set(x, baseY + 0.65, z); this.scene.add(mast);
-    [0.95, 1.2].forEach((cy, i) => {
-      const cw = 0.55 - i * 0.16;
-      const bar = inkedMesh(new THREE.BoxGeometry(cw, 0.03, 0.03), '#1c1a17', { k: 1.15, cast: false });
-      bar.position.set(x, baseY + cy, z); this.scene.add(bar);
-    });
-  }
-
-  _hipRoof(x, z, w, d, h) {
-    const oh = 0.4, rH = 0.9 + Math.min(w, d) * 0.13, dia = Math.hypot(w + oh * 2, d + oh * 2) * 0.5;
-    const cone = inkedMesh(new THREE.ConeGeometry(dia, rH, 4), '#26241f', { k: 1.03 });
-    cone.position.set(x, h + rH / 2, z); cone.rotation.y = Math.PI / 4; this.scene.add(cone);
-    const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
-    eave.position.set(x, h + 0.08, z); this.scene.add(eave);
-  }
-
-  // ── Collision / navigation ────────────────────────────────────────────────
+  // ── Collision (oriented boxes) ────────────────────────────────────────────
   isColliding(x, z) {
-    if (Math.abs(x) > BOUND || Math.abs(z) > BOUND) return true;
-    return this.hitsBuilding(x, z);
+    if (Math.abs(x) > this.HALF || Math.abs(z) > this.HALF) return true;
+    const r = CONFIG.charRadius;
+    for (const b of this.buildings) {
+      const dx = x - b.cx, dz = z - b.cz;
+      const c = Math.cos(b.rot), s = Math.sin(b.rot);
+      const lx = dx * c - dz * s, lz = dx * s + dz * c;
+      if (Math.abs(lx) < b.hw + r && Math.abs(lz) < b.hd + r) return true;
+    }
+    return false;
   }
 
-  // building footprints only (no world-edge clamp); returns the block's roof
-  // height at (x,z), or 0 if none — used for 3D camera collision.
+  // returns roof height at (x,z) inside a footprint, else 0 — for camera collision
   hitsBuilding(x, z) {
-    for (const b of this.bboxes) {
-      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return b.top;
+    for (const b of this.buildings) {
+      const dx = x - b.cx, dz = z - b.cz;
+      const c = Math.cos(b.rot), s = Math.sin(b.rot);
+      const lx = dx * c - dz * s, lz = dx * s + dz * c;
+      if (Math.abs(lx) < b.hw && Math.abs(lz) < b.hd) return b.top;
     }
     return 0;
   }
 
+  _findOpen(x, z) {
+    if (!this.isColliding(x, z)) return { x, z };
+    for (let r = 2; r < this.HALF; r += 1.5) {
+      for (let a = 0; a < 12; a++) {
+        const ang = a / 12 * Math.PI * 2;
+        const px = x + Math.cos(ang) * r, pz = z + Math.sin(ang) * r;
+        if (!this.isColliding(px, pz)) return { x: px, z: pz };
+      }
+    }
+    return { x: 0, z: 0 };
+  }
+
   randomReachablePoint() {
-    for (let i = 0; i < 40; i++) {
-      const x = (Math.random() - 0.5) * 2 * (BOUND - 1);
-      const z = (Math.random() - 0.5) * 2 * (BOUND - 1);
+    for (let i = 0; i < 60; i++) {
+      const x = this._rand(-this.HALF + 1, this.HALF - 1);
+      const z = this._rand(-this.HALF + 1, this.HALF - 1);
       if (!this.isColliding(x, z)) return { x, z };
     }
-    return { x: CONFIG.charStart.x, z: CONFIG.charStart.z };
+    return this.spawn || { x: 0, z: 0 };
   }
 
   approachPoint(slot) {
     return { x: slot.px + slot.nx * CONFIG.approachOffset, z: slot.pz + slot.nz * CONFIG.approachOffset };
   }
-
-  isApproachFree(slot) {
-    const p = this.approachPoint(slot);
-    return !this.isColliding(p.x, p.z);
-  }
-
+  isApproachFree(slot) { const p = this.approachPoint(slot); return !this.isColliding(p.x, p.z); }
   pickFreeSlot() {
     const free = this.wallSlots.filter(s => !s.used && this.isApproachFree(s));
     return free.length ? free[(Math.random() * free.length) | 0] : null;
   }
-
   allWallsUsed() { return this.wallSlots.every(s => s.used); }
 
   steer(pos, target, dist) {
@@ -469,4 +379,72 @@ export class City {
     }
     return null;
   }
+
+  // ── Detail builders ───────────────────────────────────────────────────────
+  _hipRoof(x, z, w, d, h, rot) {
+    const oh = 0.4, rH = 0.9 + Math.min(w, d) * 0.13, dia = Math.hypot(w + oh * 2, d + oh * 2) * 0.5;
+    const cone = inkedMesh(new THREE.ConeGeometry(dia, rH, 4), '#26241f', { k: 1.03 });
+    cone.position.set(x, h + rH / 2, z); cone.rotation.y = rot + Math.PI / 4; this.scene.add(cone);
+    const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
+    eave.position.set(x, h + 0.08, z); eave.rotation.y = rot; this.scene.add(eave);
+  }
+  _pole(x, z, h, transformer = false) {
+    const shaft = inkedMesh(new THREE.CylinderGeometry(0.08, 0.11, h, 6), '#2a2620', { k: 1.05 });
+    shaft.position.set(x, h / 2, z); this.scene.add(shaft);
+    [[h - 0.6, 1.9], [h - 1.5, 1.3]].forEach(([ay, aw]) => {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.07, 0.07), toonMat('#2a2620'));
+      arm.position.set(x, ay, z); this.scene.add(arm);
+    });
+    if (transformer) {
+      const tf = inkedMesh(new THREE.CylinderGeometry(0.18, 0.18, 0.6, 8), '#34302a', { k: 1.06, cast: false });
+      tf.position.set(x + 0.26, h - 2.4, z); this.scene.add(tf);
+    }
+  }
+  _wire(x0, y0, z0, x1, y1, z1, sag) {
+    const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 - sag, (z0 + z1) / 2);
+    const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(x0, y0, z0), mid, new THREE.Vector3(x1, y1, z1));
+    this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(12)), WIRE));
+  }
+  _pottedPlant(x, z, s = 1) {
+    const pot = inkedMesh(new THREE.CylinderGeometry(0.16 * s, 0.20 * s, 0.34 * s, 8), '#dcdad6', { k: 1.05 });
+    pot.position.set(x, 0.17 * s, z); this.scene.add(pot);
+    this._leaf(x, 0.34 * s + 0.20 * s, z, 0.30 * s, LEAF[1]);
+    this._leaf(x + 0.13 * s, 0.34 * s + 0.40 * s, z - 0.05 * s, 0.20 * s, LEAF[3]);
+  }
+  _leaf(x, y, z, r, tone) {
+    const m = inkedMesh(new THREE.IcosahedronGeometry(r, 0), tone, { k: 1.05, cast: false });
+    m.position.set(x, y, z); m.rotation.set(this.rng(), this.rng(), this.rng()); this.scene.add(m); return m;
+  }
+  _vine(x, z, h) {
+    for (let y = 0.4; y < h; y += 0.55)
+      this._leaf(x + this._rand(-0.18, 0.18), y, z + this._rand(-0.4, 0.4), 0.24 + this.rng() * 0.12, LEAF[(y * 7 | 0) % LEAF.length]);
+  }
+  _bush(x, z, s) {
+    [[0, 0.32, 0], [0.3, 0.30, 0.1], [-0.28, 0.34, -0.12], [0.05, 0.55, 0]].forEach(([ox, oy, oz], i) =>
+      this._leaf(x + ox * s, oy * s + 0.1, z + oz * s, (0.28 + (i % 2) * 0.08) * s, LEAF[i % LEAF.length]));
+  }
+  _bigTree(x, z) {
+    const trunk = inkedMesh(new THREE.CylinderGeometry(0.16, 0.22, 3.2, 7), '#231d18', { k: 1.05 });
+    trunk.position.set(x, 1.6, z); this.scene.add(trunk);
+    [[0, 3.8, 0, 1.4], [0.7, 4.3, 0.3, 1.0], [-0.6, 4.2, -0.4, 1.05], [0.1, 4.9, 0, 0.9]].forEach(([ox, oy, oz, r], i) =>
+      this._leaf(x + ox, oy, z + oz, r, LEAF[i % LEAF.length]));
+  }
+  _antenna(x, baseY, z) {
+    const mast = inkedMesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5), '#1c1a17', { k: 1.12, cast: false });
+    mast.position.set(x, baseY + 0.65, z); this.scene.add(mast);
+    [0.95, 1.2].forEach((cy, i) => {
+      const cw = 0.55 - i * 0.16;
+      const bar = inkedMesh(new THREE.BoxGeometry(cw, 0.03, 0.03), '#1c1a17', { k: 1.15, cast: false });
+      bar.position.set(x, baseY + cy, z); this.scene.add(bar);
+    });
+  }
+}
+
+// distance from point to segment
+function segDist(px, pz, a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const l2 = dx * dx + dz * dz || 1;
+  let t = ((px - a.x) * dx + (pz - a.z) * dz) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (a.x + t * dx), pz - (a.z + t * dz));
 }

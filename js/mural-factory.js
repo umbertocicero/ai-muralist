@@ -171,11 +171,10 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             new THREE.MeshBasicMaterial({ map: tex })
           );
 
-          // Rotate plane to match wall normal
-          if      (slot.nz ===  1) plane.rotation.y = 0;
-          else if (slot.nz === -1) plane.rotation.y = Math.PI;
-          else if (slot.nx ===  1) plane.rotation.y =  Math.PI / 2;
-          else                     plane.rotation.y = -Math.PI / 2;
+          // Rotate plane so its +z (normal) aligns with the wall's outward
+          // normal — works for any orientation (the town's buildings are
+          // rotated, so normals are not axis-aligned).
+          plane.rotation.y = Math.atan2(slot.nx, slot.nz);
 
           // Offset slightly outward along normal to avoid z-fighting
           plane.position.set(
