@@ -8,7 +8,7 @@ compatibility_date = "2024-01-01"
 # the Worker still runs but without per-IP rate limiting.
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "196719ebd6324e0d979b769a52dd19e1"
 
 # The Anthropic API key is a SECRET, never put it here. Set it with:
 #   wrangler secret put ANTHROPIC_API_KEY
