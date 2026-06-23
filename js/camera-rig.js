@@ -31,6 +31,7 @@ export class CameraRig {
 
     this.azimuth      = CONFIG.camAzimuth;
     this.polar        = CONFIG.camPolar;
+    this._renderPolar = CONFIG.camPolar;   // eased pitch (auto-lifts over buildings)
     this.radius       = CONFIG.camRadius;
     this.targetRadius = CONFIG.camRadius;
 
@@ -255,20 +256,36 @@ export class CameraRig {
     this.pivot.lerp(this.pivotTarget, pf);
     this.lookY += (this.lookYTarget - this.lookY) * pf;
 
-    const sinP = Math.sin(this.polar), cosP = Math.cos(this.polar);
+    // ── Smart anti-"inside-a-house" framing ──────────────────────────────
+    // If the camera's desired spot is blocked by a building, don't jam it into
+    // the wall — LIFT it up and over the rooftops, so a boxed-in shot becomes a
+    // clean aerial look down at KAI. Find the highest pitch (smallest polar)
+    // that clears, then ease toward it so it never snaps.
+    let target = this.polar;
+    if (this.city) {
+      for (let i = 0; i < 9; i++) {
+        const sp = Math.sin(target), cp = Math.cos(target);
+        const ex = this.pivot.x + Math.cos(this.azimuth) * sp * this.radius;
+        const ez = this.pivot.z + Math.sin(this.azimuth) * sp * this.radius;
+        const ey = cp * this.radius + 1.5;
+        const top = this.city.hitsBuilding(ex, ez);
+        if (top === 0 || ey > top + 1.5) break;       // endpoint clears the roof
+        target -= 0.09;                                // tilt toward top-down
+        if (target < CONFIG.camPolarMin) { target = CONFIG.camPolarMin; break; }
+      }
+    }
+    this._renderPolar += (target - this._renderPolar) * (1 - Math.exp(-dt * 7));
+
+    const sinP = Math.sin(this._renderPolar), cosP = Math.cos(this._renderPolar);
     const dirX = Math.cos(this.azimuth) * sinP, dirZ = Math.sin(this.azimuth) * sinP;
 
-    // camera collision: keep the lens out of the inside of a building. March
-    // inward from the full distance and use the first distance whose endpoint
-    // is in the clear (outside any footprint, or above its roof). High overview
-    // angles clear the rooftops so they keep full distance; only a lens that
-    // would sit embedded in a wall gets pulled into the lane.
+    // final safety: should the lifted endpoint still sit inside a tall block,
+    // pull in just enough to clear it (rare once we've lifted).
     let eff = this.radius;
     if (this.city) {
-      const STEP = 0.5;
-      for (let d = this.radius; d > 2.4; d -= STEP) {
+      for (let d = this.radius; d > 3; d -= 0.5) {
         const top = this.city.hitsBuilding(this.pivot.x + dirX * d, this.pivot.z + dirZ * d);
-        if (top === 0 || cosP * d + 1.5 > top + 0.4) { eff = d; break; }
+        if (top === 0 || cosP * d + 1.5 > top + 0.6) { eff = d; break; }
       }
     }
 

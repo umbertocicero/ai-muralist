@@ -89,7 +89,7 @@ class App {
     this.scene.fog = new THREE.Fog(CONFIG.fog.color, CONFIG.fog.near, CONFIG.fog.far);
 
     // Camera
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camFov, innerWidth / innerHeight, 0.1, 500);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camFov, innerWidth / innerHeight, 0.3, 340);
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -146,7 +146,7 @@ class App {
     // The key light IS the sun — its position/intensity are driven each frame
     // by the real solar position for Tokyo (_updateSky). The cel gradient turns
     // its clean light/shade split into hard manga bands.
-    const key = new THREE.DirectionalLight('#fff6e8', 1.7);
+    const key = new THREE.DirectionalLight('#fffdf8', 1.7);
     key.position.set(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z);
     key.target.position.set(0, 0, 0);
     key.castShadow = true;

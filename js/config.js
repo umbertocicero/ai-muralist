@@ -54,7 +54,7 @@ export const CONFIG = {
   // --- Camera (Apple-style: damped orbit with inertia, smooth zoom-to-cursor,
   //     two-finger / shift-drag pan). Open-world free orbit. ---
   camFov: 52,
-  camRadius: 32,
+  camRadius: 26,
   camPolar: 1.12,
   camPolarMin: 0.32,
   camPolarMax: 1.52,

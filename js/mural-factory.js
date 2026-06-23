@@ -168,7 +168,7 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           // grey wall (the only colour in the world).
           const plane = new THREE.Mesh(
             new THREE.PlaneGeometry(slot.wallW * CONFIG.muralCoverW, slot.wallH * CONFIG.muralCoverH),
-            new THREE.MeshBasicMaterial({ map: tex })
+            new THREE.MeshBasicMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })
           );
 
           // Rotate plane so its +z (normal) aligns with the wall's outward

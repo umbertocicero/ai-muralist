@@ -28,8 +28,10 @@ function mulberry32(a) {
 const ASPHALT  = toonMat('#d4d2ce');
 const ASPHALT2 = toonMat('#cbc9c5');   // main-road ribbon (slightly darker)
 const CURB     = toonMat('#e6e4e0');
-const GLASS    = new THREE.MeshBasicMaterial({ color: '#2b2b2b' });
-const SHUTTER  = new THREE.MeshBasicMaterial({ color: '#9a9894' });
+// polygonOffset pushes windows/shutters in front of the wall in depth so they
+// never z-fight it (the cause of the "striped" windows at a distance).
+const GLASS    = new THREE.MeshBasicMaterial({ color: '#2b2b2b', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const SHUTTER  = new THREE.MeshBasicMaterial({ color: '#9a9894', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 const WIRE     = new THREE.LineBasicMaterial({ color: '#141210' });
 const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
@@ -244,7 +246,7 @@ export class City {
       for (let c = 0; c < cols; c++) {
         const tc = (c - (cols - 1) / 2) * 2.4;
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
-        const ox = n.x * 0.04, oz = n.z * 0.04;
+        const ox = n.x * 0.09, oz = n.z * 0.09;
         if (f === 0 && (c + seed) % 3 === 0) {
           const sh = new THREE.Mesh(SHU_GEO, SHUTTER);
           sh.position.set(w.x + ox, 1.05, w.z + oz); sh.rotation.y = rotY;

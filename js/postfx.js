@@ -98,7 +98,7 @@ const FRAG = /* glsl */`
     }
 
     // --- paper tint + vignette + grain ---
-    c *= vec3(0.97, 0.96, 0.93);                       // warm paper
+    c *= vec3(0.996, 0.994, 0.99);                     // near-white paper (barely warm)
     float vig = 1.0 - smoothstep(0.48, 0.95, length(uv - 0.5));
     c *= mix(0.80, 1.0, vig);
     float grain = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5);
