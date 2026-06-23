@@ -57,11 +57,36 @@
   #boot .b-sub { font-size: 11px; letter-spacing: 2px; color: #4a5a66; }
   #boot.error .b-sub { color: #c0392b; }
 
+  /* Follow button — appears when camera is detached from the character */
+  #follow-btn {
+    position: fixed; z-index: 10;
+    bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: none;
+    align-items: center; gap: 8px;
+    padding: 10px 20px;
+    background: rgba(245, 240, 230, 0.95);
+    border: 1.5px solid #ff6b35;
+    border-radius: 2px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px; letter-spacing: 2px;
+    color: #ff6b35; cursor: pointer;
+    pointer-events: all;
+    transition: background 0.2s, color 0.2s;
+  }
+  #follow-btn:hover { background: #ff6b35; color: #fff; }
+  #follow-btn.visible { display: flex; }
+  #follow-btn .icon { font-size: 15px; line-height: 1; }
+
+  /* Show grab cursor while interacting with the scene */
+  canvas { cursor: grab; }
+  canvas:active { cursor: grabbing; }
+
   @media (max-width: 640px) {
     #log { display: none; }
     #title .name { font-size: 18px; }
     #thought .text { font-size: 15px; }
     #counter .num { font-size: 32px; }
+    #follow-btn { bottom: 80px; }
   }
 </style>
 </head>
@@ -97,6 +122,10 @@
     </div>
   </div>
 
+  <button id="follow-btn" aria-label="Follow character">
+    <span class="icon">⊙</span> FOLLOW MURO
+  </button>
+
   <div id="boot">
     <div class="b-name">AI MURALIST</div>
     <div class="b-sub" id="boot-sub">loading the city…</div>
@@ -124,7 +153,7 @@
     // --- World ---
     sky: '#87CEEB',
     fog: { color: '#aacbe0', near: 65, far: 170 },
-    buildingColors: ['#d4c9b8', '#c2b9a7', '#b8c4c2', '#cfc8be'],
+    buildingColors: ['#7a7060', '#6e6658', '#6a7474', '#746e62'],
     buildingPositions: [
       [-12,-12],[12,-12],[-12,12],[12,12],
       [-30,-12],[-30,12],[30,-12],[30,12],
@@ -145,10 +174,15 @@
 
     // --- Camera ---
     camFov: 55,
-    camDistance: 22,
-    camHeight: 14,
-    camOrbitSpeed: 0.08,      // rad / second
-    camFollowLerp: 0.02,
+    camRadius: 26,            // spherical distance from pivot
+    camPolar: 1.0,            // starting polar angle from vertical (radians)
+    camPolarMin: 0.18,        // max top-down
+    camPolarMax: 1.38,        // max ground-level
+    camRadiusMin: 8,
+    camRadiusMax: 80,
+    camOrbitSpeed: 0.08,      // rad / second (auto-orbit when following)
+    camFollowLerp: 0.04,
+    camDragSensitivity: 0.006,
 
     // --- UI ---
     maxLogEntries: 5,
@@ -303,17 +337,42 @@
       this.pos = { x: start.x, z: start.z };
       this.facing = 0;
       this.group = new THREE.Group();
-      const mk = (w, h, d, color) => {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+
+      const mk = (w, h, d, color, emissive = null) => {
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.65, metalness: 0.05 });
+        if (emissive) { mat.emissive = new THREE.Color(emissive); mat.emissiveIntensity = 0.18; }
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         m.castShadow = true; return m;
       };
-      this.head = mk(0.4, 0.4, 0.4, '#ffd6b0'); this.head.position.y = 1.55;
-      this.body = mk(0.5, 0.7, 0.3, ORANGE);    this.body.position.y = 0.90;
-      this.legL = mk(0.2, 0.5, 0.25, '#2d2d44'); this.legL.position.set(-0.13, 0.30, 0);
-      this.legR = mk(0.2, 0.5, 0.25, '#2d2d44'); this.legR.position.set( 0.13, 0.30, 0);
-      this.armL = mk(0.18, 0.5, 0.2, ORANGE);   this.armL.position.set(-0.38, 0.85, 0);
-      this.armR = mk(0.18, 0.5, 0.2, ORANGE);   this.armR.position.set( 0.38, 0.85, 0);
-      [this.head, this.body, this.legL, this.legR, this.armL, this.armR].forEach(m => this.group.add(m));
+
+      // Head — warm terracotta skin, clearly visible
+      this.head = mk(0.42, 0.42, 0.42, '#c97a50'); this.head.position.y = 1.57;
+
+      // Hat brim + crown — bright yellow, iconic silhouette
+      const brim  = mk(0.60, 0.06, 0.60, '#f5c518'); brim.position.y = 1.82;
+      const crown = mk(0.34, 0.24, 0.34, '#f5c518'); crown.position.y = 1.95;
+
+      // Body — vivid orange-red with emissive so it pops in shadow
+      this.body = mk(0.52, 0.72, 0.32, '#ff4500', '#cc2200'); this.body.position.y = 0.91;
+
+      // Backpack (paint supplies) — dark slate
+      const pack = mk(0.22, 0.32, 0.12, '#3a3a50'); pack.position.set(0, 0.98, -0.22);
+
+      // Legs — dark navy, high contrast against ground
+      this.legL = mk(0.20, 0.52, 0.26, '#0d0d28'); this.legL.position.set(-0.13, 0.30, 0);
+      this.legR = mk(0.20, 0.52, 0.26, '#0d0d28'); this.legR.position.set( 0.13, 0.30, 0);
+
+      // Shoes — warm brown
+      const shoeL = mk(0.22, 0.10, 0.30, '#4a2e18'); shoeL.position.set(-0.13, 0.03, 0.02);
+      const shoeR = mk(0.22, 0.10, 0.30, '#4a2e18'); shoeR.position.set( 0.13, 0.03, 0.02);
+
+      // Arms — same vivid orange with emissive
+      this.armL = mk(0.18, 0.52, 0.20, '#ff4500', '#cc2200'); this.armL.position.set(-0.40, 0.86, 0);
+      this.armR = mk(0.18, 0.52, 0.20, '#ff4500', '#cc2200'); this.armR.position.set( 0.40, 0.86, 0);
+
+      [this.head, brim, crown, this.body, pack,
+       this.legL, this.legR, shoeL, shoeR, this.armL, this.armR]
+        .forEach(m => this.group.add(m));
       this.group.position.set(start.x, 0, start.z);
       scene.add(this.group);
     }
@@ -652,23 +711,96 @@ HARD RULES for the SVG:
   }
 
   // ==========================================================================
-  //  CAMERA RIG — slow cinematic orbit
+  //  CAMERA RIG — orbit + user mouse/touch controls
   // ==========================================================================
   class CameraRig {
-    constructor(camera, target) {
-      this.camera = camera;
-      this.angle = 0;
-      this.center = new THREE.Vector3(target.x, 0, target.z);
+    constructor(camera, canvas) {
+      this.camera  = camera;
+      this.pivot   = new THREE.Vector3(0, 0, 14);
+      this.azimuth = 0;                          // horizontal angle
+      this.polar   = CONFIG.camPolar;            // angle from vertical
+      this.radius  = CONFIG.camRadius;
+      this.following = true;
+
+      this._drag   = false;
+      this._lx = 0; this._ly = 0;
+      this._touches = [];
+
+      this._bind(canvas);
     }
-    update(dt, target) {
-      this.angle += dt * CONFIG.camOrbitSpeed;
-      this.center.lerp(new THREE.Vector3(target.x, 0, target.z), CONFIG.camFollowLerp);
+
+    _bind(el) {
+      // --- Mouse ---
+      el.addEventListener('mousedown', e => {
+        this._drag = true; this._lx = e.clientX; this._ly = e.clientY;
+        this._detach();
+      });
+      window.addEventListener('mousemove', e => {
+        if (!this._drag) return;
+        this._orbit(e.clientX - this._lx, e.clientY - this._ly);
+        this._lx = e.clientX; this._ly = e.clientY;
+      });
+      window.addEventListener('mouseup', () => { this._drag = false; });
+      el.addEventListener('wheel', e => {
+        e.preventDefault();
+        this.radius = clamp(this.radius + e.deltaY * 0.06, CONFIG.camRadiusMin, CONFIG.camRadiusMax);
+      }, { passive: false });
+
+      // --- Touch ---
+      el.addEventListener('touchstart', e => {
+        e.preventDefault();
+        this._touches = Array.from(e.touches);
+        if (e.touches.length === 1) { this._lx = e.touches[0].clientX; this._ly = e.touches[0].clientY; this._detach(); }
+      }, { passive: false });
+      el.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (e.touches.length === 1) {
+          this._orbit(e.touches[0].clientX - this._lx, e.touches[0].clientY - this._ly);
+          this._lx = e.touches[0].clientX; this._ly = e.touches[0].clientY;
+        } else if (e.touches.length === 2) {
+          // Pinch zoom
+          const cur = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+          const prev = this._touches.length === 2
+            ? Math.hypot(this._touches[0].clientX - this._touches[1].clientX, this._touches[0].clientY - this._touches[1].clientY)
+            : cur;
+          this.radius = clamp(this.radius - (cur - prev) * 0.12, CONFIG.camRadiusMin, CONFIG.camRadiusMax);
+          this._touches = Array.from(e.touches);
+        }
+      }, { passive: false });
+      el.addEventListener('touchend', e => { this._touches = Array.from(e.touches); });
+    }
+
+    _orbit(dx, dy) {
+      const s = CONFIG.camDragSensitivity;
+      this.azimuth += dx * s;
+      this.polar = clamp(this.polar + dy * s * 0.7, CONFIG.camPolarMin, CONFIG.camPolarMax);
+    }
+
+    _detach() {
+      if (this.following) {
+        this.following = false;
+        document.getElementById('follow-btn').classList.add('visible');
+      }
+    }
+
+    reattach(charPos) {
+      this.following = true;
+      this.pivot.set(charPos.x, 0, charPos.z);
+      document.getElementById('follow-btn').classList.remove('visible');
+    }
+
+    update(dt, charPos) {
+      if (this.following) {
+        this.azimuth += dt * CONFIG.camOrbitSpeed;
+        this.pivot.lerp(new THREE.Vector3(charPos.x, 0, charPos.z), CONFIG.camFollowLerp);
+      }
+      const sinP = Math.sin(this.polar), cosP = Math.cos(this.polar);
       this.camera.position.set(
-        this.center.x + Math.cos(this.angle) * CONFIG.camDistance,
-        CONFIG.camHeight,
-        this.center.z + Math.sin(this.angle) * CONFIG.camDistance
+        this.pivot.x + Math.cos(this.azimuth) * sinP * this.radius,
+        cosP * this.radius + 1.5,
+        this.pivot.z + Math.sin(this.azimuth) * sinP * this.radius
       );
-      this.camera.lookAt(this.center.x, 2, this.center.z);
+      this.camera.lookAt(this.pivot.x, 1.5, this.pivot.z);
     }
   }
 
@@ -705,7 +837,11 @@ HARD RULES for the SVG:
       this.character = new Character(this.scene, { x: 0, z: 14 });
       this.factory = new MuralFactory(this.scene, this.renderer);
       this.agent = new Agent(this.city, this.character, this.factory);
-      this.rig = new CameraRig(this.camera, this.character.pos);
+      this.rig = new CameraRig(this.camera, this.renderer.domElement);
+
+      document.getElementById('follow-btn').addEventListener('click', () => {
+        this.rig.reattach(this.character.pos);
+      });
 
       this.clock = new THREE.Clock();
       this.booted = false;
