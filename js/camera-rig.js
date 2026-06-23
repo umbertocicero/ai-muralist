@@ -38,6 +38,8 @@ export class CameraRig {
     this.pivot       = new THREE.Vector3(CONFIG.charStart.x, 0, CONFIG.charStart.z);
     this.pivotTarget = this.pivot.clone();
     this.following   = true;
+    this.lookY       = CONFIG.camLookY;     // height the camera aims at
+    this.lookYTarget = CONFIG.camLookY;
 
     this._ray   = new THREE.Raycaster();
     this._ndc   = new THREE.Vector2();
@@ -178,6 +180,7 @@ export class CameraRig {
     const fwd   = { x: -Math.cos(az), z: -Math.sin(az) };
     this.pivotTarget.x += (-right.x * dx - fwd.x * dy) * k;
     this.pivotTarget.z += (-right.z * dx - fwd.z * dy) * k;
+    this.lookYTarget = CONFIG.camLookY;
     this._clampPivot();
     this._detach();
   }
@@ -186,9 +189,24 @@ export class CameraRig {
     const g = this._groundAt(clientX, clientY);
     if (!g) return;
     if (this.city?.isColliding(g.x, g.z)) return;   // stay on the streets
+    this.lookYTarget = CONFIG.camLookY;
     this.pivotTarget.set(g.x, 0, g.z);
     this._clampPivot();
     this._detach();
+  }
+
+  // Fly to a painted mural and frame it head-on (sidebar click → Street-View).
+  // t: { px, py, pz, nx, nz }  — wall point + outward normal.
+  focusMural(t) {
+    if (!t) return;
+    this._detach();
+    this.velAz = this.velPolar = 0;
+    this.pivotTarget.set(t.px, 0, t.pz);
+    this.lookYTarget  = t.py;
+    this.azimuth      = Math.atan2(t.nz, t.nx);   // camera on the wall's front side
+    this.polar        = 1.5;                       // near-level, looking at the wall
+    this.targetRadius = 6.0;
+    this._clampPivot();
   }
 
   _clampPivot() {
@@ -205,6 +223,7 @@ export class CameraRig {
   reattach(charPos) {
     this.following = true;
     this.ui.cameraFollowing = true;
+    this.lookYTarget = CONFIG.camLookY;
     this.pivotTarget.set(charPos.x, 0, charPos.z);
   }
 
@@ -234,24 +253,22 @@ export class CameraRig {
     this.radius += (this.targetRadius - this.radius) * (1 - Math.exp(-dt * CONFIG.camZoomLerp));
     const pf = 1 - Math.exp(-dt * CONFIG.camFollowLerp);
     this.pivot.lerp(this.pivotTarget, pf);
+    this.lookY += (this.lookYTarget - this.lookY) * pf;
 
     const sinP = Math.sin(this.polar), cosP = Math.cos(this.polar);
     const dirX = Math.cos(this.azimuth) * sinP, dirZ = Math.sin(this.azimuth) * sinP;
 
-    // camera collision (3D): never push the lens through a building — march out
-    // from the focus and stop just shy of the first wall the view-ray would
-    // actually pass *through*. High overview angles clear the rooftops, so they
-    // aren't blocked; only low street-level views get pulled into the lane.
+    // camera collision: keep the lens out of the inside of a building. March
+    // inward from the full distance and use the first distance whose endpoint
+    // is in the clear (outside any footprint, or above its roof). High overview
+    // angles clear the rooftops so they keep full distance; only a lens that
+    // would sit embedded in a wall gets pulled into the lane.
     let eff = this.radius;
     if (this.city) {
-      const camYFull = cosP * this.radius + 1.5;
-      const STEP = 0.6;
-      for (let d = STEP; d < this.radius; d += STEP) {
+      const STEP = 0.5;
+      for (let d = this.radius; d > 2.4; d -= STEP) {
         const top = this.city.hitsBuilding(this.pivot.x + dirX * d, this.pivot.z + dirZ * d);
-        if (top > 0) {
-          const rayY = CONFIG.camLookY + (camYFull - CONFIG.camLookY) * (d / this.radius);
-          if (rayY < top + 0.4) { eff = Math.max(2.4, d - STEP); break; }
-        }
+        if (top === 0 || cosP * d + 1.5 > top + 0.4) { eff = d; break; }
       }
     }
 
@@ -260,6 +277,6 @@ export class CameraRig {
       cosP * eff + 1.5,
       this.pivot.z + dirZ * eff,
     );
-    this.camera.lookAt(this.pivot.x, CONFIG.camLookY, this.pivot.z);
+    this.camera.lookAt(this.pivot.x, this.lookY, this.pivot.z);
   }
 }

@@ -1,6 +1,6 @@
 # TODO 
-- [ ] espandere il mondo
-- [ ] il click su un murales nella sidebar mi morta panando davanti ad ad esso, vedendolo bene
+- [x] espandere il mondo
+- [x] il click su un murales nella sidebar mi morta panando davanti ad ad esso, vedendolo bene
 - [ ] il solo segue la posizione in cui in questo momento si troverebbe questa ipotetica cittadina Giapponese
 - [ ] il sole si muove nel tempo, calcola l'orario, e diventa giorno o notte in base all'ora reale in Giappone.
 - [ ] mostra orario

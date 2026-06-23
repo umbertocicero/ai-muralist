@@ -3,11 +3,13 @@ export default {
   props: {
     entries: { type: Array, default: () => [] },
   },
+  emits: ['focus'],
   template: `
     <div id="log" class="ui panel">
       <div class="hdr">RECENT MURALS</div>
       <template v-if="entries.length">
-        <div v-for="e in entries" :key="e.id" class="entry">
+        <div v-for="e in entries" :key="e.id" class="entry" :class="{ clickable: e.target }"
+             @click="e.target && $emit('focus', e)">
           <span class="n">#{{ String(e.id + 1).padStart(3, '0') }}</span>
           {{ e.styleName }}
           <div class="meta">

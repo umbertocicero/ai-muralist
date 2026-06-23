@@ -15,8 +15,8 @@ export const CONFIG = {
   // A grid of low apartment blocks separated by narrow lanes (= the traverse
   // cross-streets). Wider world than the single alley.
   grid: {
-    n: 5,          // 5×5 blocks
-    spacing: 17,   // block-centre to block-centre
+    n: 6,          // 6×6 blocks — bigger neighbourhood
+    spacing: 16.5, // block-centre to block-centre
     laneHalf: 3.4, // visual lane half-width reference
   },
 
@@ -53,7 +53,7 @@ export const CONFIG = {
   camRadius: 30,
   camPolar: 1.12,
   camPolarMin: 0.32,
-  camPolarMax: 1.45,
+  camPolarMax: 1.52,
   camRadiusMin: 7,
   camRadiusMax: 96,
   camAzimuth: Math.PI * 0.25,   // pleasant 3/4 view to start

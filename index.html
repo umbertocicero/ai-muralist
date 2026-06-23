@@ -38,7 +38,10 @@
 
   #log { top: 18px; right: 18px; width: 230px; }
   #log .hdr { font-size: 10px; letter-spacing: 2px; color: #666655; margin-bottom: 8px; }
-  #log .entry { font-size: 11px; line-height: 1.5; padding: 4px 0; border-top: 1px solid rgba(0,0,0,0.08); }
+  #log .entry { font-size: 11px; line-height: 1.5; padding: 4px 0; border-top: 1px solid rgba(0,0,0,0.08); transition: color 0.15s; }
+  #log .entry.clickable { pointer-events: auto; cursor: pointer; }
+  #log .entry.clickable:hover { color: #ff6b35; }
+  #log .entry.clickable:hover .meta { color: #ff6b35; }
   #log .entry .n { color: #ff6b35; font-weight: bold; }
   #log .entry .meta { color: #666655; font-size: 10px; }
   #log .empty { font-size: 11px; color: #999; font-style: italic; }

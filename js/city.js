@@ -40,6 +40,7 @@ export class City {
     this._buildBlocks();
     this._buildPolesAndWires();
     this._buildClutter();
+    this._buildGreenery();
   }
 
   // ── Ground: one big asphalt sheet; lanes are the gaps between blocks ───────
@@ -258,6 +259,81 @@ export class City {
         k++;
       }
     }
+  }
+
+  // ── Vegetation: the alleys are overgrown — vines, bushes, trees, pots ─────
+  _buildGreenery() {
+    const LEAF = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
+    for (let ix = 0; ix < N; ix++) {
+      for (let iz = 0; iz < N; iz++) {
+        const cx = (ix - HALF) * S, cz = (iz - HALF) * S;
+        const seed = ix * 5 + iz * 11;
+        const W = 9.6 + (seed % 3) * 0.4, D = 9.6 + ((seed + 1) % 3) * 0.4;
+
+        // climbing ivy up a lane-facing wall (every few blocks)
+        if (seed % 3 === 0) {
+          const nx = (seed % 2 ? 1 : -1);
+          this._vine(cx + nx * (W / 2 + 0.18), cz + (D / 2 - 1.4), 3.4 + (seed % 3), LEAF);
+        }
+        // a leafy bush tucked at a block corner
+        if (seed % 2 === 0) {
+          this._bush(cx + (W / 2 + 0.7) * (seed % 4 < 2 ? 1 : -1), cz - D / 2 - 0.7, 0.7 + (seed % 3) * 0.12, LEAF);
+        }
+        // overgrown cluster of pots crowding the base of a wall
+        const nz = (seed % 2 ? 1 : -1);
+        const baseZ = cz + nz * (D / 2 + 0.55);
+        for (let p = -1; p <= 1; p++) {
+          this._pottedPlant(cx + p * 0.95, baseZ, 0.7 + ((seed + p + 3) % 3) * 0.18);
+        }
+        // a plant hanging from an upper balcony edge
+        if (seed % 4 === 1) {
+          this._hangingPlant(cx + (W / 2 + 0.2) * (seed % 2 ? 1 : -1), 3.0, cz + (D * 0.2), LEAF);
+        }
+      }
+    }
+    // bigger trees standing at some lane intersections
+    const lanes = this._laneCoords();
+    for (let i = 1; i < lanes.length - 1; i += 2) {
+      for (let j = 1; j < lanes.length - 1; j += 2) {
+        if ((i * 3 + j) % 3 !== 0) continue;
+        if (Math.abs(lanes[i]) > BOUND - 2 || Math.abs(lanes[j]) > BOUND - 2) continue;
+        this._bigTree(lanes[i], lanes[j], LEAF);
+      }
+    }
+  }
+
+  // a single faceted leaf-mass (manga dark clump)
+  _leaf(x, y, z, r, tone) {
+    const m = inkedMesh(new THREE.IcosahedronGeometry(r, 0), tone, { k: 1.05, cast: false });
+    m.position.set(x, y, z);
+    m.rotation.set(Math.random(), Math.random(), Math.random());
+    this.scene.add(m);
+    return m;
+  }
+
+  _vine(x, z, h, LEAF) {
+    for (let y = 0.4; y < h; y += 0.55) {
+      const r = 0.26 + Math.random() * 0.12;
+      this._leaf(x + (Math.random() - 0.5) * 0.18, y, z + (Math.random() - 0.5) * 0.5, r, LEAF[(y * 7 | 0) % LEAF.length]);
+    }
+  }
+
+  _bush(x, z, s, LEAF) {
+    [[0, 0.32, 0], [0.32, 0.30, 0.1], [-0.28, 0.34, -0.12], [0.05, 0.55, 0.0]].forEach(([ox, oy, oz], i) =>
+      this._leaf(x + ox * s, oy * s + 0.1, z + oz * s, (0.28 + (i % 2) * 0.08) * s, LEAF[i % LEAF.length]));
+  }
+
+  _hangingPlant(x, y, z, LEAF) {
+    const pot = inkedMesh(new THREE.CylinderGeometry(0.16, 0.13, 0.22, 8), '#cfcdc9', { k: 1.06, cast: false });
+    pot.position.set(x, y, z); this.scene.add(pot);
+    for (let k = 0; k < 3; k++) this._leaf(x + (Math.random() - 0.5) * 0.25, y - 0.2 - k * 0.22, z + (Math.random() - 0.5) * 0.25, 0.16, LEAF[k % LEAF.length]);
+  }
+
+  _bigTree(x, z, LEAF) {
+    const trunk = inkedMesh(new THREE.CylinderGeometry(0.16, 0.22, 3.4, 7), '#231d18', { k: 1.05 });
+    trunk.position.set(x, 1.7, z); this.scene.add(trunk);
+    [[0, 4.0, 0, 1.4], [0.7, 4.5, 0.3, 1.0], [-0.6, 4.4, -0.4, 1.05], [0.1, 5.1, 0.0, 0.9]].forEach(([ox, oy, oz, r], i) =>
+      this._leaf(x + ox, oy, z + oz, r, LEAF[i % LEAF.length]));
   }
 
   _pottedPlant(x, z, s = 1) {

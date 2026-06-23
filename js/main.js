@@ -33,8 +33,9 @@ const ui = reactive({
   thoughtVisible:  false,
   flashActive:     false,
   cameraFollowing: true,
-  // Callback slot: Vue follow-button → Three.js CameraRig
+  // Callback slots: Vue → Three.js CameraRig
   onFollowRequest: null,
+  onMuralFocus:    null,
 });
 
 // ==========================================================================
@@ -50,12 +51,15 @@ const VueRoot = {
     onFollow() {
       ui.onFollowRequest?.();
     },
+    onMuralFocus(entry) {
+      ui.onMuralFocus?.(entry.target);
+    },
   },
   template: `
     <FlashOverlay  :active="ui.flashActive" />
     <BootScreen    :hidden="ui.booted" :error="ui.bootError" />
     <TitlePanel />
-    <MuralLog      :entries="ui.logEntries" />
+    <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />
@@ -99,9 +103,10 @@ class App {
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
 
-    // Wire follow-button callback: Vue → Three.js
+    // Wire callbacks: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos);
-    if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; }
+    ui.onMuralFocus    = (target) => this.rig.focusMural(target);
+    if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
 
     // Clock
     this.clock   = new THREE.Clock();

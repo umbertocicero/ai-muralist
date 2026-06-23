@@ -86,6 +86,8 @@ export class Agent {
         wallW:       slot.wallW,
         wallH:       slot.wallH,
         buildingIdx: slot.buildingIdx,
+        // where the mural lives, so the sidebar can fly the camera to it
+        target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
       });
       if (this.ui.logEntries.length > CONFIG.maxLogEntries) this.ui.logEntries.pop();
     } catch (e) {
