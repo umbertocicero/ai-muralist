@@ -36,7 +36,7 @@ export const CONFIG = {
   buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
 
   // --- Agent / physics ---
-  charStart: { x: 8.5, z: 8.5 },  // a lane intersection (open ground)
+  charStart: { x: 16.5, z: 0 },  // an open lane crossing (clear of the centre tree)
   charRadius: 0.4,
   moveSpeed: 3.2,
   approachOffset: 1.5,

@@ -103,6 +103,16 @@ class App {
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
 
+    // Safety: if the spawn ever lands inside a block (e.g. grid retuned),
+    // relocate KAI to a guaranteed-open lane point so he's never stuck/hidden.
+    if (this.city.isColliding(this.character.pos.x, this.character.pos.z)) {
+      const p = this.city.randomReachablePoint();
+      this.character.pos.x = p.x; this.character.pos.z = p.z;
+      this.character.group.position.set(p.x, 0, p.z);
+      this.rig.pivot.set(p.x, 0, p.z);
+      this.rig.pivotTarget.set(p.x, 0, p.z);
+    }
+
     // Wire callbacks: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos);
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
