@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>AI Muralist — Autonomous Street Art</title>
+<meta name="description" content="An autonomous AI agent wanders a tiny 3D city and paints murals generated in real time by Claude." />
+<meta property="og:title" content="AI Muralist" />
+<meta property="og:description" content="An autonomous AI street artist painting murals in a tiny 3D city. Forever." />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #87CEEB; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* ---- UI overlay ---- */
+  .ui {
+    position: fixed;
+    z-index: 10;
+    pointer-events: none;
+    font-family: 'Courier New', monospace;
+    color: #1a1a1a;
+  }
+  .panel {
+    background: rgba(245, 240, 230, 0.88);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    padding: 12px 16px;
+    border-radius: 2px;
+  }
+
+  /* Title block — top-left */
+  #title { top: 18px; left: 18px; }
+  #title .exp { font-size: 11px; letter-spacing: 2px; color: #666655; }
+  #title .name { font-size: 22px; font-weight: bold; letter-spacing: 3px; margin: 2px 0; }
+  #title .sub { font-size: 11px; letter-spacing: 1px; color: #666655; }
+  #title .accent { color: #ff6b35; }
+
+  /* Mural log — top-right */
+  #log { top: 18px; right: 18px; width: 230px; }
+  #log .hdr { font-size: 10px; letter-spacing: 2px; color: #666655; margin-bottom: 8px; }
+  #log .entry { font-size: 11px; line-height: 1.5; padding: 4px 0; border-top: 1px solid rgba(0,0,0,0.08); }
+  #log .entry .n { color: #ff6b35; font-weight: bold; }
+  #log .entry .meta { color: #666655; font-size: 10px; }
+  #log .empty { font-size: 11px; color: #999; font-style: italic; }
+
+  /* Status bar — bottom-left */
+  #status { bottom: 18px; left: 18px; display: flex; align-items: center; gap: 10px; }
+  #status .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #ff6b35; animation: pulse 1.4s ease-in-out infinite;
+  }
+  #status .label { font-size: 12px; letter-spacing: 1px; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
+
+  /* Mural counter — bottom-right */
+  #counter { bottom: 18px; right: 18px; text-align: right; }
+  #counter .num { font-size: 40px; font-weight: bold; line-height: 1; color: #ff6b35; }
+  #counter .cap { font-size: 10px; letter-spacing: 2px; color: #666655; margin-top: 2px; }
+
+  /* Thought bubble — bottom-center */
+  #thought {
+    bottom: 90px; left: 50%; transform: translateX(-50%);
+    max-width: min(560px, 86vw); text-align: center;
+    opacity: 0; transition: opacity 0.5s ease;
+  }
+  #thought.show { opacity: 1; }
+  #thought .tip { font-size: 10px; letter-spacing: 3px; color: #ff6b35; margin-bottom: 6px; }
+  #thought .text { font-size: 17px; line-height: 1.4; font-style: italic; }
+
+  /* Painting flash overlay */
+  #flash {
+    position: fixed; inset: 0; z-index: 9; pointer-events: none;
+    background: radial-gradient(circle at center, rgba(255,107,53,0.18), transparent 70%);
+    opacity: 0; transition: opacity 0.4s ease;
+  }
+  #flash.on { opacity: 1; }
+
+  /* Loading / boot */
+  #boot {
+    position: fixed; inset: 0; z-index: 20; display: flex;
+    align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    background: #87CEEB; font-family: 'Courier New', monospace; color: #1a1a1a;
+    transition: opacity 0.8s ease;
+  }
+  #boot.hide { opacity: 0; pointer-events: none; }
+  #boot .b-name { font-size: 18px; letter-spacing: 4px; font-weight: bold; }
+  #boot .b-sub { font-size: 11px; letter-spacing: 2px; color: #4a5a66; }
+
+  @media (max-width: 640px) {
+    #log { display: none; }
+    #title .name { font-size: 18px; }
+    #thought .text { font-size: 15px; }
+    #counter .num { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="flash"></div>
+
+  <div id="title" class="ui panel">
+    <div class="exp">EXPERIMENT №001</div>
+    <div class="name">AI <span class="accent">MURALIST</span></div>
+    <div class="sub">Autonomous street art · powered by Claude</div>
+  </div>
+
+  <div id="log" class="ui panel">
+    <div class="hdr">RECENT MURALS</div>
+    <div id="log-body"><div class="empty">no murals yet…</div></div>
+  </div>
+
+  <div id="status" class="ui panel">
+    <div class="dot"></div>
+    <div class="label" id="status-label">booting…</div>
+  </div>
+
+  <div id="counter" class="ui panel">
+    <div class="num" id="counter-num">0</div>
+    <div class="cap">MURALS CREATED</div>
+  </div>
+
+  <div id="thought" class="ui">
+    <div class="panel">
+      <div class="tip">AI IS THINKING</div>
+      <div class="text" id="thought-text"></div>
+    </div>
+  </div>
+
+  <div id="boot">
+    <div class="b-name">AI MURALIST</div>
+    <div class="b-sub">loading the city…</div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+  // ============================================================================
+  //  CONFIG
+  // ============================================================================
+  // URL of the deployed Cloudflare Worker proxy. After `wrangler deploy`, replace
+  // this with your worker URL, e.g. "https://ai-muralist-proxy.<account>.workers.dev".
+  // If you use Cloudflare Pages Functions (same-origin), set it to "/api/claude".
+  // If left as null, the app runs in OFFLINE DEMO mode with locally-generated SVGs.
+  const WORKER_URL = null;
+  const MODEL      = 'claude-sonnet-4-6';
+
+  // ============================================================================
+  //  THREE.JS SCENE
+  // ============================================================================
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#87CEEB');
+  scene.fog = new THREE.Fog('#c9e8f5', 40, 90);
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.getElementById('app').appendChild(renderer.domElement);
+
+  // ---- Lighting -------------------------------------------------------------
+  const sun = new THREE.DirectionalLight('#fff5e0', 1.8);
+  sun.position.set(50, 80, 30);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 200;
+  sun.shadow.camera.left = -70;
+  sun.shadow.camera.right = 70;
+  sun.shadow.camera.top = 70;
+  sun.shadow.camera.bottom = -70;
+  sun.shadow.bias = -0.0004;
+  scene.add(sun);
+
+  scene.add(new THREE.AmbientLight('#c9dff0', 0.9));
+
+  const hemi = new THREE.HemisphereLight('#87CEEB', '#6b8e6b', 0.4);
+  scene.add(hemi);
+
+  // ---- Ground + roads -------------------------------------------------------
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ color: '#9a9a9a', roughness: 1 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  function addRoad(x, z, w, d) {
+    const road = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, d),
+      new THREE.MeshStandardMaterial({ color: '#6e6e6e', roughness: 1 })
+    );
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(x, 0.01, z);
+    road.receiveShadow = true;
+    scene.add(road);
+  }
+  // Main roads (X and Z axes, width 6)
+  addRoad(0, 0, 6, 200);
+  addRoad(0, 0, 200, 6);
+  // Secondary roads at ±20
+  [-20, 20].forEach(c => { addRoad(c, 0, 5, 200); addRoad(0, c, 200, 5); });
+
+  // Sidewalks along main roads
+  function addSidewalk(x, z, w, d) {
+    const sw = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, d),
+      new THREE.MeshStandardMaterial({ color: '#b8b4ac', roughness: 1 })
+    );
+    sw.rotation.x = -Math.PI / 2;
+    sw.position.set(x, 0.05, z);
+    sw.receiveShadow = true;
+    scene.add(sw);
+  }
+  [-3.6, 3.6].forEach(o => { addSidewalk(o, 0, 1, 200); addSidewalk(0, o, 200, 1); });
+
+  // ============================================================================
+  //  BUILDINGS
+  // ============================================================================
+  const BUILDING_COLORS = ['#d4c9b8', '#c2b9a7', '#b8c4c2', '#cfc8be'];
+  const positions = [
+    [-12,-12],[12,-12],[-12,12],[12,12],
+    [-30,-12],[-30,12],[30,-12],[30,12],
+    [-12,-30],[12,-30],[-12,30],[12,30],
+    [-30,-30],[30,-30],[-30,30],[30,30],
+  ];
+
+  // Deterministic per-building variation so reloads look stable-ish but varied.
+  const buildingConfigs = positions.map(([x, z], i) => {
+    const w = 7 + (i % 3);          // 7–9
+    const d = 7 + ((i + 1) % 3);    // 7–9
+    const h = 4 + (i % 4);          // 4–7
+    return { x, z, w, d, h, color: BUILDING_COLORS[i % BUILDING_COLORS.length] };
+  });
+
+  buildingConfigs.forEach(cfg => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(cfg.w, cfg.h, cfg.d),
+      new THREE.MeshStandardMaterial({ color: cfg.color, roughness: 0.85 })
+    );
+    mesh.position.set(cfg.x, cfg.h / 2, cfg.z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  });
+
+  // ---- Lampposts (every 3rd building) ---------------------------------------
+  buildingConfigs.forEach((cfg, i) => {
+    if (i % 3 !== 0) return;
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 4, 8),
+      new THREE.MeshStandardMaterial({ color: '#3a3a3a', roughness: 0.6 })
+    );
+    const lx = cfg.x + (cfg.w / 2 + 1.4) * (cfg.x >= 0 ? 1 : -1);
+    post.position.set(lx, 2, cfg.z);
+    post.castShadow = true;
+    scene.add(post);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 12, 12),
+      new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#ffe07a', emissiveIntensity: 0.6 })
+    );
+    bulb.position.set(lx, 4.1, cfg.z);
+    scene.add(bulb);
+  });
+
+  // ============================================================================
+  //  COLLISION (AABB)
+  // ============================================================================
+  const CHAR_RADIUS = 0.4;
+  const buildingBBoxes = buildingConfigs.map(cfg => ({
+    minX: cfg.x - cfg.w / 2 - CHAR_RADIUS,
+    maxX: cfg.x + cfg.w / 2 + CHAR_RADIUS,
+    minZ: cfg.z - cfg.d / 2 - CHAR_RADIUS,
+    maxZ: cfg.z + cfg.d / 2 + CHAR_RADIUS,
+  }));
+
+  function isColliding(x, z) {
+    return buildingBBoxes.some(b => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ);
+  }
+
+  function rotateY2D(v, angle) {
+    return {
+      x: v.x * Math.cos(angle) - v.z * Math.sin(angle),
+      z: v.x * Math.sin(angle) + v.z * Math.cos(angle),
+    };
+  }
+
+  // Steering with obstacle avoidance + wall sliding. Returns false if fully stuck.
+  function steer(pos, target, speed) {
+    const dir = new THREE.Vector3(target.x - pos.x, 0, target.z - pos.z).normalize();
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const sign = attempt % 2 === 0 ? 1 : -1;
+      const steps = Math.floor(attempt / 2);
+      const angle = sign * steps * (Math.PI / 12);
+      const rot = rotateY2D(dir, angle);
+      const nextX = pos.x + rot.x * speed;
+      const nextZ = pos.z + rot.z * speed;
+      if (!isColliding(nextX, nextZ)) {
+        pos.x = nextX;
+        pos.z = nextZ;
+        return rot; // moved
+      }
+    }
+    return false; // stuck
+  }
+
+  // ============================================================================
+  //  WALL SLOTS
+  // ============================================================================
+  const wallSlots = [];
+  buildingConfigs.forEach((cfg, idx) => {
+    const py = cfg.h / 2;
+    // N (+z), S (-z), E (+x), W (-x)
+    wallSlots.push({ px: cfg.x, py, pz: cfg.z + cfg.d / 2, nx: 0,  nz: 1,  wallW: cfg.w, wallH: cfg.h, buildingIdx: idx, used: false, mesh: null });
+    wallSlots.push({ px: cfg.x, py, pz: cfg.z - cfg.d / 2, nx: 0,  nz: -1, wallW: cfg.w, wallH: cfg.h, buildingIdx: idx, used: false, mesh: null });
+    wallSlots.push({ px: cfg.x + cfg.w / 2, py, pz: cfg.z, nx: 1,  nz: 0,  wallW: cfg.d, wallH: cfg.h, buildingIdx: idx, used: false, mesh: null });
+    wallSlots.push({ px: cfg.x - cfg.w / 2, py, pz: cfg.z, nx: -1, nz: 0,  wallW: cfg.d, wallH: cfg.h, buildingIdx: idx, used: false, mesh: null });
+  });
+
+  const APPROACH_OFFSET = 1.5;
+  function approachPoint(slot) {
+    return { x: slot.px + slot.nx * APPROACH_OFFSET, z: slot.pz + slot.nz * APPROACH_OFFSET };
+  }
+  function isWallApproachFree(slot) {
+    const p = approachPoint(slot);
+    return !isColliding(p.x, p.z);
+  }
+  function pickFreeSlot() {
+    const free = wallSlots.filter(s => !s.used && isWallApproachFree(s));
+    if (!free.length) return null;
+    return free[Math.floor(Math.random() * free.length)];
+  }
+
+  // ============================================================================
+  //  CHARACTER
+  // ============================================================================
+  const ORANGE = '#ff6b35';
+  const char = new THREE.Group();
+  function box(w, h, d, color) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+    m.castShadow = true;
+    return m;
+  }
+  const head   = box(0.4, 0.4, 0.4, '#ffd6b0'); head.position.y = 1.55;
+  const body   = box(0.5, 0.7, 0.3, ORANGE);    body.position.y = 0.90;
+  const legL   = box(0.2, 0.5, 0.25, '#2d2d44'); legL.position.set(-0.13, 0.30, 0);
+  const legR   = box(0.2, 0.5, 0.25, '#2d2d44'); legR.position.set( 0.13, 0.30, 0);
+  const armL   = box(0.18, 0.5, 0.2, ORANGE);   armL.position.set(-0.38, 0.85, 0);
+  const armR   = box(0.18, 0.5, 0.2, ORANGE);   armR.position.set( 0.38, 0.85, 0);
+  [head, body, legL, legR, armL, armR].forEach(m => char.add(m));
+  scene.add(char);
+
+  const charPos = { x: 0, z: 14 };
+  char.position.set(charPos.x, 0, charPos.z);
+  const MOVE_SPEED = 3.2; // units/sec
+
+  // ============================================================================
+  //  STATE MACHINE
+  // ============================================================================
+  const STATE = { WANDERING: 'WANDERING', MOVING_TO_WALL: 'MOVING_TO_WALL', THINKING: 'THINKING', PAINTING: 'PAINTING', CONTEMPLATING: 'CONTEMPLATING' };
+  let state = STATE.WANDERING;
+  let wanderTarget = randomCityPoint();
+  let wanderTimer = 0;
+  let thinkTimer = 0;
+  let paintTimer = 0;
+  let currentSlot = null;
+  let isApiPending = false;
+  let pendingResult = null;   // { thought, svg }
+  let facingTarget = 0;       // desired group.rotation.y
+
+  let muralCount = 0;
+  const STATUS_TEXT = {
+    WANDERING: 'wandering the streets',
+    MOVING_TO_WALL: 'approaching a blank wall',
+    THINKING: 'imagining a mural',
+    PAINTING: 'painting…',
+    CONTEMPLATING: 'every wall is painted · contemplating',
+  };
+
+  function randomCityPoint() {
+    for (let i = 0; i < 30; i++) {
+      const x = (Math.random() - 0.5) * 70;
+      const z = (Math.random() - 0.5) * 70;
+      if (!isColliding(x, z)) return { x, z };
+    }
+    return { x: 0, z: 0 };
+  }
+
+  function setState(s) {
+    state = s;
+    document.getElementById('status-label').textContent = STATUS_TEXT[s];
+  }
+
+  // ============================================================================
+  //  AI GENERATION
+  // ============================================================================
+  function aspectDesc(slot) {
+    const r = slot.wallH / slot.wallW;
+    if (r > 1.3) return 'tall portrait';
+    if (1 / r > 1.3) return 'wide landscape';
+    return 'roughly square';
+  }
+
+  function buildPrompt(slot, index) {
+    const PW = 512;
+    const PH = Math.round(512 * (slot.wallH / slot.wallW));
+    return { PW, PH, text:
+`You are MURO, an autonomous AI street artist with a distinctive visual voice.
+
+This is mural #${index}. Use (${index} % 8) to select your style:
+STYLE 0 — BAUHAUS: rigid geometry, bold primary palette + black/white, asymmetric balance
+STYLE 1 — ORGANIC: biomorphic flowing shapes, earthy palette with vivid accents
+STYLE 2 — PIXEL: strict grid, retro 8-color palette, hard pixel edges
+STYLE 3 — OP-ART: tessellated pattern, optical illusion depth, high-contrast B&W + one accent
+STYLE 4 — SURREAL: impossible scale, dreamlike juxtapositions, rich saturated 6-color palette
+STYLE 5 — GRAFFITI: letterforms dissolved into abstract shapes, spray-paint gradients, urban energy
+STYLE 6 — COSMOS: nebulae, planets, star fields, deep space gradients, bioluminescent accents
+STYLE 7 — BOTANICAL: stylized flora, organic tessellation, seasonal palette
+
+The wall is ${slot.wallW.toFixed(1)}m wide and ${slot.wallH.toFixed(1)}m tall (${aspectDesc(slot)}).
+
+Return your response in EXACTLY this format and nothing else:
+THOUGHT: <one sentence, 7-12 words, your raw poetic inner monologue about this wall or the city; no quotes, no trailing punctuation, do not start with "I">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PW} ${PH}" width="${PW}" height="${PH}">...</svg>
+
+HARD RULES for the SVG:
+- Allowed elements: rect circle ellipse polygon polyline path line defs linearGradient radialGradient stop g
+- FORBIDDEN: text image use symbol script foreignObject and any href/xlink/url() external references
+- First element MUST be a full-bleed background rect covering the whole viewBox
+- Include at least 2 gradient definitions in <defs>
+- Use at least 5 distinct colors; fill the entire canvas, no raw white space
+- Maximum 35 shape elements (excluding <defs> children)
+- Output ONLY the THOUGHT line then the raw SVG. No markdown fences, no comments, no explanation.` };
+  }
+
+  // Defensive parsing of the combined THOUGHT + SVG response.
+  function parseResult(raw) {
+    let thought = 'a wall is a question the city forgot to ask';
+    const tm = raw.match(/THOUGHT:\s*(.+)/i);
+    if (tm) thought = tm[1].split('\n')[0].trim().replace(/^["']|["']$/g, '');
+    const start = raw.indexOf('<svg');
+    const end = raw.lastIndexOf('</svg>');
+    let svg = (start !== -1 && end !== -1) ? raw.slice(start, end + 6) : null;
+    return { thought, svg };
+  }
+
+  async function generateMural(slot, index) {
+    const { PW, PH, text } = buildPrompt(slot, index);
+
+    if (!WORKER_URL) {
+      // Offline demo mode — local procedural SVG so the experience runs with no API.
+      await new Promise(r => setTimeout(r, 700 + Math.random() * 600));
+      return { thought: DEMO_THOUGHTS[index % DEMO_THOUGHTS.length], svg: demoSVG(PW, PH, index), PW, PH };
+    }
+
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, max_tokens: 2048, temperature: 1, messages: [{ role: 'user', content: text }] }),
+    });
+
+    if (res.status === 429) throw new Error('rate_limited');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'api_error');
+    const raw = data?.content?.[0]?.text;
+    if (!raw) throw new Error('empty_response');
+
+    const parsed = parseResult(raw);
+    if (!parsed.svg) throw new Error('no_svg');
+    return { ...parsed, PW, PH };
+  }
+
+  // ---- SVG -> texture -> mural plane ----------------------------------------
+  function applyMural(slot, svgString, PW, PH) {
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = PW; canvas.height = PH;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, PW, PH);
+        URL.revokeObjectURL(url);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.needsUpdate = true;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+        const muralW = slot.wallW * 0.88;
+        const muralH = slot.wallH * 0.85;
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(muralW, muralH),
+          new THREE.MeshStandardMaterial({ map: tex, roughness: 0.4 })
+        );
+        // Rotation to align plane (+z by default) with the wall normal.
+        if (slot.nz === 1) plane.rotation.y = 0;
+        else if (slot.nz === -1) plane.rotation.y = Math.PI;
+        else if (slot.nx === 1) plane.rotation.y = Math.PI / 2;
+        else if (slot.nx === -1) plane.rotation.y = -Math.PI / 2;
+
+        plane.position.set(slot.px + slot.nx * 0.02, slot.py, slot.pz + slot.nz * 0.02);
+        scene.add(plane);
+        slot.mesh = plane;
+        resolve();
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('svg_render_failed')); };
+      img.src = url;
+    });
+  }
+
+  // ============================================================================
+  //  UI HELPERS
+  // ============================================================================
+  const STYLE_NAMES = ['Bauhaus','Organic','Pixel','Op-Art','Surreal','Graffiti','Cosmos','Botanical'];
+  const logBody = document.getElementById('log-body');
+  function pushLog(index, slot) {
+    const empty = logBody.querySelector('.empty');
+    if (empty) empty.remove();
+    const e = document.createElement('div');
+    e.className = 'entry';
+    e.innerHTML = `<span class="n">#${String(index + 1).padStart(3, '0')}</span> ${STYLE_NAMES[index % 8]}` +
+                  `<div class="meta">${slot.wallW.toFixed(1)}×${slot.wallH.toFixed(1)}m · building ${slot.buildingIdx + 1}</div>`;
+    logBody.prepend(e);
+    while (logBody.children.length > 5) logBody.lastChild.remove();
+  }
+  function setThought(t) {
+    document.getElementById('thought-text').textContent = t;
+    document.getElementById('thought').classList.add('show');
+  }
+  function hideThought() { document.getElementById('thought').classList.remove('show'); }
+  const flash = document.getElementById('flash');
+
+  // ============================================================================
+  //  MAIN LOOP
+  // ============================================================================
+  let orbitAngle = 0;
+  const cameraTarget = new THREE.Vector3(charPos.x, 0, charPos.z);
+  const clock = new THREE.Clock();
+
+  function update(dt, t) {
+    switch (state) {
+      case STATE.WANDERING: {
+        wanderTimer += dt;
+        const moved = steer(charPos, wanderTarget, MOVE_SPEED * dt);
+        if (moved) faceDir(moved);
+        const dist = Math.hypot(wanderTarget.x - charPos.x, wanderTarget.z - charPos.z);
+        if (dist < 0.6 || !moved) { wanderTarget = randomCityPoint(); wanderTimer = 0; }
+
+        if (wanderTimer > 4 && Math.random() < 0.55 * dt * 60 / 60) {
+          const slot = pickFreeSlot();
+          if (slot) { currentSlot = slot; setState(STATE.MOVING_TO_WALL); }
+          else if (wallSlots.every(s => s.used)) setState(STATE.CONTEMPLATING);
+          wanderTimer = 0;
+        }
+        animWalk(t);
+        break;
+      }
+      case STATE.MOVING_TO_WALL: {
+        const ap = approachPoint(currentSlot);
+        const moved = steer(charPos, ap, MOVE_SPEED * dt);
+        if (moved) faceDir(moved);
+        const dist = Math.hypot(ap.x - charPos.x, ap.z - charPos.z);
+        if (dist < 0.2 || !moved) {
+          setState(STATE.THINKING);
+          thinkTimer = 0;
+          // Face the wall.
+          facingTarget = Math.atan2(-currentSlot.nx, -currentSlot.nz);
+          startGeneration();
+        }
+        animWalk(t);
+        break;
+      }
+      case STATE.THINKING: {
+        thinkTimer += dt;
+        animIdle(t);
+        // Move to painting once we've thought >=2s AND the API has resolved.
+        if (thinkTimer > 2 && !isApiPending) {
+          if (pendingResult && pendingResult.svg) { setState(STATE.PAINTING); paintTimer = 0; flash.classList.add('on'); }
+          else { releaseSlot(); } // generation failed -> back to wandering
+        }
+        break;
+      }
+      case STATE.PAINTING: {
+        paintTimer += dt;
+        animPaint(t);
+        if (paintTimer > 2.2) finishPainting();
+        break;
+      }
+      case STATE.CONTEMPLATING: {
+        wanderTimer += dt;
+        const moved = steer(charPos, wanderTarget, MOVE_SPEED * 0.6 * dt);
+        if (moved) faceDir(moved);
+        const dist = Math.hypot(wanderTarget.x - charPos.x, wanderTarget.z - charPos.z);
+        if (dist < 0.6 || !moved) wanderTarget = randomCityPoint();
+        animWalk(t, 0.6);
+        break;
+      }
+    }
+
+    // Smooth body rotation toward target heading.
+    char.rotation.y = lerpAngle(char.rotation.y, facingTarget, 0.15);
+    char.position.set(charPos.x, 0, charPos.z);
+  }
+
+  function faceDir(rot) { facingTarget = Math.atan2(rot.x, rot.z); }
+
+  function startGeneration() {
+    if (isApiPending) return;
+    isApiPending = true;
+    pendingResult = null;
+    const slot = currentSlot;
+    const index = muralCount;
+    generateMural(slot, index)
+      .then(result => { pendingResult = result; setThought(result.thought); })
+      .catch(err => { pendingResult = null; console.warn('generation failed:', err.message); })
+      .finally(() => { isApiPending = false; });
+  }
+
+  async function finishPainting() {
+    const slot = currentSlot;
+    const index = muralCount;
+    try {
+      await applyMural(slot, pendingResult.svg, pendingResult.PW, pendingResult.PH);
+      slot.used = true;
+      pushLog(index, slot);
+      muralCount++;
+      document.getElementById('counter-num').textContent = muralCount;
+    } catch (e) {
+      slot.used = false; // release on failure
+      console.warn('apply failed:', e.message);
+    }
+    flash.classList.remove('on');
+    hideThought();
+    pendingResult = null;
+    currentSlot = null;
+    wanderTarget = randomCityPoint();
+    wanderTimer = 0;
+    setState(STATE.WANDERING);
+  }
+
+  function releaseSlot() {
+    if (currentSlot) currentSlot.used = false;
+    currentSlot = null;
+    flash.classList.remove('on');
+    hideThought();
+    wanderTarget = randomCityPoint();
+    wanderTimer = 0;
+    setState(STATE.WANDERING);
+  }
+
+  // ---- Animations -----------------------------------------------------------
+  function animWalk(t, scale = 1) {
+    const s = Math.sin(t * 8) * 0.4 * scale;
+    armL.rotation.x = s; armR.rotation.x = -s;
+    legL.rotation.x = -s; legR.rotation.x = s;
+    head.position.y = 1.55 + Math.sin(t * 16) * 0.015;
+  }
+  function animIdle(t) {
+    armL.rotation.x = 0; armR.rotation.x = 0; legL.rotation.x = 0; legR.rotation.x = 0;
+    head.rotation.y = Math.sin(t) * 0.05;
+  }
+  function animPaint(t) {
+    legL.rotation.x = 0; legR.rotation.x = 0; armL.rotation.x = 0;
+    armR.rotation.x = Math.sin(t * 6) * 0.6 - 0.3;
+    head.rotation.y = 0;
+  }
+
+  function lerpAngle(a, b, f) {
+    let d = b - a;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return a + d * f;
+  }
+
+  // ---- Camera ---------------------------------------------------------------
+  function updateCamera(dt) {
+    orbitAngle += dt * 0.08;
+    cameraTarget.lerp(new THREE.Vector3(charPos.x, 0, charPos.z), 0.02);
+    camera.position.set(
+      cameraTarget.x + Math.cos(orbitAngle) * 22,
+      14,
+      cameraTarget.z + Math.sin(orbitAngle) * 22
+    );
+    camera.lookAt(cameraTarget.x, 2, cameraTarget.z);
+  }
+
+  // ============================================================================
+  //  RENDER LOOP
+  // ============================================================================
+  let booted = false;
+  function loop() {
+    requestAnimationFrame(loop);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+    update(dt, t);
+    updateCamera(dt);
+    renderer.render(scene, camera);
+    if (!booted) {
+      booted = true;
+      setState(STATE.WANDERING);
+      setTimeout(() => document.getElementById('boot').classList.add('hide'), 400);
+    }
+  }
+  loop();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ============================================================================
+  //  OFFLINE DEMO ASSETS (used only when WORKER_URL === null)
+  // ============================================================================
+  const DEMO_THOUGHTS = [
+    'this grey wall has been holding its breath for years',
+    'concrete forgets but paint insists on remembering',
+    'every blank surface is a confession waiting to happen',
+    'the city built walls then begged someone to break them',
+    'color is the only language this street still understands',
+    'silence here is just noise that finally gave up',
+    'walls remember everything cities try to forget',
+    'somewhere under this primer a sunset is trying to escape',
+  ];
+  function demoSVG(PW, PH, i) {
+    const palettes = [
+      ['#ff6b35','#004e89','#ffd23f','#1a1a2e','#f7f7ff'],
+      ['#2d6a4f','#95d5b2','#d8f3dc','#ffb703','#fb8500'],
+      ['#e63946','#f1faee','#a8dadc','#457b9d','#1d3557'],
+      ['#7209b7','#3a0ca3','#4361ee','#4cc9f0','#f72585'],
+    ];
+    const p = palettes[i % palettes.length];
+    const r = () => Math.random();
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PW} ${PH}" width="${PW}" height="${PH}">`;
+    s += `<defs><linearGradient id="g${i}" x1="0" y1="0" x2="1" y2="1">` +
+         `<stop offset="0" stop-color="${p[0]}"/><stop offset="1" stop-color="${p[3]}"/></linearGradient>` +
+         `<radialGradient id="r${i}"><stop offset="0" stop-color="${p[2]}"/><stop offset="1" stop-color="${p[4]}"/></radialGradient></defs>`;
+    s += `<rect width="${PW}" height="${PH}" fill="url(#g${i})"/>`;
+    for (let k = 0; k < 16; k++) {
+      const c = p[k % p.length];
+      const type = k % 3;
+      if (type === 0) s += `<circle cx="${r()*PW}" cy="${r()*PH}" r="${20+r()*90}" fill="${c}" opacity="${0.4+r()*0.5}"/>`;
+      else if (type === 1) s += `<rect x="${r()*PW}" y="${r()*PH}" width="${30+r()*120}" height="${30+r()*120}" fill="${c}" opacity="${0.4+r()*0.5}" transform="rotate(${r()*90} ${r()*PW} ${r()*PH})"/>`;
+      else { const x=r()*PW,y=r()*PH; s += `<polygon points="${x},${y} ${x+60+r()*80},${y+20} ${x+30},${y+90+r()*60}" fill="${c}" opacity="${0.4+r()*0.5}"/>`; }
+    }
+    s += `<circle cx="${PW*0.5}" cy="${PH*0.5}" r="${PW*0.18}" fill="url(#r${i})" opacity="0.85"/>`;
+    s += `</svg>`;
+    return s;
+  }
+  </script>
+</body>
+</html>
