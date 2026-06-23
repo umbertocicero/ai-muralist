@@ -1,4 +1,4 @@
-# TODO
+# TODO 
 - [ ] espandere il mondo
 - [ ] il click su un murales nella sidebar mi morta panando davanti ad ad esso, vedendolo bene
 - [ ] il solo segue la posizione in cui in questo momento si troverebbe questa ipotetica cittadina Giapponese
