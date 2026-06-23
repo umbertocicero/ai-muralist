@@ -20,8 +20,8 @@ let _grad = null;
 export function gradientMap() {
   if (_grad) return _grad;
   const data = new Uint8Array([
-     96,  96,  96, 255,   // deep shade
-    178, 178, 178, 255,   // mid tone
+     78,  78,  78, 255,   // deep shade
+    168, 168, 168, 255,   // mid tone
     255, 255, 255, 255,   // lit
   ]);
   const tex = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);

@@ -3,254 +3,323 @@ import { CONFIG } from './config.js';
 import { rotateY2D } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
 
-// Flat materials for ground/roads — receive shadows as hard cel bands.
-const GROUND = {
-  base:     toonMat('#eae8e4'),
-  road:     toonMat('#dad8d4'),
-  road2:    toonMat('#d2d0cc'),
-  sidewalk: toonMat('#f1efeb'),
-};
-const DASH = new THREE.MeshBasicMaterial({ color: '#3a3a3a' });
+// ===========================================================================
+//  A narrow Japanese alley — one-point perspective corridor.
+//
+//  Modelled directly on the reference photos: a tight paved lane running
+//  toward a blown-out bright end, hemmed in by tall concrete apartment blocks
+//  packed wall-to-wall, a dense net of overhead power-lines, side gutters,
+//  AC units, balconies, drainpipes, and rows of potted plants and bicycles
+//  cluttering the base of every wall.
+//
+//  KAI walks the lane and paints the lower (ground-floor) walls. The slot
+//  contract is unchanged (px/py/pz, nx/nz, wallW/wallH, buildingIdx, used,
+//  mesh) so the agent + mural factory keep working untouched.
+// ===========================================================================
+
+const CW   = 3.2;     // corridor half-width (lane is ~6.4m wide — tight)
+const FAR  = -60;     // far (bright) end of the alley
+const NEAR = 30;      // near (open) end
+
+const ASPHALT = toonMat('#d4d2ce');
+const GUTTER  = new THREE.MeshBasicMaterial({ color: '#9d9b97' });
+const CURB    = toonMat('#e6e4e0');
+const GLASS   = new THREE.MeshBasicMaterial({ color: '#2b2b2b' });
+const SHUTTER = new THREE.MeshBasicMaterial({ color: '#9a9894' });
+const WIRE    = new THREE.LineBasicMaterial({ color: '#141210' });
 
 export class City {
   constructor(scene) {
     this.scene     = scene;
     this.bboxes    = [];
     this.wallSlots = [];
-    this._buildGround();
-    this._buildBuildings();
-    this._buildUtilityPoles();
-    this._buildProps();
-    this._buildDetails();
+    this.poles     = [];   // {x, z, top} for wiring
+    this._buildLane();
+    this._buildRows();
+    this._buildEndWall();
+    this._buildPolesAndWires();
+    this._buildClutter();
   }
 
-  // ── Ground, roads, sidewalks ──────────────────────────────────────────────
-  _buildGround() {
-    const flat = (w, d, mat, x = 0, y = 0.01, z = 0) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(x, y, z);
-      m.receiveShadow = true;
-      this.scene.add(m);
-      return m;
-    };
+  // ── The lane: asphalt + side gutters + curbs ──────────────────────────────
+  _buildLane() {
+    const len = NEAR - FAR;
+    const cz  = (NEAR + FAR) / 2;
 
-    flat(200, 200, GROUND.base, 0, 0, 0);
-    flat(7,   200, GROUND.road);
-    flat(200, 7,   GROUND.road);
-    [-21, 21].forEach(c => {
-      flat(5, 200, GROUND.road2, c, 0.011, 0);
-      flat(200, 5, GROUND.road2, 0, 0.011, c);
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(CW * 2 + 1.4, len), ASPHALT);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(0, 0, cz);
+    road.receiveShadow = true;
+    this.scene.add(road);
+
+    // U-drain gutters running down each side of the lane
+    [-1, 1].forEach(s => {
+      const g = new THREE.Mesh(new THREE.PlaneGeometry(0.34, len), GUTTER);
+      g.rotation.x = -Math.PI / 2;
+      g.position.set(s * (CW - 0.25), 0.012, cz);
+      this.scene.add(g);
+      // thin curb strip against the wall
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, len), CURB);
+      c.position.set(s * (CW - 0.02), 0.06, cz);
+      c.receiveShadow = true;
+      this.scene.add(c);
     });
-    [-4.2, 4.2].forEach(o => {
-      flat(1.4, 200, GROUND.sidewalk, o, 0.05, 0);
-      flat(200, 1.4, GROUND.sidewalk, 0, 0.05, o);
-    });
-    // Centre-line road dashes (flat ink marks)
-    for (let v = -88; v < 90; v += 8) {
-      const d1 = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3.2), DASH);
-      d1.rotation.x = -Math.PI / 2; d1.position.set(v, 0.02, 0); this.scene.add(d1);
-      const d2 = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.25), DASH);
-      d2.rotation.x = -Math.PI / 2; d2.position.set(0, 0.02, v); this.scene.add(d2);
-    }
+
+    // a few manhole / drain plates down the centre
+    for (let z = NEAR - 6; z > FAR + 6; z -= 11) this._manhole(0.0, z);
   }
 
-  // ── Buildings ─────────────────────────────────────────────────────────────
-  _buildBuildings() {
-    CONFIG.buildingPositions.forEach(([x, z], idx) => {
-      const w = 6 + (idx % 4);
-      const d = 5 + ((idx + 1) % 4);
-      const h = 2.8 + (idx % 4) * 1.3;
-      const color = CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
+  // ── The two facing rows of apartment blocks ───────────────────────────────
+  _buildRows() {
+    let idx = 0;
+    [-1, 1].forEach(side => {
+      // deterministic-ish jitter per side so the two walls differ
+      let z = NEAR - 1;
+      let n = 0;
+      const seed = side > 0 ? 7 : 3;
+      while (z > FAR + 7) {
+        const depth = 6 + ((n * 2 + seed) % 4);          // z-extent
+        const W     = 7 + ((n + seed) % 4);              // outward depth
+        const H     = 6.5 + ((n * 3 + seed) % 4) * 2.0;  // height (2–4 floors)
+        const zc    = z - depth / 2;
+        const innerX = side * CW;          // wall facing the lane
+        const cx     = side * (CW + W / 2);
 
-      const mesh = inkedMesh(new THREE.BoxGeometry(w, h, d), color, { k: 1.022, receive: true });
-      mesh.position.set(x, h / 2, z);
-      this.scene.add(mesh);
+        this._block(side, cx, innerX, zc, depth, W, H, n, idx);
 
-      this._hipRoof(x, z, w, d, h);
-      this._addWindows(x, z, w, d, h, idx);
-      // Drainpipe down a back corner (sits in the wall margin, clear of murals)
-      this._drainpipe(x - w/2 + 0.14, z - d/2 + 0.14, h);
-      // Rooftop TV antenna on some buildings
-      if (idx % 2 === 0) this._antenna(x + w * 0.24, h, z - d * 0.24);
-
-      const r = CONFIG.charRadius;
-      this.bboxes.push({
-        minX: x - w/2 - r, maxX: x + w/2 + r,
-        minZ: z - d/2 - r, maxZ: z + d/2 + r,
-      });
-
-      const py = h / 2;
-      this.wallSlots.push({ px: x,       py, pz: z + d/2, nx:  0, nz:  1, wallW: w, wallH: h, buildingIdx: idx, used: false, mesh: null });
-      this.wallSlots.push({ px: x,       py, pz: z - d/2, nx:  0, nz: -1, wallW: w, wallH: h, buildingIdx: idx, used: false, mesh: null });
-      this.wallSlots.push({ px: x + w/2, py, pz: z,       nx:  1, nz:  0, wallW: d, wallH: h, buildingIdx: idx, used: false, mesh: null });
-      this.wallSlots.push({ px: x - w/2, py, pz: z,       nx: -1, nz:  0, wallW: d, wallH: h, buildingIdx: idx, used: false, mesh: null });
-    });
-  }
-
-  // Japanese hip roof — dark pyramid + eave band, with ink outline
-  _hipRoof(x, z, w, d, h) {
-    const oh  = 0.4;
-    const rH  = 0.9 + Math.min(w, d) * 0.13;
-    const dia = Math.hypot(w + oh * 2, d + oh * 2) * 0.5;
-
-    const cone = inkedMesh(new THREE.ConeGeometry(dia, rH, 4), '#26241f', { k: 1.03 });
-    cone.position.set(x, h + rH / 2, z);
-    cone.rotation.y = Math.PI / 4;
-    this.scene.add(cone);
-
-    const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
-    eave.position.set(x, h + 0.08, z);
-    this.scene.add(eave);
-  }
-
-  // Dark manga windows, flat (no outline — kept as small detail)
-  _addWindows(x, z, w, d, h, idx) {
-    const glass  = new THREE.MeshBasicMaterial({ color: '#2c2c2c' });
-    const floors = Math.max(1, Math.round(h / 2.8));
-    const cols   = 1 + (idx % 2);
-
-    for (let fl = 0; fl < floors; fl++) {
-      const wy = 1.1 + fl * 2.6;
-      if (wy + 0.6 > h) continue;
-      for (let c = 0; c < cols; c++) {
-        const ox = (c - (cols - 1) / 2) * 2.0;
-        const wN = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.0), glass);
-        wN.position.set(x + ox, wy, z + d / 2 + 0.02);
-        this.scene.add(wN);
-        const wS = wN.clone();
-        wS.position.set(x + ox, wy, z - d / 2 - 0.02);
-        wS.rotation.y = Math.PI;
-        this.scene.add(wS);
-      }
-    }
-  }
-
-  // ── Utility poles + wires ─────────────────────────────────────────────────
-  _buildUtilityPoles() {
-    const PH   = 7.8;
-    const rowZ = [4.9, -4.9, 22.5, -22.5];
-    const posX = [-26, -15, -4, 4, 15, 26];
-    const wireMat = new THREE.LineBasicMaterial({ color: '#161412' });
-
-    rowZ.forEach(rz => {
-      posX.forEach((px, i) => this._pole(px, rz, PH, Math.abs(rz) < 6 && i % 2 === 0));
-      for (let i = 0; i < posX.length - 1; i++) {
-        const x0 = posX[i], x1 = posX[i + 1], mx = (x0 + x1) / 2;
-        [PH - 0.5, PH - 1.0, PH - 1.6].forEach(wh => {
-          const curve = new THREE.QuadraticBezierCurve3(
-            new THREE.Vector3(x0, wh, rz),
-            new THREE.Vector3(mx, wh - 0.42, rz),
-            new THREE.Vector3(x1, wh, rz)
-          );
-          const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(14));
-          this.scene.add(new THREE.Line(geo, wireMat));
+        // ground-floor paintable wall slot (graffiti goes low, not full facade)
+        this.wallSlots.push({
+          px: innerX, py: 1.7, pz: zc,
+          nx: -side, nz: 0,
+          wallW: Math.min(depth * 0.78, 4.4), wallH: 2.9,
+          buildingIdx: idx, used: false, mesh: null,
         });
+
+        // collision: block everything outside the lane on this side
+        const r = CONFIG.charRadius;
+        this.bboxes.push({
+          minX: Math.min(innerX, cx + side * W / 2) - r,
+          maxX: Math.max(innerX, cx + side * W / 2) + r,
+          minZ: zc - depth / 2 - r, maxZ: zc + depth / 2 + r,
+        });
+
+        z -= depth + (n % 3 === 0 ? 0.5 : 0.05);  // occasional setback gap
+        n++; idx++;
+      }
+    });
+  }
+
+  // One apartment block + its lane-facing facade detail.
+  _block(side, cx, innerX, zc, depth, W, H, n, idx) {
+    const tone = CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
+    const body = inkedMesh(new THREE.BoxGeometry(W, H, depth), tone, { k: 1.012, receive: true });
+    body.position.set(cx, H / 2, zc);
+    this.scene.add(body);
+
+    // Roof: flat parapet cap (concrete block) — or a tiled hip roof for a house
+    if ((n + (side > 0 ? 1 : 0)) % 4 === 3) {
+      this._hipRoof(cx, zc, W, depth, H);
+    } else {
+      const cap = inkedMesh(new THREE.BoxGeometry(W + 0.3, 0.4, depth + 0.3), '#cdcbc7', { k: 1.02 });
+      cap.position.set(cx, H + 0.2, zc);
+      this.scene.add(cap);
+      // foliage spilling over the parapet on some roofs
+      if (n % 2 === 0) {
+        const f = inkedMesh(new THREE.SphereGeometry(0.6, 7, 5), '#2c2a26', { k: 1.04 });
+        f.position.set(innerX - side * 0.3, H + 0.5, zc + depth * 0.2);
+        this.scene.add(f);
+      }
+    }
+
+    this._facade(side, innerX, zc, depth, H, n);
+  }
+
+  // Windows · balconies · AC units · drainpipe · meter · ground shutter, all
+  // on the lane-facing wall. Rotations: left wall faces +x, right faces −x.
+  _facade(side, innerX, zc, depth, H, n) {
+    const faceX = innerX - side * 0.04;             // just in front of the wall
+    const rotY  = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+    const floors = Math.max(2, Math.round(H / 2.6));
+    const cols   = Math.max(1, Math.round(depth / 2.6));
+
+    for (let f = 0; f < floors; f++) {
+      const wy = 1.5 + f * 2.4;
+      if (wy + 0.7 > H) continue;
+      for (let c = 0; c < cols; c++) {
+        const wz = zc + (c - (cols - 1) / 2) * 2.2;
+        // ground floor of some bays is a closed metal shutter, not a window
+        if (f === 0 && (c + n) % 3 === 0) {
+          const sh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9), SHUTTER);
+          sh.position.set(faceX, 1.1, wz); sh.rotation.y = rotY;
+          this.scene.add(sh);
+          continue;
+        }
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.2), GLASS);
+        win.position.set(faceX, wy, wz); win.rotation.y = rotY;
+        this.scene.add(win);
+
+        // upper-floor balcony slab + railing on some bays
+        if (f >= 1 && (c + f + n) % 2 === 0) {
+          const slab = inkedMesh(new THREE.BoxGeometry(0.55, 0.08, 1.6), '#d8d6d2', { k: 1.05, cast: false });
+          slab.position.set(innerX - side * 0.28, wy - 0.62, wz);
+          this.scene.add(slab);
+          const rail = inkedMesh(new THREE.BoxGeometry(0.5, 0.46, 0.05), '#3a3834', { k: 1.06, cast: false });
+          rail.position.set(innerX - side * 0.52, wy - 0.38, wz);
+          this.scene.add(rail);
+        } else if (f >= 1 && (c + n) % 3 === 1) {
+          // AC outdoor unit clinging to the wall (室外機)
+          const ac = inkedMesh(new THREE.BoxGeometry(0.45, 0.4, 0.6), '#dcdad6', { k: 1.06, cast: false });
+          ac.position.set(innerX - side * 0.24, wy - 0.5, wz + 0.7);
+          this.scene.add(ac);
+        }
+      }
+    }
+
+    // drainpipe down a corner of the inner face
+    const pipe = inkedMesh(new THREE.CylinderGeometry(0.07, 0.07, H, 6), '#bcbab6', { k: 1.08, cast: false });
+    pipe.position.set(innerX - side * 0.1, H / 2, zc + depth / 2 - 0.3);
+    this.scene.add(pipe);
+
+    // electric meter box near the ground
+    const meter = inkedMesh(new THREE.BoxGeometry(0.3, 0.4, 0.16), '#cfcdc9', { k: 1.07, cast: false });
+    meter.position.set(innerX - side * 0.12, 1.4, zc - depth / 2 + 0.5);
+    this.scene.add(meter);
+  }
+
+  // ── Building capping the far end (backlit silhouette against the glow) ─────
+  _buildEndWall() {
+    const W = CW * 2 + 14, H = 9, d = 6;
+    const m = inkedMesh(new THREE.BoxGeometry(W, H, d), '#dad8d4', { k: 1.012, receive: true });
+    m.position.set(0, H / 2, FAR - d / 2);
+    this.scene.add(m);
+    const cap = inkedMesh(new THREE.BoxGeometry(W + 0.3, 0.4, d + 0.3), '#c9c7c3', { k: 1.02 });
+    cap.position.set(0, H + 0.2, FAR - d / 2);
+    this.scene.add(cap);
+
+    // it faces +z (down the lane) → a paintable end wall
+    this.wallSlots.push({
+      px: 0, py: 1.8, pz: FAR, nx: 0, nz: 1,
+      wallW: 4.4, wallH: 3.0, buildingIdx: 999, used: false, mesh: null,
+    });
+    const r = CONFIG.charRadius;
+    this.bboxes.push({ minX: -W / 2 - r, maxX: W / 2 + r, minZ: FAR - d - r, maxZ: FAR + r });
+
+    // a couple of dark windows + foliage so it reads as a real building end
+    for (let c = -1; c <= 1; c++) {
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.3), GLASS);
+      win.position.set(c * 2.2, 4.6, FAR + 0.04);
+      this.scene.add(win);
+    }
+    this._tree(-CW - 3.5, FAR + 1.5);
+  }
+
+  // ── Utility poles + the dense overhead wire net ───────────────────────────
+  _buildPolesAndWires() {
+    // poles march down the lane edges, alternating sides
+    let side = -1;
+    for (let z = NEAR - 4; z > FAR + 4; z -= 9) {
+      const x = side * (CW - 0.06);
+      this._pole(x, z, 8.6, (z | 0) % 2 === 0);
+      this.poles.push({ x, z, top: 8.6 });
+      side *= -1;
+    }
+    // convex traffic mirror near the far bend
+    this._convexMirror(CW - 0.1, 3.0, FAR + 12);
+
+    // along-side catenary wires linking consecutive same-side poles
+    const bySide = { '-1': [], '1': [] };
+    this.poles.forEach(p => bySide[p.x < 0 ? -1 : 1].push(p));
+    Object.values(bySide).forEach(list => {
+      list.sort((a, b) => b.z - a.z);
+      for (let i = 0; i < list.length - 1; i++) {
+        const a = list[i], b = list[i + 1];
+        [8.1, 7.6, 7.1].forEach(h => this._wire(a.x, h, a.z, b.x, h, b.z, 0.5));
       }
     });
 
-    [-26, -15, -4, 4, 15, 26].forEach(px => {
-      const z0 = 4.9, z1 = -4.9, mz = 0;
-      [PH - 0.5, PH - 1.2].forEach(wh => {
-        const curve = new THREE.QuadraticBezierCurve3(
-          new THREE.Vector3(px, wh, z0),
-          new THREE.Vector3(px, wh - 0.5, mz),
-          new THREE.Vector3(px, wh, z1)
-        );
-        const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(12));
-        this.scene.add(new THREE.Line(geo, wireMat));
-      });
-    });
+    // a thick net of cross-lane wires (this is what makes the photos read)
+    for (let z = NEAR - 6; z > FAR + 6; z -= 3.2) {
+      const h = 7.0 + Math.sin(z * 0.7) * 0.9;
+      this._wire(-CW + 0.1, h, z, CW - 0.1, h + (Math.random() - 0.5) * 0.6, z + (Math.random() - 0.5) * 1.5, 0.7);
+    }
+    // a few long diagonal runs for depth
+    for (let i = 0; i < 6; i++) {
+      const z0 = NEAR - 6 - i * 8;
+      this._wire(-CW + 0.1, 7.8, z0, CW - 0.1, 6.6, z0 - 7, 0.9);
+    }
   }
 
   _pole(x, z, h, transformer = false) {
-    const shaft = inkedMesh(new THREE.CylinderGeometry(0.07, 0.10, h, 6), '#2a2620', { k: 1.06 });
+    const shaft = inkedMesh(new THREE.CylinderGeometry(0.08, 0.11, h, 6), '#2a2620', { k: 1.05 });
     shaft.position.set(x, h / 2, z);
     this.scene.add(shaft);
-    [[h - 0.55, 1.7], [h - 1.55, 1.1]].forEach(([ay, aw]) => {
+    const inward = x < 0 ? 1 : -1;
+    [[h - 0.6, 1.9], [h - 1.5, 1.3]].forEach(([ay, aw]) => {
       const arm = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.07, 0.07), toonMat('#2a2620'));
-      arm.position.set(x, ay, z);
+      arm.position.set(x + inward * aw * 0.3, ay, z);
       this.scene.add(arm);
     });
-    // Cylindrical transformer can — a constant of Japanese utility poles
     if (transformer) {
-      const tf = inkedMesh(new THREE.CylinderGeometry(0.17, 0.17, 0.55, 8), '#34302a', { k: 1.07, cast: false });
-      tf.position.set(x + 0.22, h - 2.5, z);
+      const tf = inkedMesh(new THREE.CylinderGeometry(0.18, 0.18, 0.6, 8), '#34302a', { k: 1.06, cast: false });
+      tf.position.set(x + inward * 0.26, h - 2.4, z);
       this.scene.add(tf);
     }
   }
 
-  // ── Decorative props ──────────────────────────────────────────────────────
-  _buildProps() {
-    // Low concrete garden walls (not in bbox — short enough KAI steps over)
-    [
-      { x: -3,  z: -14, w: 4.5, d: 0.22, h: 0.9 },
-      { x:  3,  z:  14, w: 4.5, d: 0.22, h: 0.9 },
-      { x: -14, z:  3,  w: 0.22, d: 4.5, h: 1.1 },
-      { x:  14, z: -3,  w: 0.22, d: 4.5, h: 1.1 },
-      { x: -22, z:  7,  w: 4.0, d: 0.22, h: 0.85 },
-      { x:  22, z: -7,  w: 4.0, d: 0.22, h: 0.85 },
-    ].forEach(({ x, z, w, d, h }) => {
-      const m = inkedMesh(new THREE.BoxGeometry(w, h, d), '#dedcd8', { k: 1.03 });
-      m.position.set(x, h / 2, z);
-      this.scene.add(m);
-    });
+  // sagging wire (catenary-ish) between two points
+  _wire(x0, y0, z0, x1, y1, z1, sag) {
+    const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 - sag, (z0 + z1) / 2);
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(x0, y0, z0), mid, new THREE.Vector3(x1, y1, z1));
+    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(16));
+    this.scene.add(new THREE.Line(geo, WIRE));
+  }
 
-    // Trees — dark silhouettes typical of manga street scenes
-    [
-      [ 8,  8], [-8, -8], [ 8, -8], [-8,  8],
-      [20,  6], [-20, -6], [6,  20], [-6, -20],
-      [24, -18], [-24, 18],
-    ].forEach(([tx, tz]) => this._tree(tx, tz));
+  _convexMirror(x, y, z) {
+    const inward = x < 0 ? 1 : -1;
+    const arm = inkedMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 5), '#2a2620', { k: 1.1, cast: false });
+    arm.position.set(x + inward * 0.45, y, z); arm.rotation.z = Math.PI / 2;
+    this.scene.add(arm);
+    const rim = inkedMesh(new THREE.CylinderGeometry(0.5, 0.5, 0.12, 18), '#c0532a', { k: 1.04, cast: false });
+    rim.position.set(x + inward * 0.95, y, z); rim.rotation.z = Math.PI / 2; rim.rotation.x = Math.PI / 2;
+    this.scene.add(rim);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.44, 18),
+      new THREE.MeshBasicMaterial({ color: '#9a9894' }));
+    face.position.set(x + inward * (0.95 - 0.07), y, z);
+    face.rotation.y = inward > 0 ? -Math.PI / 2 : Math.PI / 2;
+    this.scene.add(face);
+  }
 
-    // Vending machines — flat light boxes
-    [
-      [-10, -14], [10, 14], [-14, 10],
-    ].forEach(([x, z]) => {
-      const vm = inkedMesh(new THREE.BoxGeometry(0.7, 1.8, 0.4), '#e6e4e0', { k: 1.04 });
-      vm.position.set(x, 0.9, z);
+  // ── Lane clutter: plants, bikes, crates, vending machines ─────────────────
+  _buildClutter() {
+    // potted plants line the base of both walls (the alleys are full of them)
+    let i = 0;
+    for (let z = NEAR - 3; z > FAR + 5; z -= 2.4) {
+      const side = (i % 2 === 0) ? -1 : 1;
+      this._pottedPlant(side * (CW - 0.45), z, 0.75 + (i % 3) * 0.22);
+      if (i % 3 === 1) this._pottedPlant(-side * (CW - 0.4), z + 0.7, 0.7 + (i % 2) * 0.2);
+      i++;
+    }
+
+    // bicycles leaning on the walls
+    this._bicycle(-CW + 0.55, NEAR - 8,  Math.PI * 0.5 + 0.1);
+    this._bicycle( CW - 0.55, NEAR - 20, -Math.PI * 0.5 - 0.1);
+    this._bicycle(-CW + 0.55, NEAR - 33,  Math.PI * 0.5);
+    this._bicycle( CW - 0.6,  NEAR - 46, -Math.PI * 0.5 + 0.15);
+
+    // crate stacks tucked against walls
+    this._crateStack(-CW + 0.6, NEAR - 14);
+    this._crateStack( CW - 0.6, NEAR - 27);
+
+    // vending machines glowing in the lane
+    [[ CW - 0.55, NEAR - 4], [-CW + 0.55, NEAR - 40]].forEach(([x, z]) => {
+      const vm = inkedMesh(new THREE.BoxGeometry(0.5, 1.9, 0.7), '#e6e4e0', { k: 1.04 });
+      vm.position.set(x, 0.95, z);
       this.scene.add(vm);
     });
-  }
 
-  _tree(x, z) {
-    const trunk = inkedMesh(new THREE.CylinderGeometry(0.10, 0.14, 2.6, 6), '#231d18', { k: 1.05 });
-    trunk.position.set(x, 1.3, z);
-    this.scene.add(trunk);
-    [[0, 3.8, 1.8], [0.3, 4.4, 1.3]].forEach(([ox, oy, r]) => {
-      const c = inkedMesh(new THREE.SphereGeometry(r, 7, 5), '#2e2c28', { k: 1.035 });
-      c.position.set(x + ox, oy, z);
-      this.scene.add(c);
-    });
-  }
-
-  // ── Alley clutter (bikes, plants, crates, manholes, lanterns…) ────────────
-  _buildDetails() {
-    // Potted plants line the alleys — the references are full of greenery
-    const plantSpots = [
-      [4.7, -8], [4.7, -2], [4.7, 6], [4.7, 16], [4.7, 28],
-      [-4.7, -6], [-4.7, 4], [-4.7, 13], [-4.7, 24],
-      [-8, 4.7], [2, 4.7], [14, 4.7], [26, 4.7],
-      [-14, -4.7], [6, -4.7], [20, -4.7],
-    ];
-    plantSpots.forEach(([x, z], i) => this._pottedPlant(x, z, 0.82 + (i % 3) * 0.20));
-
-    // Bicycles leaning here and there
-    this._bicycle(6.3, -9, -0.35);
-    this._bicycle(-6.3, 7, Math.PI * 0.9);
-    this._bicycle(9, 5.3, Math.PI * 0.5);
-    this._bicycle(-5.6, -17, 0.15);
-
-    // Stacked crates against the walls
-    this._crateStack(5.1, 20);
-    this._crateStack(-5.3, -11);
-    this._crateStack(13, -5.2);
-
-    // Manhole covers on the roads
-    [[0, -9], [0, 13], [8, 0], [-16, 0], [0, 27]].forEach(([x, z]) => this._manhole(x, z));
-
-    // Paper lanterns hanging at shop corners
-    [[8.4, 8.4], [-8.4, 8.4], [8.4, -8.4]].forEach(([x, z]) => this._lantern(x, z));
+    // a paper lantern hanging at a shop corner near the entrance
+    this._lantern(CW - 0.4, NEAR - 6);
   }
 
   _pottedPlant(x, z, s = 1) {
@@ -265,33 +334,37 @@ export class City {
     this.scene.add(f2);
   }
 
+  _tree(x, z) {
+    const trunk = inkedMesh(new THREE.CylinderGeometry(0.10, 0.14, 2.6, 6), '#231d18', { k: 1.05 });
+    trunk.position.set(x, 1.3, z);
+    this.scene.add(trunk);
+    [[0, 3.8, 1.6], [0.3, 4.4, 1.2]].forEach(([ox, oy, r]) => {
+      const c = inkedMesh(new THREE.SphereGeometry(r, 7, 5), '#2e2c28', { k: 1.035 });
+      c.position.set(x + ox, oy, z);
+      this.scene.add(c);
+    });
+  }
+
   _bicycle(x, z, angle) {
     const g = new THREE.Group();
     const tone = '#1f1d1a';
     const wheel = (wx) => {
       const w = inkedMesh(new THREE.TorusGeometry(0.30, 0.045, 6, 16), tone, { k: 1.08 });
-      w.position.set(wx, 0.30, 0);
-      g.add(w);
+      w.position.set(wx, 0.30, 0); g.add(w);
     };
     wheel(-0.46); wheel(0.46);
     const bar = (len, px, py, rotZ) => {
       const b = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, len, 6), tone, { k: 1.1, cast: false });
-      b.position.set(px, py, 0);
-      b.rotation.z = rotZ;
-      g.add(b);
+      b.position.set(px, py, 0); b.rotation.z = rotZ; g.add(b);
     };
-    bar(0.95, 0, 0.50, Math.PI / 2);   // top tube
-    bar(0.62, -0.16, 0.42, 0.5);       // seat tube
-    bar(0.58, 0.40, 0.42, -0.4);       // fork
+    bar(0.95, 0, 0.50, Math.PI / 2);
+    bar(0.62, -0.16, 0.42, 0.5);
+    bar(0.58, 0.40, 0.42, -0.4);
     const seat = inkedMesh(new THREE.BoxGeometry(0.22, 0.06, 0.10), tone, { k: 1.1, cast: false });
-    seat.position.set(-0.34, 0.70, 0);
-    g.add(seat);
+    seat.position.set(-0.34, 0.70, 0); g.add(seat);
     const handle = inkedMesh(new THREE.BoxGeometry(0.08, 0.28, 0.30), tone, { k: 1.1, cast: false });
-    handle.position.set(0.50, 0.68, 0);
-    g.add(handle);
-    g.position.set(x, 0, z);
-    g.rotation.y = angle;
-    g.rotation.z = 0.05;               // slight lean
+    handle.position.set(0.50, 0.68, 0); g.add(handle);
+    g.position.set(x, 0, z); g.rotation.y = angle; g.rotation.z = 0.05;
     this.scene.add(g);
   }
 
@@ -308,54 +381,41 @@ export class City {
   }
 
   _manhole(x, z) {
-    const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(0.42, 20),
-      new THREE.MeshBasicMaterial({ color: '#5f5d59' })
-    );
-    disc.rotation.x = -Math.PI / 2;
-    disc.position.set(x, 0.03, z);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 20),
+      new THREE.MeshBasicMaterial({ color: '#5f5d59' }));
+    disc.rotation.x = -Math.PI / 2; disc.position.set(x, 0.03, z);
     this.scene.add(disc);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.30, 0.40, 20),
-      new THREE.MeshBasicMaterial({ color: '#3a3835' })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(x, 0.031, z);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.30, 0.40, 20),
+      new THREE.MeshBasicMaterial({ color: '#3a3835' }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.031, z);
     this.scene.add(ring);
   }
 
   _lantern(x, z) {
     const body = inkedMesh(new THREE.CylinderGeometry(0.16, 0.16, 0.32, 10), '#ededed', { k: 1.06, cast: false });
-    body.position.set(x, 2.3, z);
-    this.scene.add(body);
+    body.position.set(x, 2.3, z); this.scene.add(body);
     const cap = inkedMesh(new THREE.CylinderGeometry(0.06, 0.16, 0.06, 10), '#1a1814', { k: 1.06, cast: false });
-    cap.position.set(x, 2.49, z);
-    this.scene.add(cap);
-    const pts = [new THREE.Vector3(x, 2.52, z), new THREE.Vector3(x, 3.1, z)];
-    const g = new THREE.BufferGeometry().setFromPoints(pts);
-    this.scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: '#161412' })));
+    cap.position.set(x, 2.49, z); this.scene.add(cap);
+    const pts = [new THREE.Vector3(x, 2.52, z), new THREE.Vector3(x, 3.4, z)];
+    this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), WIRE));
   }
 
-  _drainpipe(cx, cz, h) {
-    const pipe = inkedMesh(new THREE.CylinderGeometry(0.07, 0.07, h, 6), '#bcbab6', { k: 1.08, cast: false });
-    pipe.position.set(cx, h / 2, cz);
-    this.scene.add(pipe);
-  }
-
-  _antenna(x, baseY, z) {
-    const mast = inkedMesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5), '#1c1a17', { k: 1.12, cast: false });
-    mast.position.set(x, baseY + 0.65, z);
-    this.scene.add(mast);
-    [0.95, 1.2].forEach((cy, i) => {
-      const cw = 0.55 - i * 0.16;
-      const bar = inkedMesh(new THREE.BoxGeometry(cw, 0.03, 0.03), '#1c1a17', { k: 1.15, cast: false });
-      bar.position.set(x, baseY + cy, z);
-      this.scene.add(bar);
-    });
+  _hipRoof(x, z, w, d, h) {
+    const oh  = 0.4;
+    const rH  = 0.9 + Math.min(w, d) * 0.13;
+    const dia = Math.hypot(w + oh * 2, d + oh * 2) * 0.5;
+    const cone = inkedMesh(new THREE.ConeGeometry(dia, rH, 4), '#26241f', { k: 1.03 });
+    cone.position.set(x, h + rH / 2, z); cone.rotation.y = Math.PI / 4;
+    this.scene.add(cone);
+    const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
+    eave.position.set(x, h + 0.08, z);
+    this.scene.add(eave);
   }
 
   // ── Collision ─────────────────────────────────────────────────────────────
   isColliding(x, z) {
+    if (x < -CW + CONFIG.charRadius || x > CW - CONFIG.charRadius) return true; // walls
+    if (z > NEAR || z < FAR + 0.5) return true;                                 // ends
     for (const b of this.bboxes) {
       if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
     }
@@ -364,11 +424,11 @@ export class City {
 
   randomReachablePoint() {
     for (let i = 0; i < 30; i++) {
-      const x = -35 + Math.random() * 70;
-      const z = -35 + Math.random() * 70;
+      const x = (Math.random() - 0.5) * (CW - 0.6) * 2;
+      const z = FAR + 4 + Math.random() * (NEAR - FAR - 6);
       if (!this.isColliding(x, z)) return { x, z };
     }
-    return { x: 0, z: 0 };
+    return { x: 0, z: NEAR - 6 };
   }
 
   // ── Wall slots ────────────────────────────────────────────────────────────
@@ -393,7 +453,7 @@ export class City {
     return this.wallSlots.every(s => s.used);
   }
 
-  // ── Steering ──────────────────────────────────────────────────────────────
+  // ── Steering (with wall-sliding) ──────────────────────────────────────────
   steer(pos, target, dist) {
     const dx = target.x - pos.x, dz = target.z - pos.z;
     const len = Math.hypot(dx, dz) || 1;

@@ -6,35 +6,29 @@ export const CONFIG = {
   requestTimeoutMs: 30000,
   maxSvgBytes: 60000,
 
-  // --- World (Japanese neighborhood — B&W manga / inked line-art) ---
-  // Paper-white sky; buildings near-white so cel shading + ink outlines read
-  // as a hand-drawn panel. Murals are the only colour in the scene.
+  // --- World (narrow Japanese alley — B&W manga / inked line-art) ---
   // Soft paper-grey sky (NOT pure white): gives the additive sun-glow and
   // light-shafts a surface to register against, and lets distance haze read.
   sky: '#e7e5e0',
-  fog: { color: '#edebe6', near: 36, far: 112 },
+  fog: { color: '#edebe6', near: 30, far: 96 },
 
-  // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
-  // Sun sits low over the far end of an avenue → long dramatic shadows and a
-  // white-out glow at the vanishing point, like the reference alleys.
-  sun: { x: 26, y: 18, z: -66 },
+  // --- Sun / atmosphere (manga backlight down the alley) ---
+  // Sun sits low, centred over the FAR end of the lane → the bright white-out
+  // at the vanishing point, long shadows thrown toward the viewer, and god-rays
+  // pouring straight down the corridor, exactly like the reference photos.
+  sun: { x: 9, y: 15, z: -84 },
   atmo: {
-    glowSize:   50,    // diameter of the blown highlight at the sun
+    glowSize:   46,    // diameter of the blown highlight at the sun
     shaftCount: 12,    // number of radiating light-shafts
-    shaftLen:   140,   // shaft length (world units)
+    shaftLen:   150,   // shaft length (world units)
     shaftWidth: 8,     // shaft base width
-    shaftOpacity: 0.28, // base beam opacity (jittered per beam)
-    dustCount:  320,   // floating motes
-    dustRange:  90,    // box the motes drift within
-    dustSize:   0.15,
+    shaftOpacity: 0.30, // base beam opacity (jittered per beam)
+    dustCount:  340,   // floating motes
+    dustRange:  44,    // box the motes drift within (kept to the alley width)
+    dustSize:   0.14,
   },
-  buildingColors: ['#ffffff', '#f3f1ed', '#ebe9e5', '#f7f5f1', '#eeece8'],
-  buildingPositions: [
-    [-12,-12],[12,-12],[-12,12],[12,12],
-    [-30,-12],[-30,12],[30,-12],[30,12],
-    [-12,-30],[12,-30],[-12,30],[12,30],
-    [-30,-30],[30,-30],[-30,30],[30,30],
-  ],
+  // Concrete-grey facade palette (apartment blocks).
+  buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
 
   // --- Agent / physics ---
   charRadius: 0.4,
@@ -47,16 +41,24 @@ export const CONFIG = {
   muralCoverW: 0.88,
   muralCoverH: 0.85,
 
+  // --- Character / camera start (near, open end of the lane) ---
+  charStart: { x: 0, z: 24 },
+
   // --- Camera ---
-  camFov: 50,
-  camRadius: 24,
-  camPolar: 1.16,
-  camPolarMin: 0.18,
-  camPolarMax: 1.38,
-  camRadiusMin: 8,
-  camRadiusMax: 80,
-  camOrbitSpeed: 0.06,
-  camFollowLerp: 0.04,
+  // Locked to look DOWN the alley toward the bright end. Azimuth is clamped to
+  // a narrow arc (± range) and gently sways, so the framing stays a one-point
+  // perspective corridor instead of orbiting outside the walls.
+  camFov: 52,
+  camRadius: 17,
+  camPolar: 1.3,
+  camPolarMin: 0.55,
+  camPolarMax: 1.46,
+  camRadiusMin: 6,
+  camRadiusMax: 34,
+  camAzimuth: Math.PI / 2,   // looking toward −z (down the lane)
+  camAzimuthRange: 0.6,      // how far the view may swing each way
+  camOrbitSpeed: 0.05,
+  camFollowLerp: 0.05,
   camDragSensitivity: 0.006,
 
   // --- UI ---

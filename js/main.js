@@ -91,7 +91,7 @@ class App {
 
     // Systems
     this.city       = new City(this.scene);
-    this.character  = new Character(this.scene, { x: 0, z: 14 });
+    this.character  = new Character(this.scene, CONFIG.charStart);
     this.factory    = new MuralFactory(this.scene, this.renderer);
     this.agent      = new Agent(this.city, this.character, this.factory, ui);
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui);
@@ -115,14 +115,19 @@ class App {
     // One key light gives the cel material a clean light/shade split (the
     // toon gradient map turns it into hard bands). High ambient keeps shaded
     // areas as light grey — manga shadows are tone, not black.
-    const key = new THREE.DirectionalLight('#ffffff', 1.5);
+    const key = new THREE.DirectionalLight('#ffffff', 1.7);
     key.position.set(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z);
+    key.target.position.set(0, 0, -20);   // aim down the alley
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { near: 1, far: 200, left: -70, right: 70, top: 70, bottom: -70 });
+    Object.assign(key.shadow.camera, { near: 1, far: 240, left: -28, right: 28, top: 28, bottom: -28 });
     key.shadow.bias = -0.0004;
     this.scene.add(key);
-    this.scene.add(new THREE.AmbientLight('#ffffff', 0.72));
+    this.scene.add(key.target);
+    // Lower ambient so grazed/shaded walls drop into the cel mid-band and pick
+    // up screentone — that contrast is what makes it read as inked manga, not
+    // a flat white model.
+    this.scene.add(new THREE.AmbientLight('#ffffff', 0.5));
   }
 
   _onResize() {

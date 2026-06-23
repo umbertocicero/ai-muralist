@@ -7,11 +7,12 @@ export class CameraRig {
   constructor(camera, canvas, ui) {
     this.camera  = camera;
     this.ui      = ui;
-    this.pivot   = new THREE.Vector3(0, 0, 14);
-    this.azimuth = 0;
+    this.pivot   = new THREE.Vector3(CONFIG.charStart.x, 0, CONFIG.charStart.z);
+    this.azimuth = CONFIG.camAzimuth;
     this.polar   = CONFIG.camPolar;
     this.radius  = CONFIG.camRadius;
     this.following = true;
+    this._sway   = 1;   // ping-pong direction for the auto-orbit
 
     this._drag    = false;
     this._lx = 0; this._ly = 0;
@@ -72,8 +73,10 @@ export class CameraRig {
 
   _orbit(dx, dy) {
     const s = CONFIG.camDragSensitivity;
-    this.azimuth += dx * s;
-    this.polar    = clamp(this.polar + dy * s * 0.7, CONFIG.camPolarMin, CONFIG.camPolarMax);
+    const lo = CONFIG.camAzimuth - CONFIG.camAzimuthRange;
+    const hi = CONFIG.camAzimuth + CONFIG.camAzimuthRange;
+    this.azimuth = clamp(this.azimuth + dx * s, lo, hi); // stay looking down the lane
+    this.polar   = clamp(this.polar + dy * s * 0.7, CONFIG.camPolarMin, CONFIG.camPolarMax);
   }
 
   _detach() {
@@ -90,7 +93,12 @@ export class CameraRig {
 
   update(dt, charPos) {
     if (this.following) {
-      this.azimuth += dt * CONFIG.camOrbitSpeed;
+      // gentle ping-pong sway within the clamped arc (never orbits behind walls)
+      this.azimuth += dt * CONFIG.camOrbitSpeed * this._sway;
+      const lo = CONFIG.camAzimuth - CONFIG.camAzimuthRange;
+      const hi = CONFIG.camAzimuth + CONFIG.camAzimuthRange;
+      if (this.azimuth > hi) { this.azimuth = hi; this._sway = -1; }
+      if (this.azimuth < lo) { this.azimuth = lo; this._sway =  1; }
       this.pivot.lerp(new THREE.Vector3(charPos.x, 0, charPos.z), CONFIG.camFollowLerp);
     }
     const sinP = Math.sin(this.polar);
@@ -100,6 +108,6 @@ export class CameraRig {
       cosP * this.radius + 1.5,
       this.pivot.z + Math.sin(this.azimuth) * sinP * this.radius
     );
-    this.camera.lookAt(this.pivot.x, 1.5, this.pivot.z);
+    this.camera.lookAt(this.pivot.x, 2.2, this.pivot.z);
   }
 }
