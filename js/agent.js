@@ -1,0 +1,179 @@
+import { CONFIG } from './config.js';
+
+export const STATE = {
+  WANDERING:      'WANDERING',
+  MOVING_TO_WALL: 'MOVING_TO_WALL',
+  THINKING:       'THINKING',
+  PAINTING:       'PAINTING',
+  CONTEMPLATING:  'CONTEMPLATING',
+};
+
+const STATUS_TEXT = {
+  WANDERING:      'wandering the streets',
+  MOVING_TO_WALL: 'approaching a blank wall',
+  THINKING:       'imagining a mural',
+  PAINTING:       'painting…',
+  CONTEMPLATING:  'every wall is painted · contemplating',
+};
+
+export class Agent {
+  // ui: the shared reactive uiState object (Vue reactive proxy)
+  constructor(city, character, factory, ui) {
+    this.city    = city;
+    this.char    = character;
+    this.factory = factory;
+    this.ui      = ui;
+
+    this.muralCount  = 0;
+    this.apiPending  = false;
+    this.pendingResult = null;
+    this.currentSlot   = null;
+
+    this._setState(STATE.WANDERING);
+    this._newWanderTarget();
+  }
+
+  // ---- State transitions --------------------------------------------------
+  _setState(s) {
+    this.state      = s;
+    this.ui.status  = STATUS_TEXT[s];
+  }
+
+  _newWanderTarget() {
+    this.wanderTarget   = this.city.randomReachablePoint();
+    this.wanderTimer    = 0;
+    this.wanderDeadline = CONFIG.wanderMin + Math.random() * CONFIG.wanderRange;
+  }
+
+  _beginThinking() {
+    this._setState(STATE.THINKING);
+    this.thinkTimer = 0;
+    this.char.faceNormalInward(this.currentSlot);
+    this._startGeneration();
+  }
+
+  _startGeneration() {
+    if (this.apiPending) return;
+    this.apiPending    = true;
+    this.pendingResult = null;
+    const slot  = this.currentSlot;
+    const index = this.muralCount;
+    slot.used   = true; // reserve up-front
+    this.factory.generate(slot, index)
+      .then(result => {
+        this.pendingResult      = result;
+        this.ui.thought         = result.thought;
+        this.ui.thoughtVisible  = true;
+      })
+      .catch(err => {
+        this.pendingResult = null;
+        console.warn('[agent] generation failed:', err.message);
+      })
+      .finally(() => { this.apiPending = false; });
+  }
+
+  async _finishPainting() {
+    const slot  = this.currentSlot;
+    const index = this.muralCount;
+    try {
+      await this.factory.apply(slot, this.pendingResult);
+      slot.used = true;
+      this.muralCount++;
+      this.ui.muralCount = this.muralCount;
+      this.ui.logEntries.unshift({
+        id:          index,
+        styleName:   CONFIG.styleNames[index % CONFIG.styleNames.length],
+        wallW:       slot.wallW,
+        wallH:       slot.wallH,
+        buildingIdx: slot.buildingIdx,
+      });
+      if (this.ui.logEntries.length > CONFIG.maxLogEntries) this.ui.logEntries.pop();
+    } catch (e) {
+      slot.used = false; // release so it can be retried
+      console.warn('[agent] apply failed:', e.message);
+    }
+    this._returnToWander();
+  }
+
+  _releaseSlot() {
+    if (this.currentSlot) this.currentSlot.used = false;
+    this._returnToWander();
+  }
+
+  _returnToWander() {
+    this.ui.flashActive    = false;
+    this.ui.thoughtVisible = false;
+    this.pendingResult     = null;
+    this.currentSlot       = null;
+    this._newWanderTarget();
+    this._setState(STATE.WANDERING);
+  }
+
+  // ---- Main update (called every frame) -----------------------------------
+  update(dt, t) {
+    const step = CONFIG.moveSpeed * dt;
+
+    switch (this.state) {
+
+      case STATE.WANDERING: {
+        this.wanderTimer += dt;
+        const moved   = this.city.steer(this.char.pos, this.wanderTarget, step);
+        if (moved) this.char.faceDirection(moved);
+        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.6;
+        if (arrived || !moved) this._newWanderTarget();
+
+        if (this.wanderTimer > this.wanderDeadline) {
+          const slot = this.city.pickFreeSlot();
+          if (slot)                       { this.currentSlot = slot; this._setState(STATE.MOVING_TO_WALL); }
+          else if (this.city.allWallsUsed()) this._setState(STATE.CONTEMPLATING);
+          else                              this._newWanderTarget();
+        }
+        this.char.walk(t);
+        break;
+      }
+
+      case STATE.MOVING_TO_WALL: {
+        const ap     = this.city.approachPoint(this.currentSlot);
+        const moved  = this.city.steer(this.char.pos, ap, step);
+        if (moved) this.char.faceDirection(moved);
+        const dist   = Math.hypot(ap.x - this.char.pos.x, ap.z - this.char.pos.z);
+        if (dist < 0.2 || !moved) this._beginThinking();
+        this.char.walk(t);
+        break;
+      }
+
+      case STATE.THINKING: {
+        this.thinkTimer += dt;
+        this.char.idle(t);
+        if (this.thinkTimer > CONFIG.thinkSeconds && !this.apiPending) {
+          if (this.pendingResult?.svg) {
+            this._setState(STATE.PAINTING);
+            this.paintTimer       = 0;
+            this.ui.flashActive   = true;
+          } else {
+            this._releaseSlot();
+          }
+        }
+        break;
+      }
+
+      case STATE.PAINTING: {
+        this.paintTimer += dt;
+        this.char.paint(t);
+        if (this.paintTimer > CONFIG.paintSeconds) this._finishPainting();
+        break;
+      }
+
+      case STATE.CONTEMPLATING: {
+        const moved   = this.city.steer(this.char.pos, this.wanderTarget, step * 0.6);
+        if (moved) this.char.faceDirection(moved);
+        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.6;
+        if (arrived || !moved) this.wanderTarget = this.city.randomReachablePoint();
+        this.char.walk(t, 0.6);
+        break;
+      }
+    }
+
+    this.char.sync();
+  }
+}
