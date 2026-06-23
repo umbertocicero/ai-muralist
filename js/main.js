@@ -109,15 +109,18 @@ class App {
   }
 
   _buildLights() {
-    const sun = new THREE.DirectionalLight('#fff5e0', 2.4);
-    sun.position.set(50, 80, 30);
+    // Overcast Japanese sky — soft diffuse light, no harsh noon sun
+    const sun = new THREE.DirectionalLight('#f0eeea', 0.85);
+    sun.position.set(40, 70, 25);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { near: 1, far: 200, left: -70, right: 70, top: 70, bottom: -70 });
     sun.shadow.bias = -0.0004;
     this.scene.add(sun);
-    this.scene.add(new THREE.AmbientLight('#c9dff0', 0.35));
-    this.scene.add(new THREE.HemisphereLight('#87CEEB', '#6b8e6b', 0.5));
+    // Heavy ambient keeps shadows soft (manga flat-shade feel)
+    this.scene.add(new THREE.AmbientLight('#d8d8d4', 1.5));
+    // Hemisphere: cool grey sky, dark ground
+    this.scene.add(new THREE.HemisphereLight('#d0cece', '#686460', 0.7));
   }
 
   _onResize() {
