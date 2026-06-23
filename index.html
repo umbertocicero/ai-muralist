@@ -88,6 +88,37 @@
   canvas { cursor: grab; }
   canvas:active { cursor: grabbing; }
 
+  /* ── Manga page overlay: paper grain · vignette · panel frame ───────────
+     Sits above the WebGL canvas but below the UI panels so text stays crisp.
+     All layers are pointer-transparent and GPU-cheap (no per-frame JS). */
+  #paper { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+  #paper .grain {
+    position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.08; mix-blend-mode: multiply;
+  }
+  /* Faint horizontal hatch — the printed-screentone weave of a manga page. */
+  #paper .hatch {
+    position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(
+      0deg, rgba(20,18,16,0.05) 0px, rgba(20,18,16,0.05) 1px, transparent 1px, transparent 3px);
+    opacity: 0.5; mix-blend-mode: multiply;
+  }
+  #paper .vignette {
+    position: absolute; inset: 0;
+    box-shadow: inset 0 0 240px 56px rgba(24,20,16,0.30);
+  }
+  /* Clean black panel border, like an inked page edge. */
+  #paper .frame {
+    position: absolute; inset: 12px;
+    border: 2.5px solid rgba(18,16,14,0.85);
+    border-radius: 2px;
+  }
+  @media (max-width: 640px) {
+    #paper .frame { inset: 8px; border-width: 2px; }
+    #paper .vignette { box-shadow: inset 0 0 140px 32px rgba(24,20,16,0.32); }
+  }
+
   @media (max-width: 640px) {
     #log { display: none; }
     #title .name { font-size: 18px; }
@@ -99,6 +130,12 @@
 </head>
 <body>
   <div id="canvas-root"></div>
+  <div id="paper">
+    <div class="grain"></div>
+    <div class="hatch"></div>
+    <div class="vignette"></div>
+    <div class="frame"></div>
+  </div>
   <div id="ui-root"></div>
 
   <script type="module" src="./js/main.js"></script>

@@ -9,8 +9,25 @@ export const CONFIG = {
   // --- World (Japanese neighborhood — B&W manga / inked line-art) ---
   // Paper-white sky; buildings near-white so cel shading + ink outlines read
   // as a hand-drawn panel. Murals are the only colour in the scene.
-  sky: '#f4f2ee',
-  fog: { color: '#f4f2ee', near: 48, far: 140 },
+  // Soft paper-grey sky (NOT pure white): gives the additive sun-glow and
+  // light-shafts a surface to register against, and lets distance haze read.
+  sky: '#e7e5e0',
+  fog: { color: '#edebe6', near: 36, far: 112 },
+
+  // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
+  // Sun sits low over the far end of an avenue → long dramatic shadows and a
+  // white-out glow at the vanishing point, like the reference alleys.
+  sun: { x: 26, y: 18, z: -66 },
+  atmo: {
+    glowSize:   50,    // diameter of the blown highlight at the sun
+    shaftCount: 12,    // number of radiating light-shafts
+    shaftLen:   140,   // shaft length (world units)
+    shaftWidth: 8,     // shaft base width
+    shaftOpacity: 0.28, // base beam opacity (jittered per beam)
+    dustCount:  320,   // floating motes
+    dustRange:  90,    // box the motes drift within
+    dustSize:   0.15,
+  },
   buildingColors: ['#ffffff', '#f3f1ed', '#ebe9e5', '#f7f5f1', '#eeece8'],
   buildingPositions: [
     [-12,-12],[12,-12],[-12,12],[12,12],
@@ -31,9 +48,9 @@ export const CONFIG = {
   muralCoverH: 0.85,
 
   // --- Camera ---
-  camFov: 55,
-  camRadius: 26,
-  camPolar: 1.0,
+  camFov: 50,
+  camRadius: 24,
+  camPolar: 1.16,
   camPolarMin: 0.18,
   camPolarMax: 1.38,
   camRadiusMin: 8,

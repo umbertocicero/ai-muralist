@@ -7,6 +7,7 @@ import { Character }     from './character.js';
 import { MuralFactory }  from './mural-factory.js';
 import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
+import { Atmosphere }    from './atmosphere.js';
 
 import BootScreen    from '../components/BootScreen.js';
 import TitlePanel    from '../components/TitlePanel.js';
@@ -89,11 +90,12 @@ class App {
     this._buildLights();
 
     // Systems
-    this.city      = new City(this.scene);
-    this.character = new Character(this.scene, { x: 0, z: 14 });
-    this.factory   = new MuralFactory(this.scene, this.renderer);
-    this.agent     = new Agent(this.city, this.character, this.factory, ui);
-    this.rig       = new CameraRig(this.camera, this.renderer.domElement, ui);
+    this.city       = new City(this.scene);
+    this.character  = new Character(this.scene, { x: 0, z: 14 });
+    this.factory    = new MuralFactory(this.scene, this.renderer);
+    this.agent      = new Agent(this.city, this.character, this.factory, ui);
+    this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui);
+    this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
 
     // Wire follow-button callback: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos);
@@ -113,8 +115,8 @@ class App {
     // One key light gives the cel material a clean light/shade split (the
     // toon gradient map turns it into hard bands). High ambient keeps shaded
     // areas as light grey — manga shadows are tone, not black.
-    const key = new THREE.DirectionalLight('#ffffff', 1.45);
-    key.position.set(34, 58, 26);
+    const key = new THREE.DirectionalLight('#ffffff', 1.5);
+    key.position.set(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     Object.assign(key.shadow.camera, { near: 1, far: 200, left: -70, right: 70, top: 70, bottom: -70 });
@@ -142,6 +144,7 @@ class App {
     const t  = this.clock.elapsedTime;
     this.agent.update(dt, t);
     this.rig.update(dt, this.character.pos);
+    this.atmosphere.update(dt, t, this.camera);
     this.renderer.render(this.scene, this.camera);
     if (!ui.booted) {
       ui.booted  = true;
