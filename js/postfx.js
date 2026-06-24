@@ -74,28 +74,9 @@ const FRAG = /* glsl */`
     edge = smoothstep(0.16, 0.42, edge) * grey * uEdge;
     c = mix(c, vec3(0.05), edge);
 
-    // --- screentone: halftone dots + deep-shadow hatching, on grey pixels ---
-    float lum = luma(c);
-    float cut = 0.82;
-    if (grey > 0.5 && lum < cut) {
-      float shade = clamp((cut - lum) / cut, 0.0, 1.0);
-      float ink;
-      if (lum > 0.30) {
-        // halftone dots, 45°
-        vec2 p = ROT45 * (gl_FragCoord.xy * uToneScale);
-        float d = length(fract(p) - 0.5);
-        float r = 0.15 + shade * 0.42;
-        ink = 1.0 - smoothstep(r - 0.12, r + 0.02, d);
-      } else {
-        // deep shadow → diagonal hatching (cross-hatch in the darkest)
-        float h1 = abs(fract((gl_FragCoord.x + gl_FragCoord.y) * 0.14) - 0.5);
-        float hatch = 1.0 - smoothstep(0.12, 0.20, h1);
-        float h2 = abs(fract((gl_FragCoord.x - gl_FragCoord.y) * 0.14) - 0.5);
-        float hatch2 = (1.0 - smoothstep(0.12, 0.20, h2)) * step(lum, 0.16);
-        ink = max(hatch, hatch2);
-      }
-      c = mix(c, vec3(0.06), ink * 0.9);
-    }
+    // NOTE: screentone is no longer applied here. It now lives ON the surfaces
+    // (see toon.js applyMangaTone) — world-locked dots that don't crawl as the
+    // camera moves. This pass keeps the ink line, paper and vignette.
 
     // --- paper tint + vignette + grain ---
     c *= vec3(0.996, 0.994, 0.99);                     // near-white paper (barely warm)
