@@ -50,6 +50,7 @@ export class Agent {
     this._setState(STATE.THINKING);
     this.thinkTimer = 0;
     this.char.faceNormalInward(this.currentSlot);
+    this.ui.onPaintBegin?.(this.currentSlot);   // camera frames the wall + KAI
     this._startGeneration();
   }
 
@@ -109,6 +110,7 @@ export class Agent {
     this.pendingResult     = null;
     this.currentSlot       = null;
     this._finishing        = false;
+    this.ui.onPaintEnd?.();          // camera rises back up + resumes follow
     this._newWanderTarget();
     this._setState(STATE.WANDERING);
   }

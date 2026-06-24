@@ -42,6 +42,9 @@ export class CameraRig {
     this.pivot       = new THREE.Vector3(CONFIG.charStart.x, 0, CONFIG.charStart.z);
     this.pivotTarget = this.pivot.clone();
     this.following   = true;
+    this._cine       = null;     // mural slot the camera is "watching" while KAI paints
+    this._cineAz     = 0;
+    this._cinePolar  = CONFIG.camPolar;
     this.lookY       = CONFIG.camLookY;     // height the camera aims at
     this.lookYTarget = CONFIG.camLookY;
 
@@ -65,6 +68,7 @@ export class CameraRig {
       el.setPointerCapture?.(e.pointerId);
       this._ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this._idle = 0;
+      this._cine = null;   // user takes over → stop auto-watching the mural
       if (this._ptrs.size === 1) {
         this._mode = (e.shiftKey || e.button === 1) ? 'pan' : 'orbit';
         this._last = { x: e.clientX, y: e.clientY, t: performance.now(), dx: 0, dy: 0 };
@@ -124,6 +128,7 @@ export class CameraRig {
     el.addEventListener('wheel', e => {
       e.preventDefault();
       this._idle = 0;
+      this._cine = null;
       this._zoom(e.deltaY, e.clientX, e.clientY);
     }, { passive: false });
 
@@ -226,18 +231,57 @@ export class CameraRig {
 
   reattach(charPos, facing = 0) {
     this.following = true;
+    this._cine = null;
     this.ui.cameraFollowing = true;
     this.lookYTarget = CONFIG.camLookY;
+    this.targetRadius = CONFIG.camRadius;
     this.pivotTarget.set(charPos.x, 0, charPos.z);
     this.azimuth = behindAzimuth(facing);   // snap straight behind KAI
     this.velAz = 0;
+  }
+
+  // ── Cinematic: watch KAI paint a wall, framing the mural + him ────────────
+  // Move to a 3/4 view in front of the wall, looking at the mural; KAI stands
+  // in front of it (between camera and wall) so both read. The rooftop-lift
+  // safety still applies, so in a tight lane it rises to a high 3/4 instead of
+  // backing into the building opposite.
+  watchMural(slot) {
+    if (!slot) return;
+    this._cine = slot;
+    this.ui.cameraFollowing = true;           // it's auto-framing, hide the button
+    this.following = false;
+    this._cineAz = Math.atan2(slot.nz, slot.nx) + 0.45;  // in front + a 3/4 offset
+    this._cinePolar = 1.3;
+    this.targetRadius = 6;
+    this.lookYTarget = slot.py + 0.5;
+    // aim between the wall and where KAI stands, so both fill the frame
+    this._cinePivot = { x: slot.px + slot.nx * 0.6, z: slot.pz + slot.nz * 0.6 };
+    this.pivotTarget.set(this._cinePivot.x, 0, this._cinePivot.z);
+    this._clampPivot();
+  }
+
+  // Done painting → rise back up and smoothly resume the follow-behind (the
+  // follow easing swings the azimuth back behind KAI, no snap).
+  releaseWatch() {
+    this._cine = null;
+    this.following = true;
+    this.ui.cameraFollowing = true;
+    this.lookYTarget = CONFIG.camLookY;
+    this.targetRadius = CONFIG.camRadius;
   }
 
   // ---- per-frame ---------------------------------------------------------
   update(dt, charPos, facing = 0) {
     this._idle += dt;
 
-    if (this.following) {
+    if (this._cine) {
+      // Watching a mural being painted: ease into the framed 3/4 shot and hold.
+      this.pivotTarget.set(this._cinePivot.x, 0, this._cinePivot.z);
+      const k = 1 - Math.exp(-dt * 2.6);
+      this.azimuth = lerpAngle(this.azimuth, this._cineAz, k);
+      this.polar  += (this._cinePolar - this.polar) * k;
+      this.velAz = this.velPolar = 0;
+    } else if (this.following) {
       this.pivotTarget.set(charPos.x, 0, charPos.z);
       // Keep the camera behind KAI, looking the way he walks. When not actively
       // dragging, ease the azimuth toward "behind" (so it swings round as he

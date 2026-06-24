@@ -43,9 +43,11 @@ const ui = reactive({
   cameraFollowing: true,
   clock:           '--:--:--',  // JST wall-clock (Setagaya, Tokyo)
   phase:           'day',       // day · night · dawn · dusk
-  // Callback slots: Vue → Three.js CameraRig
+  // Callback slots: Vue / Agent → Three.js CameraRig
   onFollowRequest: null,
   onMuralFocus:    null,
+  onPaintBegin:    null,   // Agent: KAI started a wall → frame the mural
+  onPaintEnd:      null,   // Agent: done → resume follow
 });
 
 // ==========================================================================
@@ -125,6 +127,8 @@ class App {
     // Wire callbacks: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.group.rotation.y);
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
+    ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
+    ui.onPaintEnd      = () => this.rig.releaseWatch();
     if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
 
     // Day/night: set the sky to the real Tokyo time right away, then track it.
