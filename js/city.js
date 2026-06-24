@@ -54,6 +54,7 @@ function gableGeometry(halfSpan, rh, len) {
 }
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
 const LEAF     = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
+const LEAF_GEO = new THREE.IcosahedronGeometry(1, 0);   // shared, scaled per leaf
 
 export class City {
   constructor(scene) {
@@ -63,6 +64,10 @@ export class City {
     this.poles     = [];
     this.colliders = [];   // round prop colliders {x,z,r}
     this.barriers  = [];   // thin fence/wall colliders {cx,cz,hw,hd,rot}
+    this._roofSeg  = [];   // batched line segments (roof tiles / siding / seams)
+    this._wireSeg  = [];   // batched overhead-wire segments
+    this._winXf    = [];   // window transforms [x,y,z,rotY,…] → one InstancedMesh
+    this._shutXf   = [];   // shutter transforms
     this.rng       = mulberry32(20260623);
 
     this.HALF = CONFIG.world.half;
@@ -78,6 +83,8 @@ export class City {
       this._waterTower(p.x, p.z);
     }
 
+    this._finalizeLines();    // merge all batched strokes into 2 LineSegments
+    this._buildInstances();   // windows + shutters → 1 InstancedMesh each
     this.spawn = this._findOpen(0, 0);
   }
 
@@ -287,13 +294,9 @@ export class City {
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
         const ox = n.x * 0.09, oz = n.z * 0.09;
         if (f === 0 && (c + seed) % 3 === 0) {
-          const sh = new THREE.Mesh(SHU_GEO, SHUTTER);
-          sh.position.set(w.x + ox, 1.05, w.z + oz); sh.rotation.y = rotY;
-          this.scene.add(sh); continue;
+          this._shutXf.push(w.x + ox, 1.05, w.z + oz, rotY); continue;   // instanced
         }
-        const win = new THREE.Mesh(WIN_GEO, GLASS);
-        win.position.set(w.x + ox, wy, w.z + oz); win.rotation.y = rotY;
-        this.scene.add(win);
+        this._winXf.push(w.x + ox, wy, w.z + oz, rotY);                  // instanced
 
         if (f >= 1 && (c + f + seed) % 2 === 0) {
           const b = this._toWorld(cx, cz, rot, nlx * (half + 0.26) + tlx * tc, nlz * (half + 0.26) + tlz * tc);
@@ -473,7 +476,7 @@ export class City {
     const halfSpan = hw + oh;
     const len = hd * 2 + oh * 2;
     const rh = 0.6 + Math.min(hw, hd) * 0.42;
-    const mat = toonMat('#3a3833'); mat.side = THREE.DoubleSide;
+    const mat = toonMat('#3a3833', { side: THREE.DoubleSide });
     const roof = new THREE.Mesh(gableGeometry(halfSpan, rh, len), mat);
     roof.castShadow = true; addInk(roof, 1.02);
     roof.position.set(cx, H, cz); roof.rotation.y = rot;
@@ -488,9 +491,7 @@ export class City {
   _roofTiles(cx, cz, rot, H, hw, hd, hip, rh = 0, halfSpan = 0, len = 0) {
     const line = (lx0, ly0, lz0, lx1, ly1, lz1) => {
       const a = this._toWorld(cx, cz, rot, lx0, lz0), b = this._toWorld(cx, cz, rot, lx1, lz1);
-      const g = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(a.x, H + ly0, a.z), new THREE.Vector3(b.x, H + ly1, b.z)]);
-      this.scene.add(new THREE.Line(g, ROOFLINE));
+      this._roofSeg.push(a.x, H + ly0, a.z, b.x, H + ly1, b.z);
     };
     if (hip) {
       // a few rings parallel to the eaves
@@ -519,9 +520,7 @@ export class City {
     for (let i = 0; i <= N; i++) {
       const lx = -hw + (2 * hw) * (i / N);
       const a = this._toWorld(cx, cz, rot, lx, -hd + 0.2), b = this._toWorld(cx, cz, rot, lx, hd - 0.2);
-      const g = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(a.x, y, a.z), new THREE.Vector3(b.x, y, b.z)]);
-      this.scene.add(new THREE.Line(g, ROOFLINE));
+      this._roofSeg.push(a.x, y, a.z, b.x, y, b.z);
     }
   }
 
@@ -536,9 +535,7 @@ export class City {
     rail.position.set(f.x, h - 0.06, f.z); rail.rotation.y = rot; this.scene.add(rail);
     for (let lx = -hw + 0.3; lx < hw; lx += 0.34) {     // vertical plank seams
       const a = this._toWorld(cx, cz, rot, lx, hd + 0.05);
-      const g = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(a.x, 0.05, a.z), new THREE.Vector3(a.x, h - 0.05, a.z)]);
-      this.scene.add(new THREE.Line(g, ROOFLINE));
+      this._roofSeg.push(a.x, 0.05, a.z, a.x, h - 0.05, a.z);
     }
     [-hw, hw].forEach(lx => {
       const p = this._toWorld(cx, cz, rot, lx, hd);
@@ -557,10 +554,7 @@ export class City {
       for (let y = 0.6; y < H - 0.2 && c < 7; y += 0.55, c++) {
         const a = this._toWorld(cx, cz, rot, nlx * half + tlx * (-wl + 0.15), nlz * half + tlz * (-wl + 0.15));
         const b = this._toWorld(cx, cz, rot, nlx * half + tlx * (wl - 0.15), nlz * half + tlz * (wl - 0.15));
-        const g = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(a.x + o.x * 0.05, y, a.z + o.z * 0.05),
-          new THREE.Vector3(b.x + o.x * 0.05, y, b.z + o.z * 0.05)]);
-        this.scene.add(new THREE.Line(g, ROOFLINE));
+        this._roofSeg.push(a.x + o.x * 0.05, y, a.z + o.z * 0.05, b.x + o.x * 0.05, y, b.z + o.z * 0.05);
       }
     }
   }
@@ -603,7 +597,42 @@ export class City {
   _wire(x0, y0, z0, x1, y1, z1, sag) {
     const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 - sag, (z0 + z1) / 2);
     const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(x0, y0, z0), mid, new THREE.Vector3(x1, y1, z1));
-    this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(12)), WIRE));
+    const pts = curve.getPoints(10);
+    for (let i = 0; i < pts.length - 1; i++)
+      this._wireSeg.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
+  }
+
+  // Merge every batched stroke into a single LineSegments per material — turns
+  // hundreds of one-segment Line draw calls into two.
+  _finalizeLines() {
+    const build = (arr, mat) => {
+      if (!arr.length) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      this.scene.add(new THREE.LineSegments(g, mat));
+    };
+    build(this._roofSeg, ROOFLINE);
+    build(this._wireSeg, WIRE);
+  }
+
+  // All windows (and all shutters) share one geometry + material, so each set
+  // collapses to a single InstancedMesh draw call instead of hundreds.
+  _buildInstances() {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+          p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+    const make = (geo, mat, arr) => {
+      const n = arr.length / 4; if (!n) return;
+      const im = new THREE.InstancedMesh(geo, mat, n);
+      for (let i = 0; i < n; i++) {
+        p.set(arr[i * 4], arr[i * 4 + 1], arr[i * 4 + 2]);
+        q.setFromAxisAngle(up, arr[i * 4 + 3]);
+        im.setMatrixAt(i, m.compose(p, q, s));
+      }
+      im.instanceMatrix.needsUpdate = true;
+      this.scene.add(im);
+    };
+    make(WIN_GEO, GLASS, this._winXf);
+    make(SHU_GEO, SHUTTER, this._shutXf);
   }
   _pottedPlant(x, z, s = 1) {
     const pot = inkedMesh(new THREE.CylinderGeometry(0.16 * s, 0.20 * s, 0.34 * s, 8), '#dcdad6', { k: 1.05 });
@@ -612,8 +641,12 @@ export class City {
     this._leaf(x + 0.13 * s, 0.34 * s + 0.40 * s, z - 0.05 * s, 0.20 * s, LEAF[3]);
   }
   _leaf(x, y, z, r, tone) {
-    const m = inkedMesh(new THREE.IcosahedronGeometry(r, 0), tone, { k: 1.05, cast: false });
-    m.position.set(x, y, z); m.rotation.set(this.rng(), this.rng(), this.rng()); this.scene.add(m); return m;
+    // shared geometry + cached material, no ink hull (the Sobel post-pass inks
+    // foliage) — hundreds of leaves become cheap, batchable meshes
+    const m = new THREE.Mesh(LEAF_GEO, toonMat(tone));
+    m.scale.setScalar(r);
+    m.position.set(x, y, z); m.rotation.set(this.rng(), this.rng(), this.rng());
+    this.scene.add(m); return m;
   }
   _vine(x, z, h) {
     for (let y = 0.4; y < h; y += 0.55)

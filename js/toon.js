@@ -36,23 +36,35 @@ export function gradientMap() {
 // Cel-shaded material (flat banded light). Screentone is applied globally by
 // the MangaPost postfx pass rather than per-material, so it also covers cast
 // shadows on the ground and works consistently across all geometry.
-export function toonMat(color, { transparent = false, opacity = 1 } = {}) {
-  return new THREE.MeshToonMaterial({
-    color,
-    gradientMap: gradientMap(),
-    transparent,
-    opacity,
-  });
+//
+// Materials are CACHED by their parameters: the scene reuses one shared
+// material per colour instead of allocating thousands (huge memory + GL-state
+// win). Treat the result as immutable — never mutate a returned material; pass
+// options (e.g. `side`) instead so distinct variants get distinct cache slots.
+const _matCache = new Map();
+export function toonMat(color, { transparent = false, opacity = 1, side = THREE.FrontSide } = {}) {
+  const key = `${color}|${transparent ? 1 : 0}|${opacity}|${side}`;
+  let m = _matCache.get(key);
+  if (!m) {
+    m = new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), transparent, opacity, side });
+    _matCache.set(key, m);
+  }
+  return m;
+}
+
+// Shared ink-outline materials, one per colour (default near-black).
+const _inkCache = new Map();
+function inkMat(color) {
+  let m = _inkCache.get(color);
+  if (!m) { m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide }); _inkCache.set(color, m); }
+  return m;
 }
 
 // Add a black ink outline to a mesh (inverted-hull). `k` is the expansion
 // factor — larger geometry gets a proportionally heavier line, which reads as
 // natural manga line-weight variation. Returns the outline mesh.
 export function addInk(mesh, k = 1.03, color = 0x141414) {
-  const ink = new THREE.Mesh(
-    mesh.geometry,
-    new THREE.MeshBasicMaterial({ color, side: THREE.BackSide })
-  );
+  const ink = new THREE.Mesh(mesh.geometry, inkMat(color));
   ink.scale.setScalar(k);
   ink.castShadow = false;
   ink.receiveShadow = false;
