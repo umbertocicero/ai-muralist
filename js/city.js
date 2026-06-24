@@ -189,14 +189,17 @@ export class City {
   }
 
   _openLot(cx, cz, hw, hd, rot) {
-    // a low wall or hedge ring + greenery so empty plots still read
-    if (this.rng() < 0.5) {
+    // a wooden plank fence or low wall around the front, + greenery
+    const r = this.rng();
+    if (r < 0.45) {
+      this._plankFence(cx, cz, rot, hw, hd);          // 板塀 — board fence
+    } else if (r < 0.7) {
       const wall = inkedMesh(new THREE.BoxGeometry(hw * 2, 0.8, 0.14), '#dedcd8', { k: 1.03 });
       const f = this._toWorld(cx, cz, rot, 0, hd);
       wall.position.set(f.x, 0.4, f.z); wall.rotation.y = rot;
       this.scene.add(wall);
     }
-    const n = 1 + (this.rng() * 3 | 0);
+    const n = 2 + (this.rng() * 3 | 0);
     for (let i = 0; i < n; i++) {
       const p = this._toWorld(cx, cz, rot, this._rand(-hw, hw), this._rand(-hd, hd));
       if (this.rng() < 0.5) this._bush(p.x, p.z, 0.7 + this.rng() * 0.4);
@@ -206,10 +209,12 @@ export class City {
 
   // ── A building (oriented box) + roof + facades ────────────────────────────
   _block(cx, cz, hw, hd, rot, H, idx) {
-    const tone = CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
+    const wood = this.rng() < 0.22;     // some are wood-sided houses (板張り)
+    const tone = wood ? '#d8d2c6' : CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
     const body = inkedMesh(new THREE.BoxGeometry(hw * 2, H, hd * 2), tone, { k: 1.014, receive: true });
     body.position.set(cx, H / 2, cz); body.rotation.y = rot;
     this.scene.add(body);
+    if (wood) this._sidingLines(cx, cz, rot, hw, hd, H);
 
     const curb = new THREE.Mesh(new THREE.BoxGeometry(hw * 2 + 0.5, 0.12, hd * 2 + 0.5), CURB);
     curb.position.set(cx, 0.06, cz); curb.rotation.y = rot; curb.receiveShadow = true;
@@ -308,7 +313,11 @@ export class City {
     if ((seed % 2) === 0) {
       const pb = this._toWorld(cx, cz, rot, nlx * (half + 0.5), nlz * (half + 0.5));
       this._pottedPlant(pb.x, pb.z, 0.7 + (seed % 3) * 0.16);
-      if (this.rng() < 0.4) this._vine(e.x + n.x * 0.16, e.z + n.z * 0.16, 2.6 + this.rng() * 2);
+      // lush overhanging greenery along the wall (the alleys are overgrown)
+      if (this.rng() < 0.6) this._vine(e.x + n.x * 0.16, e.z + n.z * 0.16, 2.8 + this.rng() * 2.4);
+      if (this.rng() < 0.3) this._bush(pb.x, pb.z, 0.6 + this.rng() * 0.35);
+      // foliage spilling over the wall top
+      if (this.rng() < 0.35) this._leaf(pb.x, H - 0.3, pb.z, 0.5 + this.rng() * 0.3, LEAF[seed % LEAF.length]);
     }
   }
 
@@ -492,6 +501,45 @@ export class City {
       const g = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(a.x, y, a.z), new THREE.Vector3(b.x, y, b.z)]);
       this.scene.add(new THREE.Line(g, ROOFLINE));
+    }
+  }
+
+  // Wooden board fence (板塀) across the front of a plot.
+  _plankFence(cx, cz, rot, hw, hd) {
+    const h = 1.0 + this.rng() * 0.4, len = hw * 2;
+    const f = this._toWorld(cx, cz, rot, 0, hd);
+    const panel = inkedMesh(new THREE.BoxGeometry(len, h, 0.08), '#cfcabd', { k: 1.03 });
+    panel.position.set(f.x, h / 2, f.z); panel.rotation.y = rot; this.scene.add(panel);
+    const rail = inkedMesh(new THREE.BoxGeometry(len + 0.1, 0.1, 0.13), '#a8a294', { k: 1.05, cast: false });
+    rail.position.set(f.x, h - 0.06, f.z); rail.rotation.y = rot; this.scene.add(rail);
+    for (let lx = -hw + 0.3; lx < hw; lx += 0.34) {     // vertical plank seams
+      const a = this._toWorld(cx, cz, rot, lx, hd + 0.05);
+      const g = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(a.x, 0.05, a.z), new THREE.Vector3(a.x, h - 0.05, a.z)]);
+      this.scene.add(new THREE.Line(g, ROOFLINE));
+    }
+    [-hw, hw].forEach(lx => {
+      const p = this._toWorld(cx, cz, rot, lx, hd);
+      const post = inkedMesh(new THREE.BoxGeometry(0.12, h + 0.16, 0.16), '#8f897b', { k: 1.06, cast: false });
+      post.position.set(p.x, (h + 0.16) / 2, p.z); post.rotation.y = rot; this.scene.add(post);
+    });
+  }
+
+  // Horizontal wood-siding seams on a building's four faces.
+  _sidingLines(cx, cz, rot, hw, hd, H) {
+    const faces = [[0, 1, hd, hw], [0, -1, hd, hw], [1, 0, hw, hd], [-1, 0, hw, hd]];
+    for (const [nlx, nlz, half, wl] of faces) {
+      const tlx = -nlz, tlz = nlx;
+      const o = this._dir(rot, nlx, nlz);
+      let c = 0;
+      for (let y = 0.6; y < H - 0.2 && c < 7; y += 0.55, c++) {
+        const a = this._toWorld(cx, cz, rot, nlx * half + tlx * (-wl + 0.15), nlz * half + tlz * (-wl + 0.15));
+        const b = this._toWorld(cx, cz, rot, nlx * half + tlx * (wl - 0.15), nlz * half + tlz * (wl - 0.15));
+        const g = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(a.x + o.x * 0.05, y, a.z + o.z * 0.05),
+          new THREE.Vector3(b.x + o.x * 0.05, y, b.z + o.z * 0.05)]);
+        this.scene.add(new THREE.Line(g, ROOFLINE));
+      }
     }
   }
 
