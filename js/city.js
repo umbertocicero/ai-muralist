@@ -400,8 +400,8 @@ export class City {
     parapet.position.set(pc.x, y + 0.28, pc.z); parapet.rotation.y = rotY; this.scene.add(parapet);
     const railTop = inkedMesh(new THREE.BoxGeometry(w + 0.06, 0.06, 0.14), '#8f8a7e', { k: 1.05, cast: false });
     railTop.position.set(pc.x, y + 0.55, pc.z); railTop.rotation.y = rotY; this.scene.add(railTop);
-    // futon / laundry draped over the parapet
-    const nF = this.rng() < 0.6 ? (this.rng() < 0.4 ? 2 : 1) : 0;
+    // futon / laundry draped over the parapet (a common Tokyo sight)
+    const nF = this.rng() < 0.7 ? (this.rng() < 0.5 ? 2 : 1) : 0;
     for (let i = 0; i < nF; i++) {
       const toff = (i - (nF - 1) / 2) * 0.85 + this._rand(-0.1, 0.1);
       const lp = this._toWorld(cx, cz, rot, nlx * (half + out + 0.05) + tlx * toff, nlz * (half + out + 0.05) + tlz * toff);
