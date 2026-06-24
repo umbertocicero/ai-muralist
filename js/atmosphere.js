@@ -75,22 +75,52 @@ export class Atmosphere {
     this.core.position.copy(this.glow.position);
     this.shafts.position.copy(this.glow.position);
     if (this.moon) this.moon.material.opacity = (1 - day) * 0.85;
-    if (this.lamps) this.lamps.material.opacity = (1 - day) * 0.9;   // street lamps glow after dark
+    const night = 1 - day;
+    if (this.lamps)     this.lamps.material.opacity     = night * 1.0;   // lamp lens bloom
+    if (this.lampPools) this.lampPools.material.opacity = night * 0.55;  // warm light on the lane
   }
 
-  // Street-lamp glows — one additive Points cloud for every lamp lens, faded in
-  // by the day/night cycle. Cheap (a single draw call).
+  // Street-lamp glows — an additive Points cloud for every lamp lens PLUS a flat
+  // warm pool of light cast on the lane beneath each lamp. Both fade in with the
+  // night and cost only one draw call each.
   setLamps(heads) {
     if (!heads || !heads.length) return;
+    const n = heads.length / 3;
+
+    // (1) bright lens bloom at each cobra head
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(heads, 3));
     const mat = new THREE.PointsMaterial({
-      map: discTexture(0.15), color: 0xffdca8, size: 3.0, sizeAttenuation: true,
+      map: discTexture(0.12), color: 0xffe2b0, size: 3.4, sizeAttenuation: true,
       blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0,
     });
     this.lamps = new THREE.Points(geo, mat);
     this.lamps.renderOrder = 995;
     this.scene.add(this.lamps);
+
+    // (2) a soft warm pool on the ground under each lamp (flat additive quads,
+    // merged into one mesh). Lit lanes are what sell a night manga panel.
+    const R = 2.8;
+    const pos = new Float32Array(n * 4 * 3);
+    const uv  = new Float32Array(n * 4 * 2);
+    const idx = [];
+    for (let i = 0; i < n; i++) {
+      const x = heads[i * 3], z = heads[i * 3 + 2], v = i * 4;
+      pos.set([x - R, 0.05, z - R,  x + R, 0.05, z - R,  x + R, 0.05, z + R,  x - R, 0.05, z + R], v * 3);
+      uv.set([0, 0, 1, 0, 1, 1, 0, 1], v * 2);
+      idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
+    }
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    pg.setAttribute('uv',       new THREE.BufferAttribute(uv, 2));
+    pg.setIndex(idx);
+    const pmat = new THREE.MeshBasicMaterial({
+      map: discTexture(0.0), color: 0xffcf8c,
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0,
+    });
+    this.lampPools = new THREE.Mesh(pg, pmat);
+    this.lampPools.renderOrder = 994;
+    this.scene.add(this.lampPools);
   }
 
   _buildMoon() {

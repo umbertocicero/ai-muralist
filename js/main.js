@@ -191,8 +191,10 @@ class App {
     const sx = sp.dir.x * R, sy = sp.dir.y * R, sz = sp.dir.z * R;
     this.key.position.set(sx, Math.max(sy, 3), sz);   // keep above ground so shadows resolve
     this.key.intensity = 0.12 + 1.5 * day;
-    this.ambient.intensity = 0.16 + 0.42 * day;
-    this.moonLight.intensity = (1 - day) * 0.45;
+    // Lift the night floor so the town stays legible after dark (the lamp pools
+    // do the warm accents), and let the cool moon fill carry the shaded sides.
+    this.ambient.intensity = 0.26 + 0.40 * day;
+    this.moonLight.intensity = (1 - day) * 0.6;
 
     // Sky + fog ride the cycle: night → day (greyscale, stays monochrome).
     col.copy(NIGHT).lerp(DAY, day);

@@ -173,8 +173,27 @@ export class City {
         rib.position.set((a.x + b.x) / 2, 0.01, (a.z + b.z) / 2);
         rib.receiveShadow = true;   // else it hides KAI's shadow cast on the ground below
         this.scene.add(rib);
+
+        // a manhole cover dotted onto the lane here and there
+        if (this.rng() < 0.55) {
+          const t = this._rand(0.3, 0.7);
+          const off = this._rand(-r.half * 0.45, r.half * 0.45);
+          const px = -dz / len, pz = dx / len;
+          this._manhole(a.x + dx * t + px * off, a.z + dz * t + pz * off);
+        }
       }
     }
+  }
+
+  // A round manhole cover: a dark rim with a lighter inset disc, sitting flush
+  // on the asphalt (a small but very "Tokyo street" detail).
+  _manhole(x, z) {
+    const rim = new THREE.Mesh(new THREE.CircleGeometry(0.46, 20), toonMat('#3a3833'));
+    rim.rotation.x = -Math.PI / 2; rim.position.set(x, 0.02, z); rim.receiveShadow = true;
+    this.scene.add(rim);
+    const inner = new THREE.Mesh(new THREE.CircleGeometry(0.36, 20), toonMat('#86837e'));
+    inner.rotation.x = -Math.PI / 2; inner.position.set(x, 0.025, z); inner.receiveShadow = true;
+    this.scene.add(inner);
   }
 
   // ── Generate plots → buildings + open lots ────────────────────────────────
@@ -341,19 +360,18 @@ export class City {
         }
         this._winXf.push(w.x + ox, wy, w.z + oz, rotY);                  // instanced
 
-        if (f >= 1 && (c + f + seed) % 2 === 0) {
-          const b = this._toWorld(cx, cz, rot, nlx * (half + 0.26) + tlx * tc, nlz * (half + 0.26) + tlz * tc);
-          const slab = inkedMesh(new THREE.BoxGeometry(0.5, 0.08, 1.5), '#d8d6d2', { k: 1.05, cast: false });
-          slab.position.set(b.x, wy - 0.6, b.z); slab.rotation.y = rotY; this.scene.add(slab);
-          const rail = inkedMesh(new THREE.BoxGeometry(0.46, 0.42, 0.05), '#3a3834', { k: 1.06, cast: false });
-          const rb = this._toWorld(cx, cz, rot, nlx * (half + 0.48) + tlx * tc, nlz * (half + 0.48) + tlz * tc);
-          rail.position.set(rb.x, wy - 0.38, rb.z); rail.rotation.y = rotY; this.scene.add(rail);
-        } else if (f >= 1 && (c + seed) % 3 === 1) {
-          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.22) + tlx * (tc + 0.7), nlz * (half + 0.22) + tlz * (tc + 0.7));
-          const ac = inkedMesh(new THREE.BoxGeometry(0.42, 0.38, 0.55), '#dcdad6', { k: 1.06, cast: false });
-          ac.position.set(a.x, wy - 0.5, a.z); ac.rotation.y = rotY; this.scene.add(ac);
+        // occasional AC outdoor unit, sitting flush against the wall
+        if (f >= 1 && (c + seed) % 4 === 1) {
+          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.17) + tlx * (tc + 0.7), nlz * (half + 0.17) + tlz * (tc + 0.7));
+          const ac = inkedMesh(new THREE.BoxGeometry(0.4, 0.34, 0.3), '#dcdad6', { k: 1.05, cast: false });
+          ac.position.set(a.x, wy - 0.55, a.z); ac.rotation.y = rotY; this.scene.add(ac);
         }
       }
+    }
+    // one coherent concrete balcony on the upper floor (not per-window planks)
+    if (floors >= 2 && seed % 2 === 0) {
+      const by = 1.4 + (floors - 1) * 2.2 - 0.55;
+      if (by + 1.0 < H) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, by, seed);
     }
     // drainpipe + base plants on the street side
     const e = this._toWorld(cx, cz, rot, nlx * half + tlx * (wallLen / 2 - 0.3), nlz * half + tlz * (wallLen / 2 - 0.3));
@@ -367,6 +385,28 @@ export class City {
       if (this.rng() < 0.3) this._bush(pb.x, pb.z, 0.6 + this.rng() * 0.35);
       // foliage spilling over the wall top
       if (this.rng() < 0.35) this._leaf(pb.x, H - 0.3, pb.z, 0.5 + this.rng() * 0.3, LEAF[seed % LEAF.length]);
+    }
+  }
+
+  // A clean concrete balcony: floor slab + a solid parapet running along the
+  // facade, sometimes with a futon/laundry draped over it (manga-style).
+  _balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed) {
+    const w = Math.min(wallLen * 0.82, 4.2), out = 0.6;
+    const fc = this._toWorld(cx, cz, rot, nlx * (half + out / 2), nlz * (half + out / 2));
+    const slab = inkedMesh(new THREE.BoxGeometry(w, 0.1, out), '#d6d3cd', { k: 1.03, cast: false });
+    slab.position.set(fc.x, y, fc.z); slab.rotation.y = rotY; this.scene.add(slab);
+    const pc = this._toWorld(cx, cz, rot, nlx * (half + out), nlz * (half + out));
+    const parapet = inkedMesh(new THREE.BoxGeometry(w, 0.5, 0.08), '#cfccc6', { k: 1.03, cast: false });
+    parapet.position.set(pc.x, y + 0.28, pc.z); parapet.rotation.y = rotY; this.scene.add(parapet);
+    const railTop = inkedMesh(new THREE.BoxGeometry(w + 0.06, 0.06, 0.14), '#8f8a7e', { k: 1.05, cast: false });
+    railTop.position.set(pc.x, y + 0.55, pc.z); railTop.rotation.y = rotY; this.scene.add(railTop);
+    // futon / laundry draped over the parapet
+    const nF = this.rng() < 0.6 ? (this.rng() < 0.4 ? 2 : 1) : 0;
+    for (let i = 0; i < nF; i++) {
+      const toff = (i - (nF - 1) / 2) * 0.85 + this._rand(-0.1, 0.1);
+      const lp = this._toWorld(cx, cz, rot, nlx * (half + out + 0.05) + tlx * toff, nlz * (half + out + 0.05) + tlz * toff);
+      const futon = inkedMesh(new THREE.BoxGeometry(0.72, 0.6, 0.06), '#f2efe9', { k: 1.04, cast: false });
+      futon.position.set(lp.x, y + 0.34, lp.z); futon.rotation.y = rotY; this.scene.add(futon);
     }
   }
 
@@ -409,23 +449,29 @@ export class City {
       const sgn = this.rng() < 0.5 ? 1 : -1;
       const f = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.7), bld.hd * (this.rng() - 0.5));
       if (this.isColliding(f.x, f.z) || this._distToMainRoad(f.x, f.z) < 1.0) continue;
-      this._lamppost(f.x, f.z); lamps++;
+      const n = this._dir(bld.rot, sgn, 0);               // outward = toward the street
+      this._lamppost(f.x, f.z, Math.atan2(n.x, n.z)); lamps++;
     }
   }
 
-  // A slim street lamp; its lens position is recorded for the night glow.
-  _lamppost(x, z) {
+  // A cobra-head street lamp: the arm + head reach OUT toward the street (along
+  // `ang`) and the lamp shines down onto the lane. Lens position is recorded
+  // for the night glow + ground pool.
+  _lamppost(x, z, ang = 0) {
     this.colliders.push({ x, z, r: 0.18 });
-    const h = 4.0;
+    const h = 4.2, reach = 0.95;
+    const dx = Math.sin(ang), dz = Math.cos(ang);     // unit dir toward the street
     const pole = inkedMesh(new THREE.CylinderGeometry(0.055, 0.08, h, 6), '#2a2620', { k: 1.06 });
     pole.position.set(x, h / 2, z); this.scene.add(pole);
-    const arm = inkedMesh(new THREE.BoxGeometry(0.5, 0.05, 0.05), '#2a2620', { k: 1.1, cast: false });
-    arm.position.set(x + 0.22, h - 0.08, z); this.scene.add(arm);
-    const head = inkedMesh(new THREE.BoxGeometry(0.2, 0.12, 0.26), '#1c1a17', { k: 1.05, cast: false });
-    head.position.set(x + 0.42, h - 0.16, z); this.scene.add(head);
-    const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.2), toonMat('#fff3df'));
-    lens.position.set(x + 0.42, h - 0.23, z); this.scene.add(lens);
-    this.lampHeads.push(x + 0.42, h - 0.24, z);
+    const arm = inkedMesh(new THREE.BoxGeometry(0.05, 0.05, reach), '#2a2620', { k: 1.1, cast: false });
+    arm.position.set(x + dx * reach / 2, h - 0.06, z + dz * reach / 2); arm.rotation.y = ang;
+    this.scene.add(arm);
+    const hx = x + dx * reach, hz = z + dz * reach;
+    const head = inkedMesh(new THREE.BoxGeometry(0.34, 0.12, 0.22), '#1c1a17', { k: 1.05, cast: false });
+    head.position.set(hx, h - 0.14, hz); head.rotation.y = ang; this.scene.add(head);
+    const lens = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.16), toonMat('#fff3df'));
+    lens.position.set(hx, h - 0.21, hz); lens.rotation.y = ang; this.scene.add(lens);
+    this.lampHeads.push(hx, h - 0.24, hz);
   }
 
   // ── Collision (buildings = OBB; props = circles; barriers = OBB) ──────────
