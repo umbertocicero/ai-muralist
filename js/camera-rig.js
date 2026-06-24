@@ -35,6 +35,7 @@ export class CameraRig {
     this.azimuth      = CONFIG.camAzimuth;
     this.polar        = CONFIG.camPolar;
     this._renderPolar = CONFIG.camPolar;   // eased pitch (auto-lifts over buildings)
+    this._renderEff   = CONFIG.camRadius;  // eased distance (pulls in to keep KAI visible)
     this.radius       = CONFIG.camRadius;
     this.targetRadius = CONFIG.camRadius;
 
@@ -252,10 +253,10 @@ export class CameraRig {
     this.following = false;
     this._cineAz = Math.atan2(slot.nz, slot.nx) + 0.45;  // in front + a 3/4 offset
     this._cinePolar = 1.3;
-    this.targetRadius = 6;
-    this.lookYTarget = slot.py + 0.5;
+    this.targetRadius = 5;                                // closer on KAI + wall
+    this.lookYTarget = slot.py + 0.45;
     // aim between the wall and where KAI stands, so both fill the frame
-    this._cinePivot = { x: slot.px + slot.nx * 0.6, z: slot.pz + slot.nz * 0.6 };
+    this._cinePivot = { x: slot.px + slot.nx * 0.85, z: slot.pz + slot.nz * 0.85 };
     this.pivotTarget.set(this._cinePivot.x, 0, this._cinePivot.z);
     this._clampPivot();
   }
@@ -268,7 +269,7 @@ export class CameraRig {
     this.ui.cameraFollowing = true;
     this._cineAz = Math.atan2(slot.nz, slot.nx) + 0.22;   // more frontal
     this._cinePolar = 1.34;
-    this.targetRadius = 4.6;
+    this.targetRadius = 4.2;
     this.lookYTarget = slot.py + 0.2;
     this._cinePivot = { x: slot.px, z: slot.pz };          // centre on the mural
     this.pivotTarget.set(slot.px, 0, slot.pz);
@@ -292,7 +293,7 @@ export class CameraRig {
     if (this._cine) {
       // Watching a mural being painted: ease into the framed 3/4 shot and hold.
       this.pivotTarget.set(this._cinePivot.x, 0, this._cinePivot.z);
-      const k = 1 - Math.exp(-dt * 2.6);
+      const k = 1 - Math.exp(-dt * 1.8);     // gentle glide into the framed shot
       this.azimuth = lerpAngle(this.azimuth, this._cineAz, k);
       this.polar  += (this._cinePolar - this.polar) * k;
       this.velAz = this.velPolar = 0;
@@ -317,50 +318,56 @@ export class CameraRig {
       if (Math.abs(this.velPolar) < 1e-4) this.velPolar = 0;
     }
 
-    // eased zoom + eased pivot follow (frame-rate independent)
-    this.radius += (this.targetRadius - this.radius) * (1 - Math.exp(-dt * CONFIG.camZoomLerp));
-    const pf = 1 - Math.exp(-dt * CONFIG.camFollowLerp);
+    // eased zoom + pivot follow — gentler while the camera is auto-framing
+    const cine = !!this._cine;
+    const zoomRate   = cine ? 4.5 : CONFIG.camZoomLerp;
+    const followRate = cine ? 2.4 : CONFIG.camFollowLerp;
+    this.radius += (this.targetRadius - this.radius) * (1 - Math.exp(-dt * zoomRate));
+    const pf = 1 - Math.exp(-dt * followRate);
     this.pivot.lerp(this.pivotTarget, pf);
     this.lookY += (this.lookYTarget - this.lookY) * pf;
 
-    // ── Smart anti-"inside-a-house" framing ──────────────────────────────
-    // If the camera's desired spot is blocked by a building, don't jam it into
-    // the wall — LIFT it up and over the rooftops, so a boxed-in shot becomes a
-    // clean aerial look down at KAI. Find the highest pitch (smallest polar)
-    // that clears, then ease toward it so it never snaps.
-    let target = this.polar;
+    // ── Keep KAI in shot: occlusion-aware framing ────────────────────────
+    // Test the line of sight from the subject to the camera. If a building
+    // blocks it, first LIFT the camera (raise the pitch) up and over the
+    // rooftops to look down past the obstacle; only if that isn't enough, PULL
+    // IN so the lens sits in front of the blocker. Both eased, so the camera
+    // gently drifts to keep him visible instead of hiding behind buildings.
+    let target = this.polar, eff = this.radius;
     if (this.city) {
-      for (let i = 0; i < 9; i++) {
-        const sp = Math.sin(target), cp = Math.cos(target);
-        const ex = this.pivot.x + Math.cos(this.azimuth) * sp * this.radius;
-        const ez = this.pivot.z + Math.sin(this.azimuth) * sp * this.radius;
-        const ey = cp * this.radius + 1.5;
-        const top = this.city.hitsBuilding(ex, ez);
-        if (top === 0 || ey > top + 1.5) break;       // endpoint clears the roof
-        target -= 0.09;                                // tilt toward top-down
-        if (target < CONFIG.camPolarMin) { target = CONFIG.camPolarMin; break; }
+      for (let i = 0; i < 10; i++) {
+        eff = this._sightClear(target, this.radius);
+        if (eff >= this.radius - 0.05) break;             // visible at full distance
+        if (target <= CONFIG.camPolarMin + 0.02) break;   // lifted all the way → pull in to eff
+        target = Math.max(CONFIG.camPolarMin, target - 0.1);
       }
     }
-    this._renderPolar += (target - this._renderPolar) * (1 - Math.exp(-dt * 7));
+    this._renderPolar += (target - this._renderPolar) * (1 - Math.exp(-dt * 5));
+    this._renderEff   += (eff   - this._renderEff)   * (1 - Math.exp(-dt * 6));
 
     const sinP = Math.sin(this._renderPolar), cosP = Math.cos(this._renderPolar);
-    const dirX = Math.cos(this.azimuth) * sinP, dirZ = Math.sin(this.azimuth) * sinP;
-
-    // final safety: should the lifted endpoint still sit inside a tall block,
-    // pull in just enough to clear it (rare once we've lifted).
-    let eff = this.radius;
-    if (this.city) {
-      for (let d = this.radius; d > 3; d -= 0.5) {
-        const top = this.city.hitsBuilding(this.pivot.x + dirX * d, this.pivot.z + dirZ * d);
-        if (top === 0 || cosP * d + 1.5 > top + 0.6) { eff = d; break; }
-      }
-    }
-
     this.camera.position.set(
-      this.pivot.x + dirX * eff,
-      cosP * eff + 1.5,
-      this.pivot.z + dirZ * eff,
+      this.pivot.x + Math.cos(this.azimuth) * sinP * this._renderEff,
+      cosP * this._renderEff + 1.5,
+      this.pivot.z + Math.sin(this.azimuth) * sinP * this._renderEff,
     );
     this.camera.lookAt(this.pivot.x, this.lookY, this.pivot.z);
+  }
+
+  // Max clear distance from the subject toward the camera (at `polar`/`radius`)
+  // before a building blocks the line of sight; returns `radius` if fully clear.
+  _sightClear(polar, radius) {
+    const sinP = Math.sin(polar), cosP = Math.cos(polar);
+    const cx = this.pivot.x, cz = this.pivot.z;
+    const dx = Math.cos(this.azimuth) * sinP, dz = Math.sin(this.azimuth) * sinP;
+    const camY = cosP * radius + 1.5;
+    const sy = 1.5;                          // KAI's upper body height
+    const n = Math.max(4, Math.ceil(radius / 0.7));
+    for (let i = 1; i <= n; i++) {
+      const f = i / n, d = f * radius;
+      const top = this.city.hitsBuilding(cx + dx * d, cz + dz * d);
+      if (top > 0 && sy + (camY - sy) * f < top + 0.3) return Math.max(2.5, (i - 1) / n * radius);
+    }
+    return radius;
   }
 }

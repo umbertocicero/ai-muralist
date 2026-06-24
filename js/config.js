@@ -56,14 +56,14 @@ export const CONFIG = {
   // --- Camera (Apple-style: damped orbit with inertia, smooth zoom-to-cursor,
   //     two-finger / shift-drag pan). Open-world free orbit. ---
   camFov: 52,
-  camRadius: 26,
+  camRadius: 20,
   camPolar: 1.12,
   camPolarMin: 0.32,
   camPolarMax: 1.52,
   camRadiusMin: 7,
   camRadiusMax: 120,
   camAzimuth: Math.PI * 0.25,   // pleasant 3/4 view to start
-  camLookY: 2.4,                // height the camera aims at
+  camLookY: 2.0,                // height the camera aims at (centred on KAI)
 
   camDragSensitivity: 0.005,    // rad per pixel of drag
   camInertiaTau: 0.13,          // orbit momentum decay time-constant (s)
