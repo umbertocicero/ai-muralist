@@ -70,7 +70,7 @@ export const CONFIG = {
   camZoomToCursor: 0.55,        // 0..1 how much zoom pulls focus to the cursor
   camPanSpeed: 1.0,             // pan gain (scaled by distance)
   camFollowLerp: 3.2,           // pivot follow easing rate (per second)
-  camAutoSpin: 0.015,           // tiny idle drift while following (rad/s)
+  camFollowSpin: 2.2,           // how fast the follow-cam swings behind KAI
 
   // --- UI ---
   maxLogEntries: 5,

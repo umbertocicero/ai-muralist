@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { clamp } from './helpers.js';
+import { clamp, lerpAngle } from './helpers.js';
+
+// azimuth that puts the camera behind a character facing `f` (looking his way)
+const behindAzimuth = (f) => Math.atan2(-Math.cos(f), -Math.sin(f));
 
 // ===========================================================================
 //  Camera rig — Apple-grade feel, Google-Street-View navigation.
@@ -221,22 +224,27 @@ export class CameraRig {
     this.ui.cameraFollowing = false;
   }
 
-  reattach(charPos) {
+  reattach(charPos, facing = 0) {
     this.following = true;
     this.ui.cameraFollowing = true;
     this.lookYTarget = CONFIG.camLookY;
     this.pivotTarget.set(charPos.x, 0, charPos.z);
+    this.azimuth = behindAzimuth(facing);   // snap straight behind KAI
+    this.velAz = 0;
   }
 
   // ---- per-frame ---------------------------------------------------------
-  update(dt, charPos) {
+  update(dt, charPos, facing = 0) {
     this._idle += dt;
 
     if (this.following) {
       this.pivotTarget.set(charPos.x, 0, charPos.z);
-      // a whisper of idle drift so a still scene stays alive
-      if (this._ptrs.size === 0 && this._idle > 2 && Math.abs(this.velAz) < 1e-3) {
-        this.azimuth += CONFIG.camAutoSpin * dt;
+      // Keep the camera behind KAI, looking the way he walks. When not actively
+      // dragging, ease the azimuth toward "behind" (so it swings round as he
+      // turns); a drag can peek elsewhere and then springs back.
+      if (this._ptrs.size === 0) {
+        this.azimuth = lerpAngle(this.azimuth, behindAzimuth(facing), 1 - Math.exp(-dt * CONFIG.camFollowSpin));
+        this.velAz = 0;
       }
     }
 

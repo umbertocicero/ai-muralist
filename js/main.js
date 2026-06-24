@@ -123,7 +123,7 @@ class App {
     this.rig.pivotTarget.set(sp.x, 0, sp.z);
 
     // Wire callbacks: Vue → Three.js
-    ui.onFollowRequest = () => this.rig.reattach(this.character.pos);
+    ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.group.rotation.y);
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
     if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
 
@@ -219,7 +219,7 @@ class App {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t  = this.clock.elapsedTime;
     this.agent.update(dt, t);
-    this.rig.update(dt, this.character.pos);
+    this.rig.update(dt, this.character.pos, this.character.group.rotation.y);
     // track the real sun ~3×/s on wall-clock time (frame-rate independent, so the
     // clock keeps ticking even when the scene runs slowly)
     const nowMs = performance.now();

@@ -106,18 +106,36 @@
     border: 2.5px solid rgba(18,16,14,0.85);
     border-radius: 2px;
   }
+  /* ── Mobile layout (phones) — tuned for one-handed, notch/home-bar safe ──── */
   @media (max-width: 640px) {
-    #paper .frame { inset: 8px; border-width: 2px; }
-  }
+    .panel { padding: 7px 11px; }
+    #paper .frame { inset: 7px; border-width: 2px; }
 
-  @media (max-width: 640px) {
-    #log { display: none; }
-    #title .name { font-size: 18px; }
-    #thought .text { font-size: 15px; }
-    #counter .num { font-size: 32px; }
-    #follow-btn { bottom: 80px; }
+    /* Title: just the wordmark, top-left (drop the two sub-lines to declutter) */
+    #title { top: calc(env(safe-area-inset-top, 0px) + 10px); left: 10px; }
+    #title .exp, #title .sub { display: none; }
+    #title .name { font-size: 15px; letter-spacing: 2px; margin: 0; }
+
+    /* Clock: top-right (the mural log is hidden on mobile) — no more overlap */
+    #clock { top: calc(env(safe-area-inset-top, 0px) + 10px); right: 10px; left: auto; transform: none; gap: 6px; }
+    #clock .ico { font-size: 12px; }
+    #clock .t { font-size: 13px; }
     #clock .z { display: none; }
-    #clock { padding: 6px 10px; }
+
+    /* Mural log stays hidden, but show the latest mural via the counter cap */
+    #log { display: none; }
+
+    /* Bottom HUD: status left, counter right, lifted clear of the home bar */
+    #status { bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); left: 10px; max-width: 52vw; }
+    #status .label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #counter { bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); right: 10px; }
+    #counter .num { font-size: 28px; }
+    #counter .cap { font-size: 9px; }
+
+    /* Thought + follow sit above the bottom HUD */
+    #thought { bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+    #thought .text { font-size: 15px; }
+    #follow-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); padding: 9px 16px; font-size: 11px; }
   }
 </style>
 </head>
