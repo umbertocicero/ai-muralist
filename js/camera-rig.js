@@ -157,6 +157,7 @@ export class CameraRig {
     const s = CONFIG.camDragSensitivity;
     this.azimuth -= dx * s;
     this.polar    = clamp(this.polar - dy * s * 0.7, CONFIG.camPolarMin, CONFIG.camPolarMax);
+    this._detach();   // taking manual control → stop following (the Follow button reappears)
   }
 
   // ground-plane hit point under a screen position (null if it misses)
