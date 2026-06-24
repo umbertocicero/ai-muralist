@@ -2,87 +2,90 @@ import * as THREE from 'three';
 import { lerpAngle } from './helpers.js';
 import { toonMat, addInk } from './toon.js';
 
-// Cel-shaded box with optional ink outline
-function part(w, h, d, color, ink = false, k = 1.06) {
+// ── cel-shaded primitive helpers (ink-outlined) ───────────────────────────
+function box(w, h, d, color, ink = true, k = 1.05) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toonMat(color));
-  m.castShadow = true;
-  if (ink) addInk(m, k);
-  return m;
+  m.castShadow = true; if (ink) addInk(m, k); return m;
 }
-// Cel-shaded cylinder with optional ink outline
-function cyl(rt, rb, h, color, ink = false, k = 1.08, seg = 10) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), toonMat(color));
-  m.castShadow = true;
-  if (ink) addInk(m, k);
-  return m;
+function ball(r, color, ink = true, k = 1.04) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), toonMat(color));
+  m.castShadow = true; if (ink) addInk(m, k); return m;
+}
+function tuft(r, len, color, k = 1.06) {
+  const m = new THREE.Mesh(new THREE.ConeGeometry(r, len, 4), toonMat(color));
+  m.castShadow = true; addInk(m, k); return m;
 }
 
-// KAI (カイ) — a Japanese student street-artist. Black gakuran (high-collar
-// school uniform) over dark trousers, short black hair, a backpack on his
-// shoulders, and a spray can with a colour-popped cap in his right hand.
-// Modelled on the reference frame (Asano-esque) and cel-shaded with black ink
-// contours so he reads as a drawn figure walking the lanes.
+const SKIN = '#ecdcc6', HAIR = '#16120e', JACKET = '#c2beb6', JACKET_DK = '#46443e',
+      TROUSER = '#16161d', SHOE = '#191510', SOLE = '#d9d5cd', BAG = '#3a3832';
+
+// KAI — a slim manga teenager (rounded head, voluminous tufted hair with an
+// ahoge, hooded jacket, backpack, spray can). Modelled on the reference
+// character sheets: anime proportions, NOT a boxy figure.
 export class Character {
   constructor(scene, start) {
     this.pos    = { x: start.x, z: start.z };
     this.facing = 0;
     this.group  = new THREE.Group();
 
-    // ── Head ───────────────────────────────────────────────────────────────
-    this.head = part(0.44, 0.44, 0.40, '#e6d6c0', true, 1.05);
-    this.head.position.y = 1.58;
-    const hairTop  = part(0.50, 0.20, 0.46, '#0a0808', true, 1.04); hairTop.position.set(0, 1.81, -0.01);
-    const hairBack = part(0.46, 0.22, 0.13, '#0a0808', true, 1.04); hairBack.position.set(0, 1.60, -0.20);
-    const fringe   = part(0.46, 0.10, 0.06, '#0a0808', true, 1.05); fringe.position.set(0, 1.70, 0.20);
-    const earL = part(0.05, 0.12, 0.10, '#e0cfb8'); earL.position.set(-0.23, 1.56, 0.02);
-    const earR = part(0.05, 0.12, 0.10, '#e0cfb8'); earR.position.set( 0.23, 1.56, 0.02);
-    const neck = part(0.18, 0.12, 0.18, '#d8c4ac'); neck.position.set(0, 1.34, 0);
+    // ── Head (rounded) + hair ───────────────────────────────────────────────
+    this.head = new THREE.Group();
+    this.head.position.y = 1.66;
+    const skull = ball(0.23, SKIN, true, 1.05); skull.scale.set(0.94, 1.12, 0.96);
+    this.head.add(skull);
+    // ear hints
+    [-1, 1].forEach(s => { const e = ball(0.05, SKIN, false); e.position.set(s * 0.235, -0.02, 0.01); e.scale.set(0.7, 1.1, 0.7); this.head.add(e); });
 
-    // ── Gakuran collar (black stand collar + thin white inner line) ─────────
-    const collar     = part(0.46, 0.16, 0.34, '#141210', true, 1.05); collar.position.set(0, 1.28, 0);
-    const collarLine = part(0.30, 0.04, 0.345, '#ece8e2');            collarLine.position.set(0, 1.34, 0);
+    // Hair: a back/top mass + spiky bangs + side tufts + a single ahoge.
+    const back = ball(0.26, HAIR, true, 1.035); back.scale.set(1.02, 0.96, 0.92); back.position.set(0, 0.07, -0.04); this.head.add(back);
+    const bangs = [
+      [-0.17, 0.16, 0.18, 0.55], [-0.06, 0.18, 0.21, 0.2], [0.06, 0.18, 0.21, -0.2],
+      [0.17, 0.16, 0.18, -0.55], [0.0, 0.2, 0.16, 0.0],
+    ];
+    bangs.forEach(([x, y, z, tilt]) => {
+      const b = tuft(0.085, 0.26, HAIR); b.position.set(x, y, z);
+      b.rotation.set(2.5, 0, tilt); this.head.add(b);          // tip pointing down-forward
+    });
+    [-1, 1].forEach(s => { const sd = tuft(0.08, 0.24, HAIR); sd.position.set(s * 0.2, 0.06, 0.02); sd.rotation.set(0, 0, s * 1.9); this.head.add(sd); });
+    const ahoge = tuft(0.022, 0.22, HAIR); ahoge.position.set(0.02, 0.28, -0.02); ahoge.rotation.set(-0.5, 0, 0.3); this.head.add(ahoge);
 
-    // ── Jacket / body ───────────────────────────────────────────────────────
-    this.body = part(0.50, 0.70, 0.30, '#15140f', true, 1.05); this.body.position.y = 0.92;
-    const placket = part(0.04, 0.66, 0.31, '#26241d'); placket.position.set(0, 0.92, 0.005);
-    const btn = (y) => { const b = part(0.05, 0.05, 0.06, '#b9b3a4'); b.position.set(0, y, 0.16); return b; };
-    const btn1 = btn(1.08), btn2 = btn(0.90), btn3 = btn(0.72);
-    const belt = part(0.52, 0.10, 0.31, '#0a0a08', true, 1.05); belt.position.set(0, 0.58, 0);
+    // ── Neck + hooded jacket torso ──────────────────────────────────────────
+    const neck = box(0.12, 0.12, 0.12, SKIN, false); neck.position.y = 1.46;
+    this.body = box(0.42, 0.66, 0.25, JACKET, true, 1.04); this.body.position.y = 1.12;
+    const zip = box(0.04, 0.6, 0.26, JACKET_DK, false); zip.position.set(0, 1.12, 0.005);
+    const hood = ball(0.22, JACKET, true, 1.04); hood.scale.set(1.05, 0.7, 0.8); hood.position.set(0, 1.4, -0.14);
+    const collar = box(0.4, 0.12, 0.27, JACKET_DK, false); collar.position.set(0, 1.42, 0);
 
-    // ── Backpack on the shoulders ───────────────────────────────────────────
-    const packBody = part(0.42, 0.56, 0.22, '#3a3a32', true, 1.04); packBody.position.set(0, 1.02, -0.30);
-    const packFlap = part(0.44, 0.22, 0.10, '#33332b', true, 1.05); packFlap.position.set(0, 1.22, -0.36);
-    const packPkt  = part(0.26, 0.22, 0.10, '#43433a', true, 1.06); packPkt.position.set(0, 0.86, -0.40);
-    const strapL = part(0.07, 0.62, 0.07, '#2a2a24', true, 1.07); strapL.position.set(-0.20, 1.02, 0.16); strapL.rotation.x = 0.12;
-    const strapR = part(0.07, 0.62, 0.07, '#2a2a24', true, 1.07); strapR.position.set( 0.20, 1.02, 0.16); strapR.rotation.x = 0.12;
+    // ── Backpack on the back ────────────────────────────────────────────────
+    const pack = box(0.36, 0.5, 0.2, BAG, true, 1.04); pack.position.set(0, 1.1, -0.26);
+    const strapL = box(0.06, 0.5, 0.06, '#2c2a25', true, 1.07); strapL.position.set(-0.16, 1.18, 0.14); strapL.rotation.x = 0.1;
+    const strapR = box(0.06, 0.5, 0.06, '#2c2a25', true, 1.07); strapR.position.set( 0.16, 1.18, 0.14); strapR.rotation.x = 0.1;
 
-    // ── Arms (with hands) ───────────────────────────────────────────────────
-    this.armL = part(0.17, 0.50, 0.20, '#15140f', true, 1.06); this.armL.position.set(-0.38, 0.88, 0);
-    this.armR = part(0.17, 0.50, 0.20, '#15140f', true, 1.06); this.armR.position.set( 0.38, 0.88, 0);
-    const cuffL = part(0.18, 0.05, 0.21, '#26241d'); cuffL.position.set(0, -0.22, 0); this.armL.add(cuffL);
-    const cuffR = part(0.18, 0.05, 0.21, '#26241d'); cuffR.position.set(0, -0.22, 0); this.armR.add(cuffR);
-    const handL = part(0.15, 0.14, 0.17, '#e6d6c0', true, 1.07); handL.position.set(0, -0.30, 0.02); this.armL.add(handL);
-    const handR = part(0.15, 0.14, 0.17, '#e6d6c0', true, 1.07); handR.position.set(0, -0.30, 0.06); this.armR.add(handR);
+    // ── Arms (jacket sleeves + hands), slim ─────────────────────────────────
+    this.armL = box(0.15, 0.6, 0.17, JACKET, true, 1.05); this.armL.position.set(-0.31, 1.06, 0);
+    this.armR = box(0.15, 0.6, 0.17, JACKET, true, 1.05); this.armR.position.set( 0.31, 1.06, 0);
+    const stripeL = box(0.02, 0.5, 0.18, JACKET_DK, false); stripeL.position.set(-0.066, 0, 0); this.armL.add(stripeL);
+    const stripeR = box(0.02, 0.5, 0.18, JACKET_DK, false); stripeR.position.set( 0.066, 0, 0); this.armR.add(stripeR);
+    const handL = ball(0.085, SKIN, true, 1.07); handL.position.set(0, -0.34, 0.02); this.armL.add(handL);
+    const handR = ball(0.085, SKIN, true, 1.07); handR.position.set(0, -0.34, 0.05); this.armR.add(handR);
 
-    // ── Spray can in the right hand (the only pop of colour) ────────────────
-    const can = cyl(0.058, 0.058, 0.24, '#d8d4cc', true, 1.12); can.position.set(0, -0.34, 0.12); this.armR.add(can);
-    const canBand = cyl(0.06, 0.06, 0.05, '#9a9690'); canBand.position.set(0, -0.40, 0.12); this.armR.add(canBand);
-    const canCap = cyl(0.05, 0.06, 0.06, '#ff6b35', true, 1.14); canCap.position.set(0, -0.20, 0.12); this.armR.add(canCap);
-    const nozzle = cyl(0.012, 0.012, 0.03, '#2a2a2a'); nozzle.position.set(0, -0.15, 0.12); this.armR.add(nozzle);
+    // Spray can in the right hand (the lone colour pop)
+    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.22, 10), toonMat('#d8d4cc'));
+    can.castShadow = true; addInk(can, 1.12); can.position.set(0, -0.4, 0.11); this.armR.add(can);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.06, 10), toonMat('#ff6b35'));
+    addInk(cap, 1.14); cap.position.set(0, -0.27, 0.11); this.armR.add(cap);
 
-    // ── Trousers + shoes ────────────────────────────────────────────────────
-    this.legL = part(0.20, 0.56, 0.25, '#0c0c10', true, 1.05); this.legL.position.set(-0.13, 0.30, 0);
-    this.legR = part(0.20, 0.56, 0.25, '#0c0c10', true, 1.05); this.legR.position.set( 0.13, 0.30, 0);
-    const shoeL = part(0.22, 0.10, 0.32, '#100c08', true, 1.06); shoeL.position.set(-0.13, 0.03, 0.03);
-    const shoeR = part(0.22, 0.10, 0.32, '#100c08', true, 1.06); shoeR.position.set( 0.13, 0.03, 0.03);
-    const soleL = part(0.23, 0.04, 0.33, '#cfcabd'); soleL.position.set(-0.13, -0.005, 0.03);
-    const soleR = part(0.23, 0.04, 0.33, '#cfcabd'); soleR.position.set( 0.13, -0.005, 0.03);
+    // ── Legs (slim trousers) + sneakers ─────────────────────────────────────
+    this.legL = box(0.17, 0.66, 0.19, TROUSER, true, 1.05); this.legL.position.set(-0.11, 0.42, 0);
+    this.legR = box(0.17, 0.66, 0.19, TROUSER, true, 1.05); this.legR.position.set( 0.11, 0.42, 0);
+    const shoeL = box(0.2, 0.1, 0.32, SHOE, true, 1.06); shoeL.position.set(-0.11, 0.04, 0.05);
+    const shoeR = box(0.2, 0.1, 0.32, SHOE, true, 1.06); shoeR.position.set( 0.11, 0.04, 0.05);
+    const soleL = box(0.21, 0.04, 0.33, SOLE, false); soleL.position.set(-0.11, -0.01, 0.05);
+    const soleR = box(0.21, 0.04, 0.33, SOLE, false); soleR.position.set( 0.11, -0.01, 0.05);
 
-    [this.head, hairTop, hairBack, fringe, earL, earR, neck,
-     collar, collarLine, this.body, placket, btn1, btn2, btn3, belt,
-     packBody, packFlap, packPkt, strapL, strapR,
-     this.armL, this.armR,
-     this.legL, this.legR, shoeL, shoeR, soleL, soleR].forEach(m => this.group.add(m));
+    [this.head, neck, this.body, zip, hood, collar, pack, strapL, strapR,
+     this.armL, this.armR, this.legL, this.legR,
+     shoeL, shoeR, soleL, soleR].forEach(m => this.group.add(m));
 
     this.group.position.set(start.x, 0, start.z);
     scene.add(this.group);
@@ -92,21 +95,21 @@ export class Character {
   faceNormalInward(slot) { this.facing = Math.atan2(-slot.nx, -slot.nz); }
 
   walk(t, scale = 1) {
-    const s = Math.sin(t * 8) * 0.38 * scale;
+    const s = Math.sin(t * 8) * 0.36 * scale;
     this.armL.rotation.x =  s; this.armR.rotation.x = -s;
     this.legL.rotation.x = -s; this.legR.rotation.x =  s;
-    this.head.position.y = 1.58 + Math.sin(t * 16) * 0.012;
+    this.head.position.y = 1.66 + Math.sin(t * 16) * 0.012;
     this.head.rotation.y = 0;
   }
 
   idle(t) {
     this.armL.rotation.x = this.armR.rotation.x = 0;
     this.legL.rotation.x = this.legR.rotation.x = 0;
+    this.head.position.y = 1.66;
     this.head.rotation.y = Math.sin(t * 0.9) * 0.06;
   }
 
   paint(t) {
-    // left arm rests; right hand (spray can) makes the painting gesture
     this.armL.rotation.x = 0;
     this.legL.rotation.x = this.legR.rotation.x = 0;
     this.armR.rotation.x = Math.sin(t * 6) * 0.55 - 0.5;   // lifted, spraying

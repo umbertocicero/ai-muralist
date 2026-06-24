@@ -247,7 +247,7 @@ export class CameraRig {
   // safety still applies, so in a tight lane it rises to a high 3/4 instead of
   // backing into the building opposite.
   watchMural(slot) {
-    if (!slot) return;
+    if (!slot || !this.following) return;   // only auto-frame if KAI was being followed
     this._cine = slot;
     this.ui.cameraFollowing = true;           // it's auto-framing, hide the button
     this.following = false;
@@ -263,7 +263,7 @@ export class CameraRig {
 
   // Mural finished → zoom in tighter and more head-on to admire it.
   admireMural(slot) {
-    if (!slot) return;
+    if (!slot || !this._cine) return;   // only if we were already watching (auto)
     this._cine = slot;
     this.following = false;
     this.ui.cameraFollowing = true;
@@ -279,6 +279,7 @@ export class CameraRig {
   // Done painting → rise back up and smoothly resume the follow-behind (the
   // follow easing swings the azimuth back behind KAI, no snap).
   releaseWatch() {
+    if (!this._cine) return;             // wasn't auto-watching → leave manual control alone
     this._cine = null;
     this.following = true;
     this.ui.cameraFollowing = true;
