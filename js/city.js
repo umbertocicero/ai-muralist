@@ -79,6 +79,7 @@ export class City {
     this._buildGround();
     this._generate();
     this._buildPolesAndWires();
+    this._buildStreetProps();   // bicycles, banners, planters, road signs
 
     // a couple of water towers as landmarks (kept off the main road)
     for (let k = 0; k < 2; k++) {
@@ -259,6 +260,17 @@ export class City {
       wall.position.set(f.x, 0.4, f.z); wall.rotation.y = rot;
       this.scene.add(wall);
       this.barriers.push({ cx: f.x, cz: f.z, hw, hd: 0.12, rot });
+      // concrete-block (CMU) seams, like the 塀 walls in the reference
+      const o = this._dir(rot, 0, 1);
+      for (const yy of [0.27, 0.53]) {
+        const a = this._toWorld(cx, cz, rot, -hw + 0.05, hd);
+        const b = this._toWorld(cx, cz, rot,  hw - 0.05, hd);
+        this._roofSeg.push(a.x + o.x * 0.08, yy, a.z + o.z * 0.08, b.x + o.x * 0.08, yy, b.z + o.z * 0.08);
+      }
+      for (let lx = -hw + 0.45; lx < hw - 0.1; lx += 0.5) {
+        const a = this._toWorld(cx, cz, rot, lx, hd);
+        this._roofSeg.push(a.x + o.x * 0.08, 0.08, a.z + o.z * 0.08, a.x + o.x * 0.08, 0.72, a.z + o.z * 0.08);
+      }
     }
     const n = 2 + (this.rng() * 3 | 0);
     for (let i = 0; i < n; i++) {
@@ -797,6 +809,121 @@ export class City {
       const bar = inkedMesh(new THREE.BoxGeometry(cw, 0.03, 0.03), '#1c1a17', { k: 1.15, cast: false });
       bar.position.set(x, baseY + cy, z); this.scene.add(bar);
     });
+  }
+
+  // ── Street set dressing taken from the reference alleys ───────────────────
+  // Parked bicycles by the walls, vertical shop banners (幟), concrete planter
+  // boxes, and a few road signs. Counts are capped and collisions checked so
+  // the lanes stay walkable.
+  _buildStreetProps() {
+    let bikes = 0, banners = 0, planters = 0, signs = 0;
+    for (const bld of this.buildings) {
+      const r = this.rng();
+      const sgn = this.rng() < 0.5 ? 1 : -1;
+      const n = this._dir(bld.rot, sgn, 0);                 // outward (toward street)
+      const outAng = Math.atan2(n.x, n.z);
+      const along = bld.hd * this._rand(-0.55, 0.55);
+      const f = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.5), along);
+      if (Math.abs(f.x) > this.HALF - 1 || Math.abs(f.z) > this.HALF - 1) continue;
+
+      if (bikes < 12 && r < 0.22) {
+        if (!this.isColliding(f.x, f.z)) { this._bicycle(f.x, f.z, outAng); bikes++; }
+      } else if (banners < 14 && r < 0.42) {
+        const b = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.4), along);
+        if (!this.isColliding(b.x, b.z)) { this._nobori(b.x, b.z, outAng); banners++; }
+      } else if (planters < 16 && r < 0.62) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.6), along);
+        if (!this.isColliding(p.x, p.z)) { this._planterBox(p.x, p.z, outAng); planters++; }
+      }
+    }
+    // a few road signs at open spots just off the main roads
+    for (let k = 0; k < 50 && signs < 8; k++) {
+      const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
+      const d = this._distToMainRoad(x, z);
+      if (d > 0.6 && d < 2.2 && !this.isColliding(x, z)) {
+        const nr = this._nearestRoad(x, z);
+        this._roadSign(x, z, Math.atan2(nr.px - x, nr.pz - z)); signs++;
+      }
+    }
+  }
+
+  // A parked bicycle, seen side-on (its face turned toward the street).
+  _bicycle(x, z, ang) {
+    this.colliders.push({ x, z, r: 0.45 });
+    const g = new THREE.Group();
+    g.position.set(x, 0, z); g.rotation.y = ang;
+    const TIRE = '#1c1a17', FRAME = '#34302a', SEAT = '#262320';
+    const wr = 0.3, wheelGeo = new THREE.TorusGeometry(wr, 0.035, 5, 14);
+    for (const wx of [-0.52, 0.52]) {
+      const wheel = inkedMesh(wheelGeo, TIRE, { k: 1.05, cast: false });
+      wheel.position.set(wx, wr, 0); g.add(wheel);
+    }
+    const bar = (x1, y1, x2, y2, th = 0.045) => {
+      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 0.01;
+      const b = inkedMesh(new THREE.BoxGeometry(th, len, th), FRAME, { k: 1.12, cast: false });
+      b.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
+      b.rotation.z = Math.atan2(-dx, dy); g.add(b);
+    };
+    const bbx = 0.02, bby = wr, sx = -0.2, sy = 0.74, hx = 0.46, hy = 0.82;
+    bar(-0.52, wr, bbx, bby);   // chain stay
+    bar(bbx, bby, sx, sy);      // seat tube
+    bar(sx, sy, hx, hy);        // top tube
+    bar(hx, hy, bbx, bby);      // down tube
+    bar(sx, sy, -0.52, wr);     // seat stay
+    bar(hx, hy, 0.52, wr);      // fork
+    const saddle = inkedMesh(new THREE.BoxGeometry(0.28, 0.06, 0.12), SEAT, { k: 1.06, cast: false });
+    saddle.position.set(sx - 0.04, sy + 0.03, 0); g.add(saddle);
+    const grip = inkedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.34), FRAME, { k: 1.1, cast: false });
+    grip.position.set(hx, hy + 0.02, 0); g.add(grip);
+    if (this.rng() < 0.6) {     // the ubiquitous front basket
+      const basket = inkedMesh(new THREE.BoxGeometry(0.22, 0.18, 0.26), '#bcae90', { k: 1.05, cast: false });
+      basket.position.set(0.54, 0.66, 0); g.add(basket);
+    }
+    this.scene.add(g);
+  }
+
+  // A vertical shop banner (幟) on a thin pole, facing the street.
+  _nobori(x, z, ang) {
+    this.colliders.push({ x, z, r: 0.16 });
+    const h = 2.3 + this.rng() * 0.5, dx = Math.sin(ang), dz = Math.cos(ang);
+    const pole = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, h, 5), '#2a2620', { k: 1.1, cast: false });
+    pole.position.set(x, h / 2, z); this.scene.add(pole);
+    const arm = inkedMesh(new THREE.BoxGeometry(0.03, 0.03, 0.3), '#2a2620', { k: 1.12, cast: false });
+    arm.position.set(x + dx * 0.15, h - 0.1, z + dz * 0.15); arm.rotation.y = ang; this.scene.add(arm);
+    const bh = h - 0.55;
+    const tone = this.rng() < 0.5 ? '#3a3833' : '#45433d';
+    const banner = new THREE.Mesh(new THREE.PlaneGeometry(0.42, bh), toonMat(tone, { side: THREE.DoubleSide }));
+    banner.position.set(x + dx * 0.3, h - 0.1 - bh / 2, z + dz * 0.3); banner.rotation.y = ang;
+    addInk(banner, 1.02); this.scene.add(banner);
+  }
+
+  // A rectangular concrete planter box with shrubs, lining the lane.
+  _planterBox(x, z, ang) {
+    const w = 1.1 + this.rng() * 0.5, d = 0.46, bh = 0.6;
+    this.barriers.push({ cx: x, cz: z, hw: w / 2, hd: d / 2, rot: ang });
+    const box = inkedMesh(new THREE.BoxGeometry(w, bh, d), '#cfccc4', { k: 1.04 });
+    box.position.set(x, bh / 2, z); box.rotation.y = ang; this.scene.add(box);
+    const rim = inkedMesh(new THREE.BoxGeometry(w + 0.08, 0.09, d + 0.08), '#b4b0a7', { k: 1.04, cast: false });
+    rim.position.set(x, bh, z); rim.rotation.y = ang; this.scene.add(rim);
+    const tlx = Math.cos(ang), tlz = -Math.sin(ang);
+    const nb = 2 + (this.rng() * 2 | 0);
+    for (let i = 0; i < nb; i++) {
+      const t = (i / Math.max(1, nb - 1) - 0.5) * (w - 0.3);
+      this._leaf(x + tlx * t, bh + 0.12, z + tlz * t, 0.3 + this.rng() * 0.12, LEAF[i % LEAF.length]);
+      this._leaf(x + tlx * t + 0.08, bh + 0.3, z + tlz * t, 0.2 + this.rng() * 0.1, LEAF[(i + 1) % LEAF.length]);
+    }
+  }
+
+  // A triangular warning road sign on a pole, facing the street.
+  _roadSign(x, z, ang) {
+    this.colliders.push({ x, z, r: 0.16 });
+    const h = 2.5, dx = Math.sin(ang), dz = Math.cos(ang);
+    const pole = inkedMesh(new THREE.CylinderGeometry(0.04, 0.04, h, 6), '#6e6a62', { k: 1.08, cast: false });
+    pole.position.set(x, h / 2, z); this.scene.add(pole);
+    const tg = new THREE.CircleGeometry(0.34, 3); tg.rotateZ(Math.PI / 2);   // apex up
+    const tri = new THREE.Mesh(tg, toonMat('#f4f1ea', { side: THREE.DoubleSide }));
+    tri.position.set(x + dx * 0.06, h - 0.12, z + dz * 0.06); tri.rotation.y = ang;
+    addInk(tri, 1.1, 0x141414); this.scene.add(tri);
   }
 }
 
