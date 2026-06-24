@@ -383,30 +383,40 @@ export class City {
       // lush overhanging greenery along the wall (the alleys are overgrown)
       if (this.rng() < 0.6) this._vine(e.x + n.x * 0.16, e.z + n.z * 0.16, 2.8 + this.rng() * 2.4);
       if (this.rng() < 0.3) this._bush(pb.x, pb.z, 0.6 + this.rng() * 0.35);
-      // foliage spilling over the wall top
-      if (this.rng() < 0.35) this._leaf(pb.x, H - 0.3, pb.z, 0.5 + this.rng() * 0.3, LEAF[seed % LEAF.length]);
     }
   }
 
-  // A clean concrete balcony: floor slab + a solid parapet running along the
-  // facade, sometimes with a futon/laundry draped over it (manga-style).
+  // A coherent concrete balcony: a floor slab + a solid 3-sided parapet (front +
+  // two side returns so it reads as a real box, not a flat tray), a dark metal
+  // rail cap, and sometimes a futon/blanket draped down over the front — the
+  // way a mangaka draws a Tokyo apartment balcony.
   _balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed) {
-    const w = Math.min(wallLen * 0.82, 4.2), out = 0.6;
+    const w = Math.min(wallLen * 0.82, 4.2), out = 0.62, ph = 0.56;   // width · depth · parapet height
+    // floor slab
     const fc = this._toWorld(cx, cz, rot, nlx * (half + out / 2), nlz * (half + out / 2));
-    const slab = inkedMesh(new THREE.BoxGeometry(w, 0.1, out), '#d6d3cd', { k: 1.03, cast: false });
+    const slab = inkedMesh(new THREE.BoxGeometry(w, 0.12, out), '#c8c5bf', { k: 1.03, cast: false });
     slab.position.set(fc.x, y, fc.z); slab.rotation.y = rotY; this.scene.add(slab);
+    // solid front parapet wall
     const pc = this._toWorld(cx, cz, rot, nlx * (half + out), nlz * (half + out));
-    const parapet = inkedMesh(new THREE.BoxGeometry(w, 0.5, 0.08), '#cfccc6', { k: 1.03, cast: false });
-    parapet.position.set(pc.x, y + 0.28, pc.z); parapet.rotation.y = rotY; this.scene.add(parapet);
-    const railTop = inkedMesh(new THREE.BoxGeometry(w + 0.06, 0.06, 0.14), '#8f8a7e', { k: 1.05, cast: false });
-    railTop.position.set(pc.x, y + 0.55, pc.z); railTop.rotation.y = rotY; this.scene.add(railTop);
-    // futon / laundry draped over the parapet (a common Tokyo sight)
+    const front = inkedMesh(new THREE.BoxGeometry(w, ph, 0.1), '#b6b3ac', { k: 1.03, cast: false });
+    front.position.set(pc.x, y + ph / 2, pc.z); front.rotation.y = rotY; this.scene.add(front);
+    // two side returns → the balcony reads as a volume, not a floating shelf
+    for (const s of [-1, 1]) {
+      const sc = this._toWorld(cx, cz, rot, nlx * (half + out / 2) + tlx * (s * w / 2), nlz * (half + out / 2) + tlz * (s * w / 2));
+      const side = inkedMesh(new THREE.BoxGeometry(0.09, ph, out), '#bebbb4', { k: 1.04, cast: false });
+      side.position.set(sc.x, y + ph / 2, sc.z); side.rotation.y = rotY; this.scene.add(side);
+    }
+    // dark metal rail cap along the top
+    const cap = inkedMesh(new THREE.BoxGeometry(w + 0.1, 0.07, 0.16), '#6e695f', { k: 1.05, cast: false });
+    cap.position.set(pc.x, y + ph + 0.03, pc.z); cap.rotation.y = rotY; this.scene.add(cap);
+    // futon / blanket draped over the rail and hanging down the front
     const nF = this.rng() < 0.7 ? (this.rng() < 0.5 ? 2 : 1) : 0;
     for (let i = 0; i < nF; i++) {
-      const toff = (i - (nF - 1) / 2) * 0.85 + this._rand(-0.1, 0.1);
-      const lp = this._toWorld(cx, cz, rot, nlx * (half + out + 0.05) + tlx * toff, nlz * (half + out + 0.05) + tlz * toff);
-      const futon = inkedMesh(new THREE.BoxGeometry(0.72, 0.6, 0.06), '#f2efe9', { k: 1.04, cast: false });
-      futon.position.set(lp.x, y + 0.34, lp.z); futon.rotation.y = rotY; this.scene.add(futon);
+      const toff = (i - (nF - 1) / 2) * 0.92 + this._rand(-0.06, 0.06);
+      const lp = this._toWorld(cx, cz, rot, nlx * (half + out + 0.06) + tlx * toff, nlz * (half + out + 0.06) + tlz * toff);
+      const fh = 0.66 + this.rng() * 0.22;
+      const futon = inkedMesh(new THREE.BoxGeometry(0.6, fh, 0.05), i % 2 ? '#9c9890' : '#d7d3cb', { k: 1.04, cast: false });
+      futon.position.set(lp.x, y + ph - fh / 2 + 0.05, lp.z); futon.rotation.y = rotY; this.scene.add(futon);
     }
   }
 
