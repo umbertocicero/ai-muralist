@@ -49,7 +49,7 @@ export const CONFIG = {
   thinkSeconds: 2.0,
   paintSeconds: 2.2,
   admireSeconds: 3.0,  // KAI + camera pause to admire the finished mural
-  reachTimeout: 6.0,   // give up on a wall KAI can't reach (then it's released)
+  reachTimeout: 9.0,   // give up on a wall KAI can't reach (then it's released)
   muralCoverW: 0.88,
   muralCoverH: 0.85,
 

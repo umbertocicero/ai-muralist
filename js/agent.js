@@ -139,7 +139,7 @@ export class Agent {
         else if (!moved) this.wanderTarget = this.city.randomReachablePoint();
 
         if (this.wanderTimer > this.wanderDeadline) {
-          const slot = this.city.pickFreeSlot();
+          const slot = this.city.pickFreeSlot(this.char.pos);
           if (slot)                       { this.currentSlot = slot; this.moveTimer = 0; this._setState(STATE.MOVING_TO_WALL); }
           else if (this.city.allWallsUsed()) this._setState(STATE.CONTEMPLATING);
           else                              this._newWanderTarget();
