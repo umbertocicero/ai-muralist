@@ -10,7 +10,7 @@ export const CONFIG = {
   // Soft paper-grey sky (NOT pure white): gives the additive sun-glow and
   // light-shafts a surface to register against, and lets distance haze read.
   sky: '#e7e5e0',
-  fog: { color: '#edebe6', near: 44, far: 150 },
+  fog: { color: '#edebe6', near: 80, far: 420 },   // gentle haze; far enough to keep the whole planet visible when zoomed out
 
   // A grid of low apartment blocks separated by narrow lanes (= the traverse
   // cross-streets). Wider world than the single alley.
@@ -18,6 +18,12 @@ export const CONFIG = {
   // irregular plots, a couple of winding main roads, some open lots. `half` is
   // the world half-extent (bigger world).
   world: { half: 60 },
+
+  // The town is wrapped onto a small navigable planet (Petit Prince style): the
+  // flat city becomes a cap on a sphere of this radius that you orbit like
+  // Google Earth. Smaller radius = more curvature; this fits the ~120-wide town
+  // over the top hemisphere and a little down the sides.
+  planet: { radius: 44 },
 
   // The town is "in" Setagaya, Tokyo: the sun tracks the real solar position
   // for this location and the current time, so it's day or night in sync with
@@ -60,8 +66,8 @@ export const CONFIG = {
   camPolar: 1.12,
   camPolarMin: 0.32,
   camPolarMax: 1.52,
-  camRadiusMin: 7,
-  camRadiusMax: 120,
+  camRadiusMin: 6,
+  camRadiusMax: 160,   // pull right out to see the whole little planet
   camAzimuth: Math.PI * 0.25,   // pleasant 3/4 view to start
   camLookY: 2.0,                // height the camera aims at (centred on KAI)
 

@@ -26,6 +26,7 @@ export class Character {
   constructor(scene, start) {
     this.pos    = { x: start.x, z: start.z };
     this.facing = 0;
+    this.yaw    = 0;     // eased heading (the app places the body on the planet)
     this.group  = new THREE.Group();
 
     // ── Head (rounded) + hair ───────────────────────────────────────────────
@@ -116,8 +117,10 @@ export class Character {
     this.head.rotation.y = Math.sin(t * 3) * 0.04;
   }
 
+  // Ease the heading only. The flat (pos, yaw) is the source of truth; the App
+  // maps it onto the little planet each frame (placeOnPlanet), so we must NOT
+  // write group.position/rotation here (that mapping would be clobbered).
   sync() {
-    this.group.rotation.y = lerpAngle(this.group.rotation.y, this.facing, 0.15);
-    this.group.position.set(this.pos.x, 0, this.pos.z);
+    this.yaw = lerpAngle(this.yaw, this.facing, 0.15);
   }
 }

@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { CONFIG, SVG_FORBIDDEN } from './config.js';
 import { rand } from './helpers.js';
 import { DEMO_THOUGHTS, demoSVG } from './demo.js';
+import { placeOnPlanet } from './planet.js';
+
+const _UP = new THREE.Vector3(0, 1, 0);
+const _yawQ = new THREE.Quaternion();
 
 export class MuralFactory {
   constructor(scene, renderer) {
@@ -171,17 +175,14 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             new THREE.MeshBasicMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })
           );
 
-          // Rotate plane so its +z (normal) aligns with the wall's outward
-          // normal — works for any orientation (the town's buildings are
-          // rotated, so normals are not axis-aligned).
-          plane.rotation.y = Math.atan2(slot.nx, slot.nz);
-
-          // Offset slightly outward along normal to avoid z-fighting
-          plane.position.set(
-            slot.px + slot.nx * 0.02,
-            slot.py,
-            slot.pz + slot.nz * 0.02
-          );
+          // Place on the little planet: anchor at the wall point (offset a hair
+          // outward along the normal to avoid z-fighting), oriented so the
+          // plane's +z faces the wall's outward normal, then carried onto the
+          // sphere by the same transport used for the buildings.
+          const yaw = Math.atan2(slot.nx, slot.nz);
+          _yawQ.setFromAxisAngle(_UP, yaw);
+          placeOnPlanet(plane,
+            slot.px + slot.nx * 0.02, slot.py, slot.pz + slot.nz * 0.02, _yawQ);
 
           this.scene.add(plane);
           slot.mesh = plane;

@@ -10,6 +10,7 @@ import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
 import { sunPosition, clockIn } from './solar.js';
+import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
 import BootScreen    from '../components/BootScreen.js';
 import TitlePanel    from '../components/TitlePanel.js';
@@ -118,13 +119,15 @@ class App {
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
     this.atmosphere.setLamps(this.city.lampHeads);   // night street-lamp glows
 
-    // Spawn KAI on a guaranteed-open street point chosen by the city generator
-    // (the procedural town has no fixed open cell), and centre the camera there.
+    // Spawn KAI on a guaranteed-open street point chosen by the city generator,
+    // place him on the planet, and centre the orbit camera there.
     const sp = this.city.spawn;
+    this._up = new THREE.Vector3(0, 1, 0);
+    this._yawQ = new THREE.Quaternion();
     this.character.pos.x = sp.x; this.character.pos.z = sp.z;
-    this.character.group.position.set(sp.x, 0, sp.z);
-    this.rig.pivot.set(sp.x, 0, sp.z);
-    this.rig.pivotTarget.set(sp.x, 0, sp.z);
+    placeOnPlanet(this.character.group, sp.x, 0, sp.z, this._yawQ.identity());
+    planetPoint(sp.x, CONFIG.camLookY, sp.z, this.rig.pivot, PLANET_R);
+    this.rig.pivotTarget.copy(this.rig.pivot);
 
     // Wire callbacks: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.group.rotation.y);
@@ -158,7 +161,9 @@ class App {
     key.target.position.set(0, 0, 0);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { near: 1, far: 300, left: -72, right: 72, top: 72, bottom: -72 });
+    // cover the whole little planet (radius + buildings) from the sun's distance
+    const ext = PLANET_R + 14;
+    Object.assign(key.shadow.camera, { near: 1, far: 320, left: -ext, right: ext, top: ext, bottom: -ext });
     key.shadow.bias = -0.0004;
     this.scene.add(key);
     this.scene.add(key.target);
@@ -228,7 +233,10 @@ class App {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t  = this.clock.elapsedTime;
     this.agent.update(dt, t);
-    this.rig.update(dt, this.character.pos, this.character.group.rotation.y);
+    // map KAI's flat (pos, eased yaw) onto the little planet for rendering
+    this._yawQ.setFromAxisAngle(this._up, this.character.yaw);
+    placeOnPlanet(this.character.group, this.character.pos.x, 0, this.character.pos.z, this._yawQ);
+    this.rig.update(dt, this.character.pos);
     // track the real sun ~3×/s on wall-clock time (frame-rate independent, so the
     // clock keeps ticking even when the scene runs slowly)
     const nowMs = performance.now();

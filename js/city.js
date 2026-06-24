@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { rotateY2D } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
+import { planetPoint, planetQuat, PLANET_R } from './planet.js';
 
 // ===========================================================================
 //  A procedurally generated Setagaya-style neighbourhood.
@@ -74,7 +75,12 @@ export class City {
     this.rng       = mulberry32(20260623);
 
     this.HALF = CONFIG.world.half;
+    this.R    = PLANET_R;
     this.mainRoads = this._genMainRoads();
+
+    // every object City adds after this index is a city object (the scene may
+    // already hold the lights); used by _spherifyIndividuals to wrap only ours.
+    this._childBase = scene.children.length;
 
     this._buildGround();
     this._generate();
@@ -88,9 +94,30 @@ export class City {
       this._waterTower(p.x, p.z);
     }
 
+    // Wrap the flat town onto the little planet: transform every individual mesh
+    // added above, then build the batched lines + instanced windows already
+    // mapped onto the sphere.
+    this._spherifyIndividuals();
     this._finalizeLines();    // merge all batched strokes into 2 LineSegments
     this._buildInstances();   // windows + shutters → 1 InstancedMesh each
     this.spawn = this._findOpen(0, 0);
+  }
+
+  // Reposition + reorient every individual city mesh onto the planet. Batched
+  // geometry (lines, instances) and the planet sphere itself are skipped — they
+  // are built already-mapped.
+  _spherifyIndividuals() {
+    const base = new THREE.Quaternion();
+    const kids = this.scene.children;
+    for (let i = this._childBase; i < kids.length; i++) {
+      const o = kids[i];
+      if (o === this.planet || o.isLight || o.isCamera) continue;
+      const ox = o.position.x, oy = o.position.y, oz = o.position.z;
+      base.copy(o.quaternion);                       // keep the flat orientation
+      planetPoint(ox, oy, oz, o.position, this.R);    // → world point on the sphere
+      planetQuat(ox, oz, o.quaternion, this.R);       // transport rotation …
+      o.quaternion.multiply(base);                    // … carrying the original heading
+    }
   }
 
   _rand(a, b) { return a + this.rng() * (b - a); }
@@ -155,12 +182,14 @@ export class City {
     return { dist: best, ang, px, pz };
   }
 
-  // ── Ground + main-road ribbons ────────────────────────────────────────────
+  // ── Ground (the planet itself) + main-road ribbons ────────────────────────
   _buildGround() {
-    const span = this.HALF * 2 + 30;
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(span, span), ASPHALT);
-    road.rotation.x = -Math.PI / 2; road.receiveShadow = true;
-    this.scene.add(road);
+    // The ground is the little planet: a sphere of radius R. The town sits as a
+    // cap on top; the rest is bare asphalt-grey surface curving away.
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 120, 80), ASPHALT);
+    planet.receiveShadow = true;
+    this.scene.add(planet);
+    this.planet = planet;
 
     // paint the winding main roads as slightly darker ribbons
     for (const r of this.mainRoads) {
@@ -701,16 +730,18 @@ export class City {
     this.colliders.push({ x, z, r: 1.05 });
     const legH = 4.2, r = 0.95;
     const tone = '#2a2620';
+    // legs cast shadows (they're what holds the tank up — they must read on the
+    // ground), like the rest of the lattice
     for (const [sx, sz] of [[-0.6,-0.6],[0.6,-0.6],[-0.6,0.6],[0.6,0.6]]) {
-      const leg = inkedMesh(new THREE.CylinderGeometry(0.06, 0.06, legH, 5), tone, { k: 1.08, cast: false });
+      const leg = inkedMesh(new THREE.CylinderGeometry(0.06, 0.06, legH, 5), tone, { k: 1.08 });
       leg.position.set(x + sx, legH / 2, z + sz); leg.rotation.x = sx * 0.04; leg.rotation.z = -sz * 0.04;
       this.scene.add(leg);
     }
     // cross-braces
     [1.4, 2.8].forEach(cy => {
-      const b1 = inkedMesh(new THREE.BoxGeometry(1.5, 0.05, 0.05), tone, { k: 1.1, cast: false }); b1.position.set(x, cy, z - 0.6); this.scene.add(b1);
+      const b1 = inkedMesh(new THREE.BoxGeometry(1.5, 0.05, 0.05), tone, { k: 1.1 }); b1.position.set(x, cy, z - 0.6); this.scene.add(b1);
       const b2 = b1.clone(); b2.position.set(x, cy, z + 0.6); this.scene.add(b2);
-      const b3 = inkedMesh(new THREE.BoxGeometry(0.05, 0.05, 1.5), tone, { k: 1.1, cast: false }); b3.position.set(x - 0.6, cy, z); this.scene.add(b3);
+      const b3 = inkedMesh(new THREE.BoxGeometry(0.05, 0.05, 1.5), tone, { k: 1.1 }); b3.position.set(x - 0.6, cy, z); this.scene.add(b3);
       const b4 = b3.clone(); b4.position.set(x + 0.6, cy, z); this.scene.add(b4);
     });
     const tank = inkedMesh(new THREE.SphereGeometry(r, 12, 10), '#cdcbc7', { k: 1.02 });
@@ -742,8 +773,14 @@ export class City {
   // Merge every batched stroke into a single LineSegments per material — turns
   // hundreds of one-segment Line draw calls into two.
   _finalizeLines() {
+    const v = new THREE.Vector3();
     const build = (arr, mat) => {
       if (!arr.length) return;
+      // map every endpoint onto the planet (segments become short chords)
+      for (let i = 0; i < arr.length; i += 3) {
+        planetPoint(arr[i], arr[i + 1], arr[i + 2], v, this.R);
+        arr[i] = v.x; arr[i + 1] = v.y; arr[i + 2] = v.z;
+      }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
       this.scene.add(new THREE.LineSegments(g, mat));
@@ -755,14 +792,17 @@ export class City {
   // All windows (and all shutters) share one geometry + material, so each set
   // collapses to a single InstancedMesh draw call instead of hundreds.
   _buildInstances() {
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), yaw = new THREE.Quaternion(),
           p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
     const make = (geo, mat, arr) => {
       const n = arr.length / 4; if (!n) return;
       const im = new THREE.InstancedMesh(geo, mat, n);
       for (let i = 0; i < n; i++) {
-        p.set(arr[i * 4], arr[i * 4 + 1], arr[i * 4 + 2]);
-        q.setFromAxisAngle(up, arr[i * 4 + 3]);
+        const x = arr[i * 4], y = arr[i * 4 + 1], z = arr[i * 4 + 2];
+        planetPoint(x, y, z, p, this.R);                 // onto the sphere
+        planetQuat(x, z, q, this.R);                     // transport rotation …
+        yaw.setFromAxisAngle(up, arr[i * 4 + 3]);
+        q.multiply(yaw);                                 // … carrying the wall's facing
         im.setMatrixAt(i, m.compose(p, q, s));
       }
       im.instanceMatrix.needsUpdate = true;
@@ -855,12 +895,12 @@ export class City {
     const TIRE = '#1c1a17', FRAME = '#34302a', SEAT = '#262320';
     const wr = 0.3, wheelGeo = new THREE.TorusGeometry(wr, 0.035, 5, 14);
     for (const wx of [-0.52, 0.52]) {
-      const wheel = inkedMesh(wheelGeo, TIRE, { k: 1.05, cast: false });
+      const wheel = inkedMesh(wheelGeo, TIRE, { k: 1.05 });
       wheel.position.set(wx, wr, 0); g.add(wheel);
     }
     const bar = (x1, y1, x2, y2, th = 0.045) => {
       const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 0.01;
-      const b = inkedMesh(new THREE.BoxGeometry(th, len, th), FRAME, { k: 1.12, cast: false });
+      const b = inkedMesh(new THREE.BoxGeometry(th, len, th), FRAME, { k: 1.12 });
       b.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
       b.rotation.z = Math.atan2(-dx, dy); g.add(b);
     };
@@ -886,7 +926,7 @@ export class City {
   _nobori(x, z, ang) {
     this.colliders.push({ x, z, r: 0.16 });
     const h = 2.3 + this.rng() * 0.5, dx = Math.sin(ang), dz = Math.cos(ang);
-    const pole = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, h, 5), '#2a2620', { k: 1.1, cast: false });
+    const pole = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, h, 5), '#2a2620', { k: 1.1 });
     pole.position.set(x, h / 2, z); this.scene.add(pole);
     const arm = inkedMesh(new THREE.BoxGeometry(0.03, 0.03, 0.3), '#2a2620', { k: 1.12, cast: false });
     arm.position.set(x + dx * 0.15, h - 0.1, z + dz * 0.15); arm.rotation.y = ang; this.scene.add(arm);
@@ -918,7 +958,7 @@ export class City {
   _roadSign(x, z, ang) {
     this.colliders.push({ x, z, r: 0.16 });
     const h = 2.5, dx = Math.sin(ang), dz = Math.cos(ang);
-    const pole = inkedMesh(new THREE.CylinderGeometry(0.04, 0.04, h, 6), '#6e6a62', { k: 1.08, cast: false });
+    const pole = inkedMesh(new THREE.CylinderGeometry(0.04, 0.04, h, 6), '#6e6a62', { k: 1.08 });
     pole.position.set(x, h / 2, z); this.scene.add(pole);
     const tg = new THREE.CircleGeometry(0.34, 3); tg.rotateZ(Math.PI / 2);   // apex up
     const tri = new THREE.Mesh(tg, toonMat('#f4f1ea', { side: THREE.DoubleSide }));
