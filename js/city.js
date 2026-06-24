@@ -33,7 +33,25 @@ const CURB     = toonMat('#e6e4e0');
 const GLASS    = new THREE.MeshBasicMaterial({ color: '#2b2b2b', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 const SHUTTER  = new THREE.MeshBasicMaterial({ color: '#9a9894', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 const WIRE     = new THREE.LineBasicMaterial({ color: '#141210' });
+const ROOFLINE = new THREE.LineBasicMaterial({ color: '#2a2824' });   // tile / corrugation strokes
 const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
+
+// Triangular-prism (gable) roof geometry, flat-shaded. Base width = 2*halfSpan
+// across X, ridge of height `rh` along +Y, extruded `len` along Z.
+function gableGeometry(halfSpan, rh, len) {
+  const z0 = -len / 2, z1 = len / 2;
+  const P = [
+    [-halfSpan, 0, z0], [halfSpan, 0, z0], [0, rh, z0],
+    [-halfSpan, 0, z1], [halfSpan, 0, z1], [0, rh, z1],
+  ];
+  const faces = [[0,1,2],[3,5,4],[0,2,5],[0,5,3],[1,4,5],[1,5,2],[0,3,4],[0,4,1]];
+  const pos = [];
+  for (const [a, b, c] of faces) pos.push(...P[a], ...P[b], ...P[c]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
 const LEAF     = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
 
@@ -51,6 +69,12 @@ export class City {
     this._buildGround();
     this._generate();
     this._buildPolesAndWires();
+
+    // a couple of rooftop water towers as landmarks
+    for (let k = 0; k < 2; k++) {
+      const p = this._findOpen(this._rand(-30, 30), this._rand(-30, 30));
+      this._waterTower(p.x, p.z);
+    }
 
     this.spawn = this._findOpen(0, 0);
   }
@@ -117,6 +141,7 @@ export class City {
         rib.rotation.x = -Math.PI / 2;
         rib.rotation.z = -Math.atan2(dz, dx) + Math.PI / 2;
         rib.position.set((a.x + b.x) / 2, 0.01, (a.z + b.z) / 2);
+        rib.receiveShadow = true;   // else it hides KAI's shadow cast on the ground below
         this.scene.add(rib);
       }
     }
@@ -190,12 +215,18 @@ export class City {
     curb.position.set(cx, 0.06, cz); curb.rotation.y = rot; curb.receiveShadow = true;
     this.scene.add(curb);
 
-    if (this.rng() < 0.28) {
+    // Roof — a mix of Japanese types (gable / hip / flat), per the reference.
+    const roll = this.rng();
+    if (roll < 0.42) {
+      this._gableRoof(cx, cz, hw, hd, rot, H);
+    } else if (roll < 0.62) {
       this._hipRoof(cx, cz, hw * 2, hd * 2, H, rot);
+      this._roofTiles(cx, cz, rot, H + 0.05, hw, hd, true);
     } else {
       const cap = inkedMesh(new THREE.BoxGeometry(hw * 2 + 0.3, 0.36, hd * 2 + 0.3), '#cdcbc7', { k: 1.02 });
       cap.position.set(cx, H + 0.18, cz); cap.rotation.y = rot;
       this.scene.add(cap);
+      if (this.rng() < 0.45) this._corrugated(cx, cz, rot, H + 0.37, hw, hd);  // ridged metal roof
       if (this.rng() < 0.5) {
         const a = this._toWorld(cx, cz, rot, hw * 0.5, -hd * 0.5);
         this._antenna(a.x, H, a.z);
@@ -389,6 +420,86 @@ export class City {
     cone.position.set(x, h + rH / 2, z); cone.rotation.y = rot + Math.PI / 4; this.scene.add(cone);
     const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
     eave.position.set(x, h + 0.08, z); eave.rotation.y = rot; this.scene.add(eave);
+  }
+
+  // Gable (spioventi) roof — triangular prism + tiled slopes.
+  _gableRoof(cx, cz, hw, hd, rot, H) {
+    const oh = 0.4;
+    const halfSpan = hw + oh;
+    const len = hd * 2 + oh * 2;
+    const rh = 0.6 + Math.min(hw, hd) * 0.42;
+    const mat = toonMat('#3a3833'); mat.side = THREE.DoubleSide;
+    const roof = new THREE.Mesh(gableGeometry(halfSpan, rh, len), mat);
+    roof.castShadow = true; addInk(roof, 1.02);
+    roof.position.set(cx, H, cz); roof.rotation.y = rot;
+    this.scene.add(roof);
+    // ridge beam
+    const ridge = inkedMesh(new THREE.BoxGeometry(0.1, 0.12, len), '#1a1814', { k: 1.06, cast: false });
+    ridge.position.set(cx, H + rh, cz); ridge.rotation.y = rot; this.scene.add(ridge);
+    this._roofTiles(cx, cz, rot, H, hw, hd, false, rh, halfSpan, len);
+  }
+
+  // Parallel tile/ridge strokes down a pitched roof (cheap THREE.Line strokes).
+  _roofTiles(cx, cz, rot, H, hw, hd, hip, rh = 0, halfSpan = 0, len = 0) {
+    const line = (lx0, ly0, lz0, lx1, ly1, lz1) => {
+      const a = this._toWorld(cx, cz, rot, lx0, lz0), b = this._toWorld(cx, cz, rot, lx1, lz1);
+      const g = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(a.x, H + ly0, a.z), new THREE.Vector3(b.x, H + ly1, b.z)]);
+      this.scene.add(new THREE.Line(g, ROOFLINE));
+    };
+    if (hip) {
+      // a few rings parallel to the eaves
+      const rH = 0.9 + Math.min(hw * 2, hd * 2) * 0.13;
+      for (let i = 1; i <= 3; i++) {
+        const t = i / 4, e = (1 - t);
+        line(-hw * e, rH * t + 0.06, -hd * e, hw * e, rH * t + 0.06, -hd * e);
+        line(-hw * e, rH * t + 0.06,  hd * e, hw * e, rH * t + 0.06,  hd * e);
+      }
+    } else {
+      // gable: lines along the ridge on both slopes
+      const N = 5, zEdge = len / 2 - 0.25;
+      for (let s = -1; s <= 1; s += 2) {
+        for (let i = 1; i < N; i++) {
+          const t = i / N;                     // ridge(0) → eave(1)
+          const lx = s * t * halfSpan, ly = rh * (1 - t) + 0.05;
+          line(lx, ly, -zEdge, lx, ly, zEdge);
+        }
+      }
+    }
+  }
+
+  // Low corrugated-metal roof — parallel ribs across a flat cap.
+  _corrugated(cx, cz, rot, y, hw, hd) {
+    const N = Math.max(4, Math.round(hw * 1.4));
+    for (let i = 0; i <= N; i++) {
+      const lx = -hw + (2 * hw) * (i / N);
+      const a = this._toWorld(cx, cz, rot, lx, -hd + 0.2), b = this._toWorld(cx, cz, rot, lx, hd - 0.2);
+      const g = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(a.x, y, a.z), new THREE.Vector3(b.x, y, b.z)]);
+      this.scene.add(new THREE.Line(g, ROOFLINE));
+    }
+  }
+
+  // Elevated spherical water tank on a lattice tower — a Shōwa rooftop landmark.
+  _waterTower(x, z) {
+    const legH = 4.2, r = 0.95;
+    const tone = '#2a2620';
+    for (const [sx, sz] of [[-0.6,-0.6],[0.6,-0.6],[-0.6,0.6],[0.6,0.6]]) {
+      const leg = inkedMesh(new THREE.CylinderGeometry(0.06, 0.06, legH, 5), tone, { k: 1.08, cast: false });
+      leg.position.set(x + sx, legH / 2, z + sz); leg.rotation.x = sx * 0.04; leg.rotation.z = -sz * 0.04;
+      this.scene.add(leg);
+    }
+    // cross-braces
+    [1.4, 2.8].forEach(cy => {
+      const b1 = inkedMesh(new THREE.BoxGeometry(1.5, 0.05, 0.05), tone, { k: 1.1, cast: false }); b1.position.set(x, cy, z - 0.6); this.scene.add(b1);
+      const b2 = b1.clone(); b2.position.set(x, cy, z + 0.6); this.scene.add(b2);
+      const b3 = inkedMesh(new THREE.BoxGeometry(0.05, 0.05, 1.5), tone, { k: 1.1, cast: false }); b3.position.set(x - 0.6, cy, z); this.scene.add(b3);
+      const b4 = b3.clone(); b4.position.set(x + 0.6, cy, z); this.scene.add(b4);
+    });
+    const tank = inkedMesh(new THREE.SphereGeometry(r, 12, 10), '#cdcbc7', { k: 1.02 });
+    tank.position.set(x, legH + r * 0.7, z); this.scene.add(tank);
+    const cap = inkedMesh(new THREE.CylinderGeometry(0.12, 0.12, 0.3, 6), tone, { k: 1.1, cast: false });
+    cap.position.set(x, legH + r * 1.7, z); this.scene.add(cap);
   }
   _pole(x, z, h, transformer = false) {
     const shaft = inkedMesh(new THREE.CylinderGeometry(0.08, 0.11, h, 6), '#2a2620', { k: 1.05 });
