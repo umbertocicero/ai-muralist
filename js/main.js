@@ -47,7 +47,8 @@ const ui = reactive({
   onFollowRequest: null,
   onMuralFocus:    null,
   onPaintBegin:    null,   // Agent: KAI started a wall → frame the mural
-  onPaintEnd:      null,   // Agent: done → resume follow
+  onAdmire:        null,   // Agent: mural done → zoom in to admire it
+  onPaintEnd:      null,   // Agent: done admiring → resume follow
 });
 
 // ==========================================================================
@@ -128,6 +129,7 @@ class App {
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.group.rotation.y);
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
+    ui.onAdmire        = (slot) => this.rig.admireMural(slot);
     ui.onPaintEnd      = () => this.rig.releaseWatch();
     if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
 

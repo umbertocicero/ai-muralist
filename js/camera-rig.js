@@ -260,6 +260,21 @@ export class CameraRig {
     this._clampPivot();
   }
 
+  // Mural finished → zoom in tighter and more head-on to admire it.
+  admireMural(slot) {
+    if (!slot) return;
+    this._cine = slot;
+    this.following = false;
+    this.ui.cameraFollowing = true;
+    this._cineAz = Math.atan2(slot.nz, slot.nx) + 0.22;   // more frontal
+    this._cinePolar = 1.34;
+    this.targetRadius = 4.6;
+    this.lookYTarget = slot.py + 0.2;
+    this._cinePivot = { x: slot.px, z: slot.pz };          // centre on the mural
+    this.pivotTarget.set(slot.px, 0, slot.pz);
+    this._clampPivot();
+  }
+
   // Done painting → rise back up and smoothly resume the follow-behind (the
   // follow easing swings the azimuth back behind KAI, no snap).
   releaseWatch() {

@@ -5,6 +5,7 @@ export const STATE = {
   MOVING_TO_WALL: 'MOVING_TO_WALL',
   THINKING:       'THINKING',
   PAINTING:       'PAINTING',
+  ADMIRING:       'ADMIRING',
   CONTEMPLATING:  'CONTEMPLATING',
 };
 
@@ -13,6 +14,7 @@ const STATUS_TEXT = {
   MOVING_TO_WALL: 'approaching a blank wall',
   THINKING:       'imagining a mural',
   PAINTING:       'painting…',
+  ADMIRING:       'admiring the finished mural',
   CONTEMPLATING:  'every wall is painted · contemplating',
 };
 
@@ -92,11 +94,15 @@ export class Agent {
         target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
       });
       if (this.ui.logEntries.length > CONFIG.maxLogEntries) this.ui.logEntries.pop();
+      // Stand back and admire it for a few seconds (camera zooms onto the mural).
+      this.admireTimer = 0;
+      this.ui.onAdmire?.(slot);
+      this._setState(STATE.ADMIRING);
     } catch (e) {
       slot.used = false; // release so it can be retried
       console.warn('[agent] apply failed:', e.message);
+      this._returnToWander();
     }
-    this._returnToWander();
   }
 
   _releaseSlot() {
@@ -130,7 +136,7 @@ export class Agent {
 
         if (this.wanderTimer > this.wanderDeadline) {
           const slot = this.city.pickFreeSlot();
-          if (slot)                       { this.currentSlot = slot; this._setState(STATE.MOVING_TO_WALL); }
+          if (slot)                       { this.currentSlot = slot; this.moveTimer = 0; this._setState(STATE.MOVING_TO_WALL); }
           else if (this.city.allWallsUsed()) this._setState(STATE.CONTEMPLATING);
           else                              this._newWanderTarget();
         }
@@ -139,11 +145,19 @@ export class Agent {
       }
 
       case STATE.MOVING_TO_WALL: {
+        this.moveTimer += dt;
         const ap     = this.city.approachPoint(this.currentSlot);
         const moved  = this.city.steer(this.char.pos, ap, step);
         if (moved) this.char.faceDirection(moved);
         const dist   = Math.hypot(ap.x - this.char.pos.x, ap.z - this.char.pos.z);
-        if (dist < 0.2 || !moved) this._beginThinking();
+        if (dist < 0.5) {
+          // actually arrived at the wall → paint it
+          this._beginThinking();
+        } else if (!moved || this.moveTimer > CONFIG.reachTimeout) {
+          // can't reach this wall (blocked path / unreachable approach) — never
+          // paint a wall KAI didn't get to. Release it and wander on.
+          this._releaseSlot();
+        }
         this.char.walk(t);
         break;
       }
@@ -173,6 +187,14 @@ export class Agent {
           this._finishing = true;
           this._finishPainting();
         }
+        break;
+      }
+
+      case STATE.ADMIRING: {
+        // KAI and the camera hold on the finished mural for a few seconds.
+        this.admireTimer += dt;
+        this.char.idle(t);
+        if (this.admireTimer > CONFIG.admireSeconds) this._returnToWander();
         break;
       }
 
