@@ -55,6 +55,8 @@ function gableGeometry(halfSpan, rh, len) {
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
 const LEAF     = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
 const LEAF_GEO = new THREE.IcosahedronGeometry(1, 0);   // shared, scaled per leaf
+const DOOR_GEO = new THREE.PlaneGeometry(0.95, 1.9);
+const DOOR     = new THREE.MeshBasicMaterial({ color: '#322e28', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
 export class City {
   constructor(scene) {
@@ -68,6 +70,7 @@ export class City {
     this._wireSeg  = [];   // batched overhead-wire segments
     this._winXf    = [];   // window transforms [x,y,z,rotY,…] → one InstancedMesh
     this._shutXf   = [];   // shutter transforms
+    this.lampHeads = [];   // lamp lens positions [x,y,z,…] → night glow points
     this.rng       = mulberry32(20260623);
 
     this.HALF = CONFIG.world.half;
@@ -77,9 +80,10 @@ export class City {
     this._generate();
     this._buildPolesAndWires();
 
-    // a couple of rooftop water towers as landmarks
+    // a couple of water towers as landmarks (kept off the main road)
     for (let k = 0; k < 2; k++) {
-      const p = this._findOpen(this._rand(-30, 30), this._rand(-30, 30));
+      let p;
+      for (let t = 0; t < 30; t++) { p = this._findOpen(this._rand(-30, 30), this._rand(-30, 30)); if (this._distToMainRoad(p.x, p.z) > 3) break; }
       this._waterTower(p.x, p.z);
     }
 
@@ -133,6 +137,23 @@ export class City {
     return best;
   }
 
+  // Nearest main road: edge distance, direction angle, and the closest point —
+  // used to keep the road clear and to line it with road-aligned houses.
+  _nearestRoad(x, z) {
+    let best = Infinity, ang = 0, px = x, pz = z;
+    for (const r of this.mainRoads) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const a = r.pts[i], b = r.pts[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+        let t = ((x - a.x) * dx + (z - a.z) * dz) / l2; t = Math.max(0, Math.min(1, t));
+        const nx = a.x + t * dx, nz = a.z + t * dz;
+        const d = Math.hypot(x - nx, z - nz) - r.half;
+        if (d < best) { best = d; ang = Math.atan2(dx, dz); px = nx; pz = nz; }
+      }
+    }
+    return { dist: best, ang, px, pz };
+  }
+
   // ── Ground + main-road ribbons ────────────────────────────────────────────
   _buildGround() {
     const span = this.HALF * 2 + 30;
@@ -178,18 +199,29 @@ export class City {
       for (const czr of rows) {
         const cx = (cxr.a + cxr.b) / 2 + this._rand(-0.6, 0.6);
         const cz = (czr.a + czr.b) / 2 + this._rand(-0.6, 0.6);
-        // carve the main roads: leave those plots open
-        if (this._distToMainRoad(cx, cz) < 1.5) continue;
+        // keep the main road itself clear of buildings
+        const nr = this._nearestRoad(cx, cz);
+        if (nr.dist < 2.0) continue;
         // ~15% of plots are left as open lots / pocket gardens
         const open = this.rng() < 0.15;
         const hw = Math.max(2.4, (cxr.b - cxr.a) / 2 - this._rand(0.4, 1.1));
         const hd = Math.max(2.4, (czr.b - czr.a) / 2 - this._rand(0.4, 1.1));
-        const rot = this._rand(-0.22, 0.22);   // crooked
+
+        // Houses lining the main road are squared up to it (walls parallel,
+        // door facing the road); the rest sit at little crooked angles.
+        let rot, door = 0;
+        if (nr.dist < 7) {
+          rot = nr.ang;
+          const f = this._dir(rot, 1, 0);                 // +x face normal
+          door = (f.x * (nr.px - cx) + f.z * (nr.pz - cz)) >= 0 ? 1 : -1;
+        } else {
+          rot = this._rand(-0.22, 0.22);
+        }
 
         if (open) { this._openLot(cx, cz, hw, hd, rot); continue; }
 
         const H2 = 4.5 + (this.rng() * 3 | 0) * 1.4 + (this.rng() < 0.18 ? 2.4 : 0); // low, a few accents
-        this._block(cx, cz, hw, hd, rot, H2, idx);
+        this._block(cx, cz, hw, hd, rot, H2, idx, door);
         this.buildings.push({ cx, cz, hw, hd, rot, top: H2 });
         this._addSlots(cx, cz, hw, hd, rot, idx);
         idx++;
@@ -212,13 +244,14 @@ export class City {
     const n = 2 + (this.rng() * 3 | 0);
     for (let i = 0; i < n; i++) {
       const p = this._toWorld(cx, cz, rot, this._rand(-hw, hw), this._rand(-hd, hd));
+      if (this._distToMainRoad(p.x, p.z) < 1.2) continue;   // nothing in the main road
       if (this.rng() < 0.5) this._bush(p.x, p.z, 0.7 + this.rng() * 0.4);
       else this._bigTree(p.x, p.z);
     }
   }
 
   // ── A building (oriented box) + roof + facades ────────────────────────────
-  _block(cx, cz, hw, hd, rot, H, idx) {
+  _block(cx, cz, hw, hd, rot, H, idx, door = 0) {
     const wood = this.rng() < 0.22;     // some are wood-sided houses (板張り)
     const tone = wood ? '#d8d2c6' : CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
     const body = inkedMesh(new THREE.BoxGeometry(hw * 2, H, hd * 2), tone, { k: 1.014, receive: true });
@@ -253,6 +286,16 @@ export class City {
     this._facade(cx, cz, rot, hw, hd, H,  0, -1, idx + 1);  // -local z
     this._facade(cx, cz, rot, hw, hd, H,  1,  0, idx + 2);  // +local x
     this._facade(cx, cz, rot, hw, hd, H, -1,  0, idx + 3);  // -local x
+
+    // road-facing door on houses that line the main road
+    if (door) {
+      const f = this._toWorld(cx, cz, rot, door * hw, hd * 0.3);
+      const n = this._dir(rot, door, 0);
+      const d = new THREE.Mesh(DOOR_GEO, DOOR);
+      d.position.set(f.x + n.x * 0.05, 0.96, f.z + n.z * 0.05);
+      d.rotation.y = Math.atan2(n.x, n.z);
+      this.scene.add(d);
+    }
   }
 
   // wall slot per street-facing face (only if its approach is on open ground)
@@ -357,6 +400,32 @@ export class City {
         [8.0, 7.5].forEach(h => this._wire(a.x, h, a.z, b.x, h, b.z, 0.5));
       }
     }
+    // street lamps set just outside the houses (against them, by the curb —
+    // never mid-lane), lighting the lanes at night and kept off the main road
+    let lamps = 0;
+    for (const bld of this.buildings) {
+      if (lamps >= 24) break;
+      if (this.rng() > 0.45) continue;
+      const sgn = this.rng() < 0.5 ? 1 : -1;
+      const f = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.7), bld.hd * (this.rng() - 0.5));
+      if (this.isColliding(f.x, f.z) || this._distToMainRoad(f.x, f.z) < 1.0) continue;
+      this._lamppost(f.x, f.z); lamps++;
+    }
+  }
+
+  // A slim street lamp; its lens position is recorded for the night glow.
+  _lamppost(x, z) {
+    this.colliders.push({ x, z, r: 0.18 });
+    const h = 4.0;
+    const pole = inkedMesh(new THREE.CylinderGeometry(0.055, 0.08, h, 6), '#2a2620', { k: 1.06 });
+    pole.position.set(x, h / 2, z); this.scene.add(pole);
+    const arm = inkedMesh(new THREE.BoxGeometry(0.5, 0.05, 0.05), '#2a2620', { k: 1.1, cast: false });
+    arm.position.set(x + 0.22, h - 0.08, z); this.scene.add(arm);
+    const head = inkedMesh(new THREE.BoxGeometry(0.2, 0.12, 0.26), '#1c1a17', { k: 1.05, cast: false });
+    head.position.set(x + 0.42, h - 0.16, z); this.scene.add(head);
+    const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.2), toonMat('#fff3df'));
+    lens.position.set(x + 0.42, h - 0.23, z); this.scene.add(lens);
+    this.lampHeads.push(x + 0.42, h - 0.24, z);
   }
 
   // ── Collision (buildings = OBB; props = circles; barriers = OBB) ──────────

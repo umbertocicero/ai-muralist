@@ -75,6 +75,22 @@ export class Atmosphere {
     this.core.position.copy(this.glow.position);
     this.shafts.position.copy(this.glow.position);
     if (this.moon) this.moon.material.opacity = (1 - day) * 0.85;
+    if (this.lamps) this.lamps.material.opacity = (1 - day) * 0.9;   // street lamps glow after dark
+  }
+
+  // Street-lamp glows — one additive Points cloud for every lamp lens, faded in
+  // by the day/night cycle. Cheap (a single draw call).
+  setLamps(heads) {
+    if (!heads || !heads.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(heads, 3));
+    const mat = new THREE.PointsMaterial({
+      map: discTexture(0.15), color: 0xffdca8, size: 3.0, sizeAttenuation: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0,
+    });
+    this.lamps = new THREE.Points(geo, mat);
+    this.lamps.renderOrder = 995;
+    this.scene.add(this.lamps);
   }
 
   _buildMoon() {

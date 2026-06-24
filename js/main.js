@@ -116,6 +116,7 @@ class App {
     this.agent      = new Agent(this.city, this.character, this.factory, ui);
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
+    this.atmosphere.setLamps(this.city.lampHeads);   // night street-lamp glows
 
     // Spawn KAI on a guaranteed-open street point chosen by the city generator
     // (the procedural town has no fixed open cell), and centre the camera there.
