@@ -43,7 +43,8 @@ export class Agent {
   }
 
   _newWanderTarget() {
-    this.wanderTarget   = this.city.randomReachablePoint();
+    // a far point ahead of his heading → long straight walks, fewer turns
+    this.wanderTarget   = this.city.forwardPoint(this.char.pos.x, this.char.pos.z, this.char.facing);
     this.wanderTimer    = 0;
     this.wanderDeadline = CONFIG.wanderMin + Math.random() * CONFIG.wanderRange;
   }
@@ -131,8 +132,11 @@ export class Agent {
         this.wanderTimer += dt;
         const moved   = this.city.steer(this.char.pos, this.wanderTarget, step);
         if (moved) this.char.faceDirection(moved);
-        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.6;
-        if (arrived || !moved) this._newWanderTarget();
+        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.8;
+        // reached the far target → pick the next one ahead; only when truly
+        // stuck (dead-end) escape in any direction, so he keeps long straight legs
+        if (arrived) this._newWanderTarget();
+        else if (!moved) this.wanderTarget = this.city.randomReachablePoint();
 
         if (this.wanderTimer > this.wanderDeadline) {
           const slot = this.city.pickFreeSlot();
@@ -201,8 +205,9 @@ export class Agent {
       case STATE.CONTEMPLATING: {
         const moved   = this.city.steer(this.char.pos, this.wanderTarget, step * 0.6);
         if (moved) this.char.faceDirection(moved);
-        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.6;
-        if (arrived || !moved) this.wanderTarget = this.city.randomReachablePoint();
+        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.8;
+        if (arrived)      this.wanderTarget = this.city.forwardPoint(this.char.pos.x, this.char.pos.z, this.char.facing);
+        else if (!moved)  this.wanderTarget = this.city.randomReachablePoint();
         this.char.walk(t, 0.6);
         break;
       }

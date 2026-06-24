@@ -389,6 +389,21 @@ export class City {
     return this.spawn || { x: 0, z: 0 };
   }
 
+  // A far target roughly AHEAD of the current heading, so KAI commits to long,
+  // straight-ish walks instead of constantly changing direction (the town is
+  // big and open enough). Widens the search cone if the way ahead is blocked.
+  forwardPoint(x, z, facing) {
+    for (let a = 0; a < 26; a++) {
+      const spread = a < 16 ? 0.8 : 2.6;
+      const ang  = facing + (this.rng() - 0.5) * spread;
+      const dist = 16 + this.rng() * 22;
+      const px = x + Math.sin(ang) * dist, pz = z + Math.cos(ang) * dist;
+      if (Math.abs(px) < this.HALF - 1.5 && Math.abs(pz) < this.HALF - 1.5 && !this.isColliding(px, pz))
+        return { x: px, z: pz };
+    }
+    return this.randomReachablePoint();
+  }
+
   approachPoint(slot) {
     return { x: slot.px + slot.nx * CONFIG.approachOffset, z: slot.pz + slot.nz * CONFIG.approachOffset };
   }
