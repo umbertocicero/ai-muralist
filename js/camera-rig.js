@@ -327,19 +327,27 @@ export class CameraRig {
     this.pivot.lerp(this.pivotTarget, pf);
     this.lookY += (this.lookYTarget - this.lookY) * pf;
 
-    // ── Keep KAI in shot: occlusion-aware framing ────────────────────────
-    // Test the line of sight from the subject to the camera. If a building
-    // blocks it, first LIFT the camera (raise the pitch) up and over the
-    // rooftops to look down past the obstacle; only if that isn't enough, PULL
-    // IN so the lens sits in front of the blocker. Both eased, so the camera
-    // gently drifts to keep him visible instead of hiding behind buildings.
+    // ── Framing ──────────────────────────────────────────────────────────
     let target = this.polar, eff = this.radius;
-    if (this.city) {
+    if (this.city && (this.following || this._cine)) {
+      // AUTO modes: keep KAI in shot. Test the line of sight subject→camera; if
+      // a building blocks it, first LIFT the pitch up and over the rooftops to
+      // look down past it, and only PULL IN if that isn't enough. Both eased, so
+      // the camera gently drifts to keep him visible instead of hiding.
       for (let i = 0; i < 10; i++) {
         eff = this._sightClear(target, this.radius);
-        if (eff >= this.radius - 0.05) break;             // visible at full distance
-        if (target <= CONFIG.camPolarMin + 0.02) break;   // lifted all the way → pull in to eff
+        if (eff >= this.radius - 0.05) break;
+        if (target <= CONFIG.camPolarMin + 0.02) break;
         target = Math.max(CONFIG.camPolarMin, target - 0.1);
+      }
+    } else if (this.city) {
+      // MANUAL: leave the user's framing alone (wide overviews allowed); only
+      // stop the lens from sitting literally inside a building.
+      for (let d = this.radius; d > 3; d -= 0.6) {
+        const top = this.city.hitsBuilding(
+          this.pivot.x + Math.cos(this.azimuth) * Math.sin(target) * d,
+          this.pivot.z + Math.sin(this.azimuth) * Math.sin(target) * d);
+        if (top === 0 || Math.cos(target) * d + 1.5 > top + 0.4) { eff = d; break; }
       }
     }
     this._renderPolar += (target - this._renderPolar) * (1 - Math.exp(-dt * 5));
@@ -357,8 +365,12 @@ export class CameraRig {
   // Max clear distance from the subject toward the camera (at `polar`/`radius`)
   // before a building blocks the line of sight; returns `radius` if fully clear.
   _sightClear(polar, radius) {
-    const sinP = Math.sin(polar), cosP = Math.cos(polar);
     const cx = this.pivot.x, cz = this.pivot.z;
+    // If the focus itself is inside a building (a manual pan/overview, never KAI
+    // who's always on open ground), there's nothing to keep visible — don't
+    // collapse the distance.
+    if (this.city.hitsBuilding(cx, cz) > 0) return radius;
+    const sinP = Math.sin(polar), cosP = Math.cos(polar);
     const dx = Math.cos(this.azimuth) * sinP, dz = Math.sin(this.azimuth) * sinP;
     const camY = cosP * radius + 1.5;
     const sy = 1.5;                          // KAI's upper body height
