@@ -61,6 +61,8 @@ export class City {
     this.buildings = [];   // {cx,cz,hw,hd,rot,top}
     this.wallSlots = [];
     this.poles     = [];
+    this.colliders = [];   // round prop colliders {x,z,r}
+    this.barriers  = [];   // thin fence/wall colliders {cx,cz,hw,hd,rot}
     this.rng       = mulberry32(20260623);
 
     this.HALF = CONFIG.world.half;
@@ -198,6 +200,7 @@ export class City {
       const f = this._toWorld(cx, cz, rot, 0, hd);
       wall.position.set(f.x, 0.4, f.z); wall.rotation.y = rot;
       this.scene.add(wall);
+      this.barriers.push({ cx: f.x, cz: f.z, hw, hd: 0.12, rot });
     }
     const n = 2 + (this.rng() * 3 | 0);
     for (let i = 0; i < n; i++) {
@@ -353,11 +356,23 @@ export class City {
     }
   }
 
-  // ── Collision (oriented boxes) ────────────────────────────────────────────
+  // ── Collision (buildings = OBB; props = circles; barriers = OBB) ──────────
   isColliding(x, z) {
     if (Math.abs(x) > this.HALF || Math.abs(z) > this.HALF) return true;
     const r = CONFIG.charRadius;
     for (const b of this.buildings) {
+      const dx = x - b.cx, dz = z - b.cz;
+      const c = Math.cos(b.rot), s = Math.sin(b.rot);
+      const lx = dx * c - dz * s, lz = dx * s + dz * c;
+      if (Math.abs(lx) < b.hw + r && Math.abs(lz) < b.hd + r) return true;
+    }
+    // round props: poles, trees, bushes, water towers
+    for (const o of this.colliders) {
+      const dx = x - o.x, dz = z - o.z, rr = o.r + r;
+      if (dx * dx + dz * dz < rr * rr) return true;
+    }
+    // thin barriers: fences + low garden walls (oriented boxes)
+    for (const b of this.barriers) {
       const dx = x - b.cx, dz = z - b.cz;
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
@@ -417,9 +432,15 @@ export class City {
     return { x: slot.px + slot.nx * CONFIG.approachOffset, z: slot.pz + slot.nz * CONFIG.approachOffset };
   }
   isApproachFree(slot) { const p = this.approachPoint(slot); return !this.isColliding(p.x, p.z); }
-  pickFreeSlot() {
+  // Pick a free wall to paint. Prefer ones NEAR `from` (the town is big — a
+  // random wall is often minutes away), with a little variety among the nearest.
+  pickFreeSlot(from) {
     const free = this.wallSlots.filter(s => !s.used && this.isApproachFree(s));
-    return free.length ? free[(Math.random() * free.length) | 0] : null;
+    if (!free.length) return null;
+    if (!from) return free[(Math.random() * free.length) | 0];
+    free.sort((a, b) =>
+      ((a.px - from.x) ** 2 + (a.pz - from.z) ** 2) - ((b.px - from.x) ** 2 + (b.pz - from.z) ** 2));
+    return free[(Math.random() * Math.min(free.length, 6)) | 0];
   }
   allWallsUsed() { return this.wallSlots.every(s => s.used); }
 
@@ -508,6 +529,7 @@ export class City {
   _plankFence(cx, cz, rot, hw, hd) {
     const h = 1.0 + this.rng() * 0.4, len = hw * 2;
     const f = this._toWorld(cx, cz, rot, 0, hd);
+    this.barriers.push({ cx: f.x, cz: f.z, hw, hd: 0.12, rot });
     const panel = inkedMesh(new THREE.BoxGeometry(len, h, 0.08), '#cfcabd', { k: 1.03 });
     panel.position.set(f.x, h / 2, f.z); panel.rotation.y = rot; this.scene.add(panel);
     const rail = inkedMesh(new THREE.BoxGeometry(len + 0.1, 0.1, 0.13), '#a8a294', { k: 1.05, cast: false });
@@ -545,6 +567,7 @@ export class City {
 
   // Elevated spherical water tank on a lattice tower — a Shōwa rooftop landmark.
   _waterTower(x, z) {
+    this.colliders.push({ x, z, r: 1.05 });
     const legH = 4.2, r = 0.95;
     const tone = '#2a2620';
     for (const [sx, sz] of [[-0.6,-0.6],[0.6,-0.6],[-0.6,0.6],[0.6,0.6]]) {
@@ -565,6 +588,7 @@ export class City {
     cap.position.set(x, legH + r * 1.7, z); this.scene.add(cap);
   }
   _pole(x, z, h, transformer = false) {
+    this.colliders.push({ x, z, r: 0.25 });
     const shaft = inkedMesh(new THREE.CylinderGeometry(0.08, 0.11, h, 6), '#2a2620', { k: 1.05 });
     shaft.position.set(x, h / 2, z); this.scene.add(shaft);
     [[h - 0.6, 1.9], [h - 1.5, 1.3]].forEach(([ay, aw]) => {
@@ -596,10 +620,12 @@ export class City {
       this._leaf(x + this._rand(-0.18, 0.18), y, z + this._rand(-0.4, 0.4), 0.24 + this.rng() * 0.12, LEAF[(y * 7 | 0) % LEAF.length]);
   }
   _bush(x, z, s) {
+    this.colliders.push({ x, z, r: 0.28 + s * 0.12 });
     [[0, 0.32, 0], [0.3, 0.30, 0.1], [-0.28, 0.34, -0.12], [0.05, 0.55, 0]].forEach(([ox, oy, oz], i) =>
       this._leaf(x + ox * s, oy * s + 0.1, z + oz * s, (0.28 + (i % 2) * 0.08) * s, LEAF[i % LEAF.length]));
   }
   _bigTree(x, z) {
+    this.colliders.push({ x, z, r: 0.45 });
     const trunk = inkedMesh(new THREE.CylinderGeometry(0.16, 0.22, 3.2, 7), '#231d18', { k: 1.05 });
     trunk.position.set(x, 1.6, z); this.scene.add(trunk);
     [[0, 3.8, 0, 1.4], [0.7, 4.3, 0.3, 1.0], [-0.6, 4.2, -0.4, 1.05], [0.1, 4.9, 0, 0.9]].forEach(([ox, oy, oz, r], i) =>
