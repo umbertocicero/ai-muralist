@@ -9,7 +9,7 @@ import { MuralFactory }  from './mural-factory.js';
 import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
-import { sunPosition, clockIn } from './solar.js';
+import { clockIn } from './solar.js';
 import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
 import BootScreen    from '../components/BootScreen.js';
@@ -23,11 +23,8 @@ import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
 import TimeBar       from '../components/TimeBar.js';
 
-// Day/night sky tones (kept greyscale so the world stays B&W manga).
-const NIGHT = new THREE.Color('#16161c');
-const DAY   = new THREE.Color('#e7e5e0');
-const col   = new THREE.Color();
-const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const DAY = new THREE.Color('#e7e5e0');
+const col = new THREE.Color();
 
 // ==========================================================================
 //  Shared reactive state — the bridge between Three.js and Vue.
@@ -100,12 +97,9 @@ class App {
     this.scene.background = new THREE.Color(CONFIG.sky);
     this.scene.fog = new THREE.Fog(CONFIG.fog.color, CONFIG.fog.near, CONFIG.fog.far);
 
-    // Day/night: the sun is FIXED in the sky. We spin the whole planet so KAI's
-    // town faces toward (day) or away from (night) it, matching Tokyo's real sun.
-    // _worldQuat is that spin; the city root + KAI + the camera rig all use it.
-    this._sunDir   = new THREE.Vector3(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z).normalize();
+    // The sun is FIXED. _worldQuat orients the planet so KAI's town always faces it.
+    this._sunDir    = new THREE.Vector3(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z).normalize();
     this._worldQuat = new THREE.Quaternion();
-    this._e1 = new THREE.Vector3(); this._e2 = new THREE.Vector3(); this._U = new THREE.Vector3();
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(CONFIG.camFov, innerWidth / innerHeight, 0.3, 340);
@@ -128,7 +122,7 @@ class App {
     // Systems
     this.city       = new City(this.scene);
     this.character  = new Character(this.scene, CONFIG.charStart);
-    this.factory    = new MuralFactory(this.scene, this.renderer);
+    this.factory    = new MuralFactory(this.scene, this.renderer, this.city);
     this.agent      = new Agent(this.city, this.character, this.factory, ui);
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
@@ -156,7 +150,7 @@ class App {
     ui.onPaintEnd      = () => this.rig.releaseWatch();
     if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
 
-    // Day/night: set the sky to the real Tokyo time right away, then track it.
+    // Fix the planet orientation (always day) and initialise sky/lights once.
     this._lastSky = -1e9;
     this._updateSky();
 
@@ -202,53 +196,25 @@ class App {
     this.scene.add(this.ambient);
   }
 
-  // ── Day/night: spin the planet under the FIXED sun to match Tokyo's clock ──
+  // ── Always daytime: planet is fixed so the town always faces the sun ──
   _updateSky() {
-    const now = (typeof window !== 'undefined' && window.__forceDate) ? new Date(window.__forceDate) : new Date();
-    const L = CONFIG.location;
-    const sp = sunPosition(now, L.lat, L.lon);
-    const el = sp.elevation;                       // radians
-    const elDeg = el * 180 / Math.PI;
-
-    // day factor: 0 below −6° (night), 1 above +6° (full day), smooth twilight
-    const day = smoothstep(-6, 6, elDeg);
-
-    // The sun is FIXED. Spin the planet so KAI's cap-up sits on a cone around the
-    // sun at angle (90° − elevation) and swung by the solar azimuth — so the cap
-    // faces the sun at Tokyo noon (day) and away from it at midnight (night), with
-    // a real terminator sweeping across as the hours pass.
-    const S = this._sunDir;
-    const beta = Math.PI / 2 - el;                 // 0 = sun overhead, π = nadir
-    let e1 = this._e1.set(0, 1, 0).cross(S);
-    if (e1.lengthSq() < 1e-6) e1.set(1, 0, 0);
-    e1.normalize();
-    const e2 = this._e2.copy(S).cross(e1).normalize();
-    const sb = Math.sin(beta), cb = Math.cos(beta);
-    const U = this._U.copy(S).multiplyScalar(cb)
-      .addScaledVector(e1, Math.cos(sp.azimuth) * sb)
-      .addScaledVector(e2, Math.sin(sp.azimuth) * sb)
-      .normalize();
-    this._worldQuat.setFromUnitVectors(this._up, U);
+    // Orient the planet once so KAI's town permanently faces the sun.
+    // No time-based spinning: the sun is always up.
+    this._worldQuat.setFromUnitVectors(this._up, this._sunDir);
     this.city.worldRoot.quaternion.copy(this._worldQuat);
 
-    // The key (sun) stays constant; the night side is dark because it faces away
-    // from the fixed sun (cel banding + low ambient do the rest). Ambient + the
-    // cool moon fill ride the cycle to keep the dark side legible.
-    this.ambient.intensity = 0.34 + 0.36 * day;
-    this.moonLight.intensity = (1 - day) * 0.7;
-
-    // Sky + fog ride the cycle: night → day (greyscale, stays monochrome).
-    col.copy(NIGHT).lerp(DAY, day);
+    // Full day — lights, sky and fog are fixed at their daytime values.
+    this.ambient.intensity = 0.70;
+    this.moonLight.intensity = 0;
+    col.copy(DAY);
     this.scene.background.copy(col);
     this.scene.fog.color.copy(col);
+    this.atmosphere.setSun(CONFIG.sun, 1);
 
-    // Atmosphere glow/shafts stay pinned to the FIXED sun; only their day-fade
-    // rides the cycle (the opaque planet now occludes them on the night side).
-    this.atmosphere.setSun(CONFIG.sun, day);
-
-    // Clock + phase for the UI (morning sun is in the east → az > 0 = dawn).
-    ui.clock = clockIn(L.tz, now).text;
-    ui.phase = day > 0.85 ? 'day' : day < 0.15 ? 'night' : (sp.azimuth > 0 ? 'dawn' : 'dusk');
+    // Clock still shows real Tokyo time (informational only).
+    const now = new Date();
+    ui.clock = clockIn(CONFIG.location.tz, now).text;
+    ui.phase = 'day';
   }
 
   _onResize() {
@@ -274,8 +240,7 @@ class App {
     this._yawQ.setFromAxisAngle(this._up, this.character.yaw);
     placeOnPlanet(this.character.group, this.character.pos.x, 0, this.character.pos.z, this._yawQ);
     this.rig.update(dt, this.character.pos, this.character.yaw);
-    // track the real sun ~3×/s on wall-clock time (frame-rate independent, so the
-    // clock keeps ticking even when the scene runs slowly)
+    // Tick the Tokyo clock in the UI ~3×/s (frame-rate independent).
     const nowMs = performance.now();
     if (nowMs - this._lastSky >= 330) { this._lastSky = nowMs; this._updateSky(); }
     this.atmosphere.update(dt, t, this.camera);

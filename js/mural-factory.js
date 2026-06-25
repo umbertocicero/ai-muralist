@@ -8,8 +8,9 @@ const _UP = new THREE.Vector3(0, 1, 0);
 const _yawQ = new THREE.Quaternion();
 
 export class MuralFactory {
-  constructor(scene, renderer) {
+  constructor(scene, renderer, city) {
     this.scene    = scene;
+    this.city     = city;
     this.maxAniso = renderer.capabilities.getMaxAnisotropy();
   }
 
@@ -184,7 +185,10 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           placeOnPlanet(plane,
             slot.px + slot.nx * 0.02, slot.py, slot.pz + slot.nz * 0.02, _yawQ);
 
-          this.scene.add(plane);
+          // Murals must live under city.north (inside worldRoot) so they rotate
+          // with the planet — adding to scene would leave them fixed in world
+          // space while the planet spins underneath them.
+          (this.city?.north ?? this.scene).add(plane);
           slot.mesh = plane;
           resolve();
         } catch (e) { fail(e); }
