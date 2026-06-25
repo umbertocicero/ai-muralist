@@ -4,6 +4,7 @@
 - [x] mostra orario
 
 # TODO prioritari
+- [ ] Migliora il codice, creando delle factory in city.js che richiamano i vari item creati,ongi item deve essere inserito in una cartella con all'interno tutti gli item: case, piante, alberi, etc. ogni item è parametrico e a seconda di come viene richiamato da city.js presenta delle caratteristiche diverse, dimensioni, altezza, numero di foglie, scritte sui segnali.
 - [ ] aggiungi più dettagli disegnati a mano: segnaletica, scritte, negozi riconoscibili, scale, piante più dettagliatecornici alle finestre, marciapiedi in pietra, panchine.
 - [ ] quando Kay dipinge posiziona la camera dietro di lui leggermente spostata e zoommata, per far vedere bene all'utente cosa esso sta disegnando. Verifica con 5 screesnhot che sti funzionando
 - [ ] Il sole deve essere sempre nello stesso punto, significa quindi che quando inizia il gioco in base all'orario Kay si trova nel lato giurno o notturno
@@ -12,6 +13,7 @@
 - [ ] strisce pedonali devono essere solo su strada
 - [ ] Pulsante per riposizionare il mondo/ruotare la camera, tale per cui il ground è in basso, utile soprattutto quando abbiamo ruotato il mondo e siamo al contrario.
 - [ ] Aggiorna il README.MD
+
 
 
 # TODO secondari
