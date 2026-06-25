@@ -4,15 +4,17 @@
 - [x] mostra orario
 
 # TODO prioritari
-- [ ] Migliora il codice, creando delle factory in city.js che richiamano i vari item creati,ongi item deve essere inserito in una cartella con all'interno tutti gli item: case, piante, alberi, etc. ogni item è parametrico e a seconda di come viene richiamato da city.js presenta delle caratteristiche diverse, dimensioni, altezza, numero di foglie, scritte sui segnali.
-- [ ] aggiungi più dettagli disegnati a mano: segnaletica, scritte, negozi riconoscibili, scale, piante più dettagliatecornici alle finestre, marciapiedi in pietra, panchine.
-- [ ] quando Kay dipinge posiziona la camera dietro di lui leggermente spostata e zoommata, per far vedere bene all'utente cosa esso sta disegnando. Verifica con 5 screesnhot che sti funzionando
-- [ ] Il sole deve essere sempre nello stesso punto, significa quindi che quando inizia il gioco in base all'orario Kay si trova nel lato giurno o notturno
-- [ ] il nato nottourno è da rivedere, poiche la terra e seme trasparente, si intravedono i raggi del sole che sitrova dall'altra parte, inoltre le ombre del lato diurno vengono erronemente proiettate sul ground del lato notturno.
-- [ ] Nel lato notturno è notte, quindi i lampioni sono accesi e proiettano un cone di luce verso il basso
-- [ ] strisce pedonali devono essere solo su strada
-- [ ] Pulsante per riposizionare il mondo/ruotare la camera, tale per cui il ground è in basso, utile soprattutto quando abbiamo ruotato il mondo e siamo al contrario.
-- [ ] Aggiorna il README.MD
+- [x] cosa sono ttti i puntini nelle ombre, usa lineette come in perfetto disegno manga → toon.js: screentone ora è tratteggio (hatch + cross-hatch), niente puntini
+- [x] deve sembrare disegnato a mano, quasi 2d se si è fermi → ink line + grana carta rinforzati (postfx.js)
+- [x] Migliora il codice, creando delle factory in city.js → creata cartella js/items/ con factory parametriche (nature/props + index.createItem); city.js delega (sottoinsieme: alberi/piante/bici/distributore/cono/panchina)
+- [x] aggiungi più dettagli disegnati a mano → cornici finestre (instanced), panchine, marciapiedi in pietra (giunti lungo i bordi strada), scritte/glifi sulle insegne, piante più fitte
+- [~] quando Kay dipinge camera dietro di lui spostata e zoommata → camera-rig: paint-cam over-the-shoulder (watchMural/admireMural). NB: verifica con 5 screenshot ancora da fare a runtime (serve browser)
+- [x] Il sole deve essere sempre nello stesso punto → sole FISSO; il pianeta (worldRoot) ruota con l'ora reale di Tokyo, KAI sta sul lato giorno/notte
+- [x] il lato notturno è da rivedere (terra semi-trasparente/raggi/ombre) → glow+raggi+luna ora depthTest (pianeta opaco li occlude); lato notte buio via N·L con sole fisso
+- [x] Nel lato notturno i lampioni sono accesi con cono di luce verso il basso → atmosphere.js: coni additivi + pozze a terra che si accendono di notte
+- [x] strisce pedonali devono essere solo su strada → zebre vincolate dentro la carreggiata, solo su tratti centrali rettilinei
+- [x] Pulsante per riposizionare il mondo/ground in basso → componente ResetButton ("Raddrizza") + rig.resetView()
+- [x] Aggiorna il README.MD → aggiornato
 
 
 

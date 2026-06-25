@@ -71,8 +71,8 @@ const FRAG = /* glsl */`
     float gx = (l02 + 2.0 * l12 + l22) - (l00 + 2.0 * l10 + l20);
     float gy = (l20 + 2.0 * l21 + l22) - (l00 + 2.0 * l01 + l02);
     float edge = sqrt(gx * gx + gy * gy);
-    edge = smoothstep(0.12, 0.36, edge) * grey * uEdge;   // lower threshold → more decisive ink lines
-    c = mix(c, vec3(0.03), edge);
+    edge = smoothstep(0.10, 0.32, edge) * grey * uEdge;   // lower threshold → more decisive ink lines
+    c = mix(c, vec3(0.02), edge);
 
     // NOTE: screentone is no longer applied here. It now lives ON the surfaces
     // (see toon.js applyMangaTone) — world-locked dots that don't crawl as the
@@ -83,7 +83,7 @@ const FRAG = /* glsl */`
     float vig = 1.0 - smoothstep(0.48, 0.95, length(uv - 0.5));
     c *= mix(0.80, 1.0, vig);
     float grain = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5);
-    c += grain * 0.035 * grey;
+    c += grain * 0.05 * grey;
 
     // back to linear; the renderer's sRGB output encoding finishes the job
     gl_FragColor = vec4(pow(clamp(c, 0.0, 1.0), vec3(2.2)), 1.0);
@@ -111,7 +111,7 @@ export class MangaPost {
         tDiffuse:    { value: this.rt.texture },
         uResolution: { value: new THREE.Vector2(x, y) },
         uToneScale:  { value: opts.toneScale ?? 0.26 },
-        uEdge:       { value: opts.edgeStrength ?? 1.25 },
+        uEdge:       { value: opts.edgeStrength ?? 1.45 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,

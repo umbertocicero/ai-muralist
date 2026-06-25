@@ -19,6 +19,7 @@ import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
 import FollowButton  from '../components/FollowButton.js';
+import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
 import TimeBar       from '../components/TimeBar.js';
 
@@ -42,10 +43,13 @@ const ui = reactive({
   thoughtVisible:  false,
   flashActive:     false,
   cameraFollowing: true,
+  viewTilted:      false,        // horizon rolled → show the "Raddrizza" button
+
   clock:           '--:--:--',  // JST wall-clock (Setagaya, Tokyo)
   phase:           'day',       // day · night · dawn · dusk
   // Callback slots: Vue / Agent → Three.js CameraRig
   onFollowRequest: null,
+  onResetView:     null,   // "right the world" button → snap camera upright behind KAI
   onMuralFocus:    null,
   onPaintBegin:    null,   // Agent: KAI started a wall → frame the mural
   onAdmire:        null,   // Agent: mural done → zoom in to admire it
@@ -57,13 +61,16 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, StatusBar, MuralCounter, ThoughtBubble, FollowButton, FlashOverlay, TimeBar },
+  components: { BootScreen, TitlePanel, MuralLog, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay, TimeBar },
   setup() {
     return { ui };
   },
   methods: {
     onFollow() {
       ui.onFollowRequest?.();
+    },
+    onReset() {
+      ui.onResetView?.();
     },
     onMuralFocus(entry) {
       ui.onMuralFocus?.(entry.target);
@@ -79,6 +86,7 @@ const VueRoot = {
     <MuralCounter  :count="ui.muralCount" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />
     <FollowButton  :visible="!ui.cameraFollowing" @follow="onFollow" />
+    <ResetButton   :visible="ui.viewTilted" @reset="onReset" />
   `,
 };
 
@@ -91,6 +99,13 @@ class App {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(CONFIG.sky);
     this.scene.fog = new THREE.Fog(CONFIG.fog.color, CONFIG.fog.near, CONFIG.fog.far);
+
+    // Day/night: the sun is FIXED in the sky. We spin the whole planet so KAI's
+    // town faces toward (day) or away from (night) it, matching Tokyo's real sun.
+    // _worldQuat is that spin; the city root + KAI + the camera rig all use it.
+    this._sunDir   = new THREE.Vector3(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z).normalize();
+    this._worldQuat = new THREE.Quaternion();
+    this._e1 = new THREE.Vector3(); this._e2 = new THREE.Vector3(); this._U = new THREE.Vector3();
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(CONFIG.camFov, innerWidth / innerHeight, 0.3, 340);
@@ -117,7 +132,10 @@ class App {
     this.agent      = new Agent(this.city, this.character, this.factory, ui);
     this.rig        = new CameraRig(this.camera, this.renderer.domElement, ui, this.city);
     this.atmosphere = new Atmosphere(this.scene, CONFIG.sun);
-    this.atmosphere.setLamps(this.city.lampHeads);   // night street-lamp glows
+    // Lamp glows + KAI live UNDER the planet root so they spin with the town.
+    this.atmosphere.setLamps(this.city.lampHeads, this.city.worldRoot);   // night street-lamp glows
+    this.city.worldRoot.add(this.character.group);
+    this.rig.worldQuat = this._worldQuat;            // rig keeps its shot glued to KAI as the planet turns
 
     // Spawn KAI on a guaranteed-open street point chosen by the city generator,
     // place him on the planet, and centre the orbit camera there.
@@ -131,6 +149,7 @@ class App {
 
     // Wire callbacks: Vue → Three.js
     ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.yaw);
+    ui.onResetView     = () => this.rig.resetView(this.character.pos);
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
     ui.onAdmire        = (slot) => this.rig.admireMural(slot);
@@ -153,11 +172,12 @@ class App {
   }
 
   _buildLights() {
-    // The key light IS the sun — its position/intensity are driven each frame
-    // by the real solar position for Tokyo (_updateSky). The cel gradient turns
-    // its clean light/shade split into hard manga bands.
-    const key = new THREE.DirectionalLight('#fffdf8', 1.7);
-    key.position.set(CONFIG.sun.x, CONFIG.sun.y, CONFIG.sun.z);
+    // The key light IS the sun, and it is FIXED — it never moves. Day and night
+    // come from spinning the planet under it (_updateSky), so the lit hemisphere
+    // is "day" and the far one is "night". The cel gradient turns its clean
+    // light/shade split into hard manga bands.
+    const key = new THREE.DirectionalLight('#fffdf8', 1.85);
+    key.position.copy(this._sunDir).multiplyScalar(130);
     key.target.position.set(0, 0, 0);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
@@ -165,13 +185,14 @@ class App {
     const ext = PLANET_R + 14;
     Object.assign(key.shadow.camera, { near: 1, far: 320, left: -ext, right: ext, top: ext, bottom: -ext });
     key.shadow.bias = -0.0004;
+    key.shadow.normalBias = 0.02;     // curb shadow acne/peter-panning on the curved ground
     this.scene.add(key);
     this.scene.add(key.target);
     this.key = key;
 
-    // A dim, cool moon light that only matters at night (no shadow).
+    // A dim, cool moon light from OPPOSITE the sun that fills the night side.
     const moon = new THREE.DirectionalLight('#aab6d6', 0.0);
-    moon.position.set(-46, 74, -52);
+    moon.position.copy(this._sunDir).multiplyScalar(-100).setY(70);
     this.scene.add(moon);
     this.moonLight = moon;
 
@@ -181,23 +202,38 @@ class App {
     this.scene.add(this.ambient);
   }
 
-  // ── Day/night: track the real sun over Setagaya, Tokyo ────────────────────
+  // ── Day/night: spin the planet under the FIXED sun to match Tokyo's clock ──
   _updateSky() {
     const now = (typeof window !== 'undefined' && window.__forceDate) ? new Date(window.__forceDate) : new Date();
     const L = CONFIG.location;
     const sp = sunPosition(now, L.lat, L.lon);
-    const elDeg = sp.elevation * 180 / Math.PI;
+    const el = sp.elevation;                       // radians
+    const elDeg = el * 180 / Math.PI;
 
     // day factor: 0 below −6° (night), 1 above +6° (full day), smooth twilight
     const day = smoothstep(-6, 6, elDeg);
 
-    // Sun world position drives the directional light + the atmosphere glow.
-    const R = 130;
-    const sx = sp.dir.x * R, sy = sp.dir.y * R, sz = sp.dir.z * R;
-    this.key.position.set(sx, Math.max(sy, 3), sz);   // keep above ground so shadows resolve
-    this.key.intensity = 0.12 + 1.5 * day;
-    // Lift the night floor so the town stays legible after dark (the lamp pools
-    // do the warm accents), and let the cool moon fill carry the shaded sides.
+    // The sun is FIXED. Spin the planet so KAI's cap-up sits on a cone around the
+    // sun at angle (90° − elevation) and swung by the solar azimuth — so the cap
+    // faces the sun at Tokyo noon (day) and away from it at midnight (night), with
+    // a real terminator sweeping across as the hours pass.
+    const S = this._sunDir;
+    const beta = Math.PI / 2 - el;                 // 0 = sun overhead, π = nadir
+    let e1 = this._e1.set(0, 1, 0).cross(S);
+    if (e1.lengthSq() < 1e-6) e1.set(1, 0, 0);
+    e1.normalize();
+    const e2 = this._e2.copy(S).cross(e1).normalize();
+    const sb = Math.sin(beta), cb = Math.cos(beta);
+    const U = this._U.copy(S).multiplyScalar(cb)
+      .addScaledVector(e1, Math.cos(sp.azimuth) * sb)
+      .addScaledVector(e2, Math.sin(sp.azimuth) * sb)
+      .normalize();
+    this._worldQuat.setFromUnitVectors(this._up, U);
+    this.city.worldRoot.quaternion.copy(this._worldQuat);
+
+    // The key (sun) stays constant; the night side is dark because it faces away
+    // from the fixed sun (cel banding + low ambient do the rest). Ambient + the
+    // cool moon fill ride the cycle to keep the dark side legible.
     this.ambient.intensity = 0.34 + 0.36 * day;
     this.moonLight.intensity = (1 - day) * 0.7;
 
@@ -206,8 +242,9 @@ class App {
     this.scene.background.copy(col);
     this.scene.fog.color.copy(col);
 
-    // Atmosphere: glow/shafts follow the sun and fade out at night (moon fades in).
-    this.atmosphere.setSun({ x: sx, y: sy, z: sz }, day);
+    // Atmosphere glow/shafts stay pinned to the FIXED sun; only their day-fade
+    // rides the cycle (the opaque planet now occludes them on the night side).
+    this.atmosphere.setSun(CONFIG.sun, day);
 
     // Clock + phase for the UI (morning sun is in the east → az > 0 = dawn).
     ui.clock = clockIn(L.tz, now).text;

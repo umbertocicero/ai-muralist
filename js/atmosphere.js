@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { PLANET_R } from './planet.js';
 
 // ===========================================================================
 //  Manga atmosphere — the things that turn a clean cel-shaded model into a
@@ -24,6 +25,24 @@ function discTexture(inner = 0.0) {
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// A downward light-cone gradient: bright at the lamp (top), fading to nothing at
+// the ground (bottom) and soft across its width.
+function coneTexture() {
+  const w = 8, h = 128;
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, h);   // top of image = apex = the lamp
+  g.addColorStop(0, 'rgba(255,255,255,0.9)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.28)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
   const tex = new THREE.CanvasTexture(cv);
   tex.needsUpdate = true;
   return tex;
@@ -78,12 +97,14 @@ export class Atmosphere {
     const night = 1 - day;
     if (this.lamps)     this.lamps.material.opacity     = night * 1.0;   // lamp lens bloom
     if (this.lampPools) this.lampPools.material.opacity = night * 0.55;  // warm light on the lane
+    if (this.lampCones) this.lampCones.material.opacity = night * 0.17;  // downward light cones
   }
 
-  // Street-lamp glows — an additive Points cloud for every lamp lens PLUS a flat
-  // warm pool of light cast on the lane beneath each lamp. Both fade in with the
-  // night and cost only one draw call each.
-  setLamps(heads) {
+  // Street-lamp glows — added UNDER `parent` (the spun planet root) so they ride
+  // with the town as it turns. For every lamp: a lens bloom point, a warm ground
+  // pool, AND a downward cone of light. All fade in with the night and cost only
+  // one draw call each.
+  setLamps(heads, parent = this.scene) {
     if (!heads || !heads.length) return;
     const n = heads.length / 3;
 
@@ -96,17 +117,30 @@ export class Atmosphere {
     });
     this.lamps = new THREE.Points(geo, mat);
     this.lamps.renderOrder = 995;
-    this.scene.add(this.lamps);
+    parent.add(this.lamps);
 
     // (2) a soft warm pool on the ground under each lamp (flat additive quads,
-    // merged into one mesh). Lit lanes are what sell a night manga panel.
-    const R = 2.8;
+    // merged into one mesh). Lit lanes are what sell a night manga panel. The
+    // pool sits tangent on the planet, just under each lamp's foot.
+    const R = 2.8, up = new THREE.Vector3(), c = new THREE.Vector3(),
+          t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
     const pos = new Float32Array(n * 4 * 3);
     const uv  = new Float32Array(n * 4 * 2);
     const idx = [];
     for (let i = 0; i < n; i++) {
-      const x = heads[i * 3], z = heads[i * 3 + 2], v = i * 4;
-      pos.set([x - R, 0.05, z - R,  x + R, 0.05, z - R,  x + R, 0.05, z + R,  x - R, 0.05, z + R], v * 3);
+      const hx = heads[i * 3], hy = heads[i * 3 + 1], hz = heads[i * 3 + 2], v = i * 4;
+      up.set(hx, hy, hz).normalize();                 // local "up" at this lamp
+      t1.copy(Y).cross(up); if (t1.lengthSq() < 1e-6) t1.set(1, 0, 0); t1.normalize();
+      t2.copy(up).cross(t1).normalize();
+      c.copy(up).multiplyScalar(PLANET_R + 0.06);     // the lamp's foot on the planet surface
+      const ax = t1.x * R, ay = t1.y * R, az = t1.z * R;
+      const bx = t2.x * R, by = t2.y * R, bz = t2.z * R;
+      pos.set([
+        c.x - ax - bx, c.y - ay - by, c.z - az - bz,
+        c.x + ax - bx, c.y + ay - by, c.z + az - bz,
+        c.x + ax + bx, c.y + ay + by, c.z + az + bz,
+        c.x - ax + bx, c.y - ay + by, c.z - az + bz,
+      ], v * 3);
       uv.set([0, 0, 1, 0, 1, 1, 0, 1], v * 2);
       idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
     }
@@ -120,17 +154,44 @@ export class Atmosphere {
     });
     this.lampPools = new THREE.Mesh(pg, pmat);
     this.lampPools.renderOrder = 994;
-    this.scene.add(this.lampPools);
+    parent.add(this.lampPools);
+
+    // (3) a downward CONE of light under each lamp — the thing that reads as
+    // "the streetlamp is ON". One InstancedMesh of open additive cones, each
+    // oriented along the local up at its lamp and dropped so its apex is the lens.
+    const h = 3.4, cr = 1.7;
+    const cgeo = new THREE.ConeGeometry(cr, h, 16, 1, true);
+    const cmat = new THREE.MeshBasicMaterial({
+      map: coneTexture(), color: 0xffcf8c, blending: THREE.AdditiveBlending,
+      depthWrite: false, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    });
+    const cones = new THREE.InstancedMesh(cgeo, cmat, n);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+          p = new THREE.Vector3(), cc = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
+    for (let i = 0; i < n; i++) {
+      p.set(heads[i * 3], heads[i * 3 + 1], heads[i * 3 + 2]);
+      up.copy(p).normalize();
+      q.setFromUnitVectors(Y, up);                    // local +Y (apex side) → up
+      cc.copy(p).addScaledVector(up, -h / 2);         // apex lands exactly on the lamp
+      cones.setMatrixAt(i, m.compose(cc, q, s));
+    }
+    cones.instanceMatrix.needsUpdate = true;
+    cones.renderOrder = 993;
+    this.lampCones = cones;
+    parent.add(cones);
   }
 
   _buildMoon() {
     const m = new THREE.Sprite(new THREE.SpriteMaterial({
       map: discTexture(0.45), color: 0xd2d8e8,
-      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
       transparent: true, opacity: 0,
     }));
     m.scale.setScalar(CONFIG.atmo.glowSize * 0.42);
-    m.position.set(-46, 74, -52);
+    // hang the moon OPPOSITE the fixed sun (raised), so it rides the sky on the
+    // night side of the planet — and is hidden behind the planet by day.
+    const opp = this.sun.clone().normalize().multiplyScalar(-92);
+    m.position.set(opp.x, opp.y + 40, opp.z);
     m.renderOrder = 998;
     this.scene.add(m);
     this.moon = m;
@@ -144,7 +205,7 @@ export class Atmosphere {
       color: 0xffffff,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-      depthTest: false,         // always the brightest thing on screen
+      depthTest: true,          // the OPAQUE planet hides it when it's behind us
       transparent: true,
       opacity: 0.9,
     });
@@ -157,7 +218,7 @@ export class Atmosphere {
     // A smaller, sharper core for a crisp hot centre.
     const core = new THREE.Sprite(new THREE.SpriteMaterial({
       map: discTexture(0.0), color: 0xffffff,
-      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
       transparent: true, opacity: 1,
     }));
     core.scale.setScalar(CONFIG.atmo.glowSize * 0.42);
@@ -185,7 +246,7 @@ export class Atmosphere {
       const mat = new THREE.MeshBasicMaterial({
         map: tex, color: 0xffffff,
         blending: THREE.AdditiveBlending,
-        depthWrite: false, depthTest: false,
+        depthWrite: false, depthTest: true,   // the planet occludes shafts behind it
         transparent: true, opacity: CONFIG.atmo.shaftOpacity * (0.7 + Math.random() * 0.7),
         side: THREE.DoubleSide,
       });

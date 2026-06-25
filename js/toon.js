@@ -51,20 +51,22 @@ export function toonMat(color, { transparent = false, opacity = 1, side = THREE.
   return m;
 }
 
-// ── Surface-locked manga screentone (網点) ──────────────────────────────────
-//  A mangaka lays tone *on the surface*: the dots belong to the wall, so they
-//  follow its plane and sit still as the view moves — never the screen-space
-//  "shower-door" crawl. We inject this into MeshToonMaterial's shader:
+// ── Surface-locked manga hatching (ハッチング) ───────────────────────────────
+//  A mangaka shades with INK STROKES, not dot screens: parallel pen lines laid
+//  on the surface, crossing into cross-hatch where the shadow deepens. We lay
+//  those strokes *on the surface* (world-space triplanar) so they belong to the
+//  wall and sit still as the view moves — never a screen-space "shower-door"
+//  crawl. Injected into MeshToonMaterial's shader:
 //
 //   • WORLD-SPACE TRIPLANAR coords → every face (wall, roof, road) gets clean,
-//     correctly-oriented tone regardless of how the building is rotated.
-//   • KEYED TO THE CEL BANDS → the lit band stays pure white paper, the mid
-//     band gets a fixed dot density, deep shadow turns to dots+hatching, the
-//     darkest goes solid — a few flat tones, exactly like adhesive tone sheets.
-//   • ANTI-ALIASED & DISTANCE-FADED via surface derivatives (fwidth): dot edges
-//     stay crisp up close and dissolve smoothly into flat grey far away, so the
-//     tone never shimmers or moirés. This is what reads as *beautiful* print.
-const TONE_SCALE = 9.0;   // halftone cells per world metre (fine print tone)
+//     correctly-oriented strokes regardless of how the building is rotated.
+//   • KEYED TO THE CEL BANDS → lit band stays pure white paper, mid shade gets
+//     thin single-direction hatching, deep shadow crosses into cross-hatch, the
+//     darkest fills toward solid — exactly like hand-inked manga shading.
+//   • ANTI-ALIASED & DISTANCE-FADED via surface derivatives (fwidth): stroke
+//     edges stay crisp up close and dissolve smoothly into flat grey far away,
+//     so the hatching never shimmers or moirés.
+const TONE_SCALE = 7.0;   // ink strokes per world metre (hand-drawn hatch pitch)
 export function applyMangaTone(mat) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uToneScale = { value: TONE_SCALE };
@@ -88,29 +90,29 @@ export function applyMangaTone(mat) {
         '  if (wn.y >= wn.x && wn.y >= wn.z) huv = vTWorldPos.xz;\n' +   // floors / roofs
         '  else if (wn.x >= wn.z) huv = vTWorldPos.zy;\n' +             // x-facing walls
         '  else huv = vTWorldPos.xy;\n' +                              // z-facing walls
-        '  huv *= uToneScale;\n' +
         '  float lum = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));\n' +
-        '  float cut = 0.64;\n' +
+        '  float cut = 0.66;\n' +
         '  float coverage = clamp((cut - lum) / cut, 0.0, 1.0);\n' +
         '  if (coverage > 0.002) {\n' +
-        '    vec2 p = TROT45 * huv;\n' +
-        '    float dist = length(fract(p) - 0.5);\n' +
-        '    float cells = max(fwidth(p.x), fwidth(p.y));\n' +
-        // cap dot growth so even uniformly-dark areas (night, deep shade) read as
-        // a clean tone instead of collapsing into a solid black dot field
-        '    float r = sqrt(min(coverage, 0.66)) * 0.6;\n' +
-        '    float e = max(fwidth(dist), 0.001) * 1.3;\n' +
-        '    float dots = 1.0 - smoothstep(r - e, r + e, dist);\n' +
-        '    float hatch = 0.0;\n' +
-        '    if (lum < 0.20) {\n' +                                    // deep shadow → cross-hatch
-        '      float hv = abs(fract((huv.x + huv.y) * 0.5) - 0.5);\n' +
-        '      float he = max(fwidth(hv), 0.001) * 1.3;\n' +
-        '      hatch = 1.0 - smoothstep(0.18 - he, 0.18 + he, hv);\n' +
+        // rotate into a 45° stroke frame; .x runs across the first hatch set,
+        // .y across the perpendicular (cross-hatch) set
+        '    vec2 p = TROT45 * huv * uToneScale;\n' +
+        '    float ax = abs(fract(p.x) - 0.5);\n' +                    // dist to nearest stroke (set 1)
+        // stroke half-width grows with shade: thin in mid shadow, fat (→solid)
+        // in the darkest. Capped so deep shade reads as dense hatch, not a blob.
+        '    float w1 = clamp(coverage, 0.0, 1.0) * 0.34;\n' +
+        '    float e1 = max(fwidth(p.x), 0.0009) * 1.2;\n' +
+        '    float ink = 1.0 - smoothstep(w1 - e1, w1 + e1, ax);\n' +
+        '    if (coverage > 0.5) {\n' +                                // deep shadow → cross-hatch
+        '      float ay = abs(fract(p.y) - 0.5);\n' +
+        '      float w2 = (coverage - 0.5) * 0.68;\n' +
+        '      float e2 = max(fwidth(p.y), 0.0009) * 1.2;\n' +
+        '      ink = max(ink, 1.0 - smoothstep(w2 - e2, w2 + e2, ay));\n' +
         '    }\n' +
-        '    float ink = max(dots, hatch);\n' +
-        '    float fade = clamp((cells - 0.45) / 0.6, 0.0, 1.0);\n' +  // sub-pixel → flat tone
+        '    float cells = max(fwidth(p.x), fwidth(p.y));\n' +
+        '    float fade = clamp((cells - 0.5) / 0.6, 0.0, 1.0);\n' +   // sub-pixel strokes → flat tone
         '    ink = mix(ink, coverage, fade);\n' +
-        '    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.04), ink * 0.8);\n' +
+        '    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.05), ink * 0.85);\n' +
         '  }\n' +
         '}\n' +
         '#include <tonemapping_fragment>');

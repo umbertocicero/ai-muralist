@@ -52,6 +52,16 @@ export class CameraRig {
     this._ndc   = new THREE.Vector2();
     this._up = new THREE.Vector3(); this._t = new THREE.Vector3();
     this._b  = new THREE.Vector3(); this._off = new THREE.Vector3();
+    // The whole planet (and KAI) is spun by the app over the day; the rig does
+    // all its maths in the planet's UN-spun (north-pole) frame, then rotates its
+    // final camera + look-point by this quaternion so it stays glued to KAI as
+    // the world turns. Set by the app each frame (null = no spin).
+    this.worldQuat = null;
+    this._pw = new THREE.Vector3(); this._invQ = new THREE.Quaternion(); this._camL = new THREE.Vector3();
+    this._cineN = null;            // slot normal the paint-cam frames from behind
+    this._cineSide = 0;            // shoulder offset (rad) for the paint-cam
+    this._snapBehind = false;      // reattach → snap straight behind KAI next frame
+    this._offAxis = false;         // user has orbited/panned off the follow axis
     this._ptrs  = new Map();                       // active pointers
     this._mode  = null;                            // 'orbit' | 'pan'
     this._last  = { x: 0, y: 0, t: 0, dx: 0, dy: 0 };
@@ -175,6 +185,7 @@ export class CameraRig {
     const s = CONFIG.camDragSensitivity;
     this.azimuth -= dx * s;
     this.polar    = clamp(this.polar - dy * s * 0.7, CONFIG.camPolarMin, CONFIG.camPolarMax);
+    this._offAxis = true;   // the user has taken the camera off the follow axis → show "Follow KAI"
   }
 
   // world point on the little planet under a screen position (null if it misses)
@@ -184,7 +195,12 @@ export class CameraRig {
     this._ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     this._ray.setFromCamera(this._ndc, this.camera);
     const hits = this._ray.intersectObject(this.city.planet, false);
-    return hits.length ? hits[0].point.clone() : null;
+    if (!hits.length) return null;
+    // the raycast hit is in WORLD space (the planet is spun); bring it back into
+    // the rig's un-spun frame so all pivot maths stay in one coordinate system.
+    const p = hits[0].point.clone();
+    if (this.worldQuat) p.applyQuaternion(this._invQ.copy(this.worldQuat).invert());
+    return p;
   }
 
   // Zoom by a multiplicative factor (>1 out, <1 in). When the user is driving
@@ -208,8 +224,11 @@ export class CameraRig {
   _dragWorld(dmx, dmy) {
     if (!dmx && !dmy) return;
     this._detach();
-    const cam = this.camera;
-    const fwd   = this._t.copy(this.pivot).sub(cam.position).normalize();
+    // work in the rig's un-spun frame: bring the (world-space) camera position
+    // back through the planet spin so it matches this.pivot's frame.
+    this._camL.copy(this.camera.position);
+    if (this.worldQuat) this._camL.applyQuaternion(this._invQ.copy(this.worldQuat).invert());
+    const fwd   = this._t.copy(this.pivot).sub(this._camL).normalize();
     const right = this._b.crossVectors(fwd, _WORLD_UP).normalize();
     const up    = this._off.crossVectors(right, fwd).normalize();
     const k = this._renderEff * 0.0016 + 0.02;     // farther out → faster traverse
@@ -246,37 +265,58 @@ export class CameraRig {
   reattach(charPos) {
     this.following = true;
     this._cine = null;
+    this._cineN = null;
     this.ui.cameraFollowing = true;
     this.targetRadius = CONFIG.camRadius;
     planetPoint(charPos.x, CONFIG.camLookY, charPos.z, this.pivotTarget, this.R);
     this.velAz = 0;
-    this._idle = 999;   // settle straight behind KAI right away
+    this._idle = 999;       // settle straight behind KAI right away
+    this._snapBehind = true; // …and lock the azimuth this very frame (no swing)
+    this._offAxis = false;   // back on the follow axis → hide the Follow button
   }
 
-  // ── Cinematic: zoom in on the wall KAI is painting ────────────────────────
+  // Right the world: snap pitch/zoom back to the default 3/4 look-down (ground at
+  // the bottom of frame) and re-lock behind KAI — the escape hatch after you've
+  // spun the little planet around and lost which way is up.
+  resetView(charPos) {
+    this.polar = this._renderPolar = CONFIG.camPolar;
+    this.targetRadius = this.radius = this._renderEff = CONFIG.camRadius;
+    this.velAz = this.velPolar = 0;
+    this.reattach(charPos);
+  }
+
+  // ── Cinematic: watch over KAI's shoulder while he paints ──────────────────
+  // The camera drops in BEHIND him (along the wall's outward normal), slightly
+  // to one shoulder and zoomed in, looking at the wall — so the viewer sees
+  // exactly what he is drawing, with KAI in the near foreground.
   watchMural(slot) {
     if (!slot || !this.following) return;     // only auto-frame if KAI was followed
-    this._cine = slot;
+    this._cine  = slot;
+    this._cineN = { x: slot.nx, z: slot.nz }; // outward wall normal = "behind KAI"
+    this._cineSide = 0.26;                     // a touch over one shoulder
     this.ui.cameraFollowing = true;           // auto-framing → hide the button
     this.following = false;
-    this._cinePolar = 1.18;
-    this.targetRadius = 6.5;
-    planetPoint(slot.px, slot.py, slot.pz, this.pivotTarget, this.R);
+    this._cinePolar = 1.30;                    // nearly level, looking at the wall
+    this.targetRadius = 4.6;                   // zoomed in on the work
+    planetPoint(slot.px, slot.py + 0.2, slot.pz, this.pivotTarget, this.R);
   }
 
   admireMural(slot) {
     if (!slot || !this._cine) return;
-    this._cine = slot;
+    this._cine  = slot;
+    this._cineN = { x: slot.nx, z: slot.nz };
+    this._cineSide = 0.72;                     // swing round to reveal the full piece
     this.following = false;
     this.ui.cameraFollowing = true;
-    this._cinePolar = 1.22;
-    this.targetRadius = 5.0;
-    planetPoint(slot.px, slot.py, slot.pz, this.pivotTarget, this.R);
+    this._cinePolar = 1.24;
+    this.targetRadius = 5.2;
+    planetPoint(slot.px, slot.py + 0.15, slot.pz, this.pivotTarget, this.R);
   }
 
   releaseWatch() {
     if (!this._cine) return;
     this._cine = null;
+    this._cineN = null;
     this.following = true;
     this.ui.cameraFollowing = true;
     this.targetRadius = CONFIG.camRadius;
@@ -292,7 +332,22 @@ export class CameraRig {
 
     if (this._cine) {
       this.polar += (this._cinePolar - this.polar) * (1 - Math.exp(-dt * 1.8));
-      this.velAz = this.velPolar = 0;
+      this.velPolar = 0;
+      // Paint-cam: sit BEHIND KAI (along the wall's outward normal) and look at
+      // the wall, so the viewer watches over his shoulder while he sprays. The
+      // normal is a flat (x,z) vector; near the pole the tangent frame ≈ flat, so
+      // we resolve it into the pivot's (T,B) basis and ease the azimuth there.
+      if (this._cineN) {
+        const up0 = this._up.copy(this.pivot).normalize();
+        let T0 = this._t.set(0, 1, 0).cross(up0); if (T0.lengthSq() < 1e-6) T0.set(1, 0, 0); T0.normalize();
+        const B0 = this._b.copy(up0).cross(T0).normalize();
+        const behindAz = Math.atan2(this._cineN.x * B0.x + this._cineN.z * B0.z,
+                                    this._cineN.x * T0.x + this._cineN.z * T0.z) + this._cineSide;
+        this.azimuth = lerpAngle(this.azimuth, behindAz, 1 - Math.exp(-dt * 2.4));
+        this.velAz = 0;
+      } else {
+        this.velAz = 0;
+      }
     } else if (this.following) {
       planetPoint(charPos.x, CONFIG.camLookY, charPos.z, this.pivotTarget, this.R);
     }
@@ -324,12 +379,24 @@ export class CameraRig {
     // Follow from BEHIND: a short moment after you stop touching, ease the
     // azimuth so the camera settles behind KAI, looking the way he walks. His
     // flat heading (sin f, cos f) is the walk direction; the camera goes
-    // opposite, expressed in this point's tangent (T,B) basis.
-    if (this.following && this._ptrs.size === 0 && this._idle > 1.4 && facing != null) {
+    // opposite, expressed in this point's tangent (T,B) basis. `behindAz` is also
+    // reused below to know whether the shot is currently locked behind him.
+    let behindAz = null;
+    if (facing != null) {
       const dx = -Math.sin(facing), dz = -Math.cos(facing);
-      const behindAz = Math.atan2(dx * B.x + dz * B.z, dx * T.x + dz * T.z);
-      this.azimuth = lerpAngle(this.azimuth, behindAz, 1 - Math.exp(-dt * CONFIG.camFollowSpin));
-      this.velAz = 0;
+      behindAz = Math.atan2(dx * B.x + dz * B.z, dx * T.x + dz * T.z);
+      if (this.following && this._ptrs.size === 0 && (this._snapBehind || this._idle > 1.4)) {
+        // _snapBehind (set by reattach/resetView) locks instantly so the Follow
+        // button hides the moment you press it; otherwise ease smoothly.
+        this.azimuth = this._snapBehind ? behindAz
+          : lerpAngle(this.azimuth, behindAz, 1 - Math.exp(-dt * CONFIG.camFollowSpin));
+        this._snapBehind = false;
+        this.velAz = 0;
+        // once the swing has settled back behind KAI, we're "following" again →
+        // the Follow button can hide (it won't flicker while he merely turns).
+        const d = Math.atan2(Math.sin(this.azimuth - behindAz), Math.cos(this.azimuth - behindAz));
+        if (Math.abs(d) < 0.06) this._offAxis = false;
+      }
     }
 
     // The camera's tangential (horizontal) direction for this azimuth — its XZ
@@ -366,8 +433,38 @@ export class CameraRig {
     const off = this._off.copy(up).multiplyScalar(cosP)
       .addScaledVector(T, sinP * Math.cos(this.azimuth))
       .addScaledVector(B, sinP * Math.sin(this.azimuth));
+    // build camera + look-point in the un-spun frame, then rotate both by the
+    // planet spin so the shot stays glued to KAI as the world turns under it.
+    const lookAt = this._pw.copy(this.pivot);
     this.camera.position.copy(this.pivot).addScaledVector(off, this._renderEff);
     this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(this.pivot);
+    if (this.worldQuat) {
+      // The rig works in the planet's UN-spun (north-pole) frame, where KAI's cap
+      // sits near the pole and "up" is world-Y. Rotate the camera, its target AND
+      // its up by the planet spin together, so KAI's ground stays at the bottom of
+      // frame (no roll) however the day/night terminator has turned the world.
+      lookAt.applyQuaternion(this.worldQuat);
+      this.camera.position.applyQuaternion(this.worldQuat);
+      this.camera.up.applyQuaternion(this.worldQuat);
+    }
+    this.camera.lookAt(lookAt);
+
+    // ── UI button visibility: show each control only when it would do something ─
+    if (this._cine) {
+      this.ui.cameraFollowing = true;     // auto paint-cam → hide both buttons
+      this.ui.viewTilted = false;
+    } else {
+      // FOLLOW: hidden while we're following AND haven't been knocked off-axis.
+      // `_offAxis` is set the instant you orbit/pan and cleared once the shot has
+      // eased back behind KAI — so it stays hidden during normal walking/turning
+      // and reappears whenever you move the camera away.
+      this.ui.cameraFollowing = this.following && !this._offAxis;
+
+      // RADDRIZZA: only useful once you've DETACHED — flown the planet around with a
+      // two-finger swipe, double-tap travel, or a sidebar mural jump — where the
+      // view can end up tilted/backwards. Hidden during normal following/orbiting
+      // (orbit can't roll the horizon, so reset wouldn't change anything there).
+      this.ui.viewTilted = !this.following;
+    }
   }
 }

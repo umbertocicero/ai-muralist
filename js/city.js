@@ -3,6 +3,8 @@ import { CONFIG } from './config.js';
 import { rotateY2D } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
 import { planetPoint, planetQuat, placeOnPlanet, PLANET_R } from './planet.js';
+import { GLASS, SHUTTER, LEAF } from './items/materials.js';
+import { createItem } from './items/index.js';
 
 // ===========================================================================
 //  A procedurally generated Setagaya-style neighbourhood.
@@ -33,13 +35,16 @@ const ASPHALT2 = toonMat('#cbc9c5');   // main-road ribbon (slightly darker)
 // saturation so it stays inside the B&W manga look (screentone + ink survive).
 const GROUND   = toonMat('#c1b8a8');
 const CURB     = toonMat('#e6e4e0');
-// polygonOffset pushes windows/shutters in front of the wall in depth so they
-// never z-fight it (the cause of the "striped" windows at a distance).
-const GLASS    = new THREE.MeshBasicMaterial({ color: '#2b2b2b', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-const SHUTTER  = new THREE.MeshBasicMaterial({ color: '#9a9894', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+// GLASS / SHUTTER panes (shared with the item factory) and the foliage geometry
+// now live in js/items/materials.js — imported above.
 const WIRE     = new THREE.LineBasicMaterial({ color: '#141210' });
 const ROOFLINE = new THREE.LineBasicMaterial({ color: '#2a2824' });   // tile / corrugation strokes
 const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
+// A dark sash FRAME drawn just behind each window pane (slightly larger), so a
+// border of frame shows around the glass — the "cornici alle finestre" detail.
+// Less-negative polygonOffset than GLASS so the pane always sits in front of it.
+const FRAME_GEO = new THREE.PlaneGeometry(1.22, 1.46);
+const FRAME_MAT = new THREE.MeshBasicMaterial({ color: '#3a3631', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 
 // Triangular-prism (gable) roof geometry, flat-shaded. Base width = 2*halfSpan
 // across X, ridge of height `rh` along +Y, extruded `len` along Z.
@@ -58,8 +63,6 @@ function gableGeometry(halfSpan, rh, len) {
   return g;
 }
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
-const LEAF     = ['#2c2a26', '#363430', '#23211d', '#3c3a34'];
-const LEAF_GEO = new THREE.IcosahedronGeometry(1, 0);   // shared, scaled per leaf
 const DOOR_GEO = new THREE.PlaneGeometry(0.95, 1.9);
 const DOOR     = new THREE.MeshBasicMaterial({ color: '#322e28', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
@@ -125,7 +128,6 @@ export class City {
     const north = new THREE.Group();
     const mine = this.scene.children.slice(this._childBase);
     for (const o of mine) north.add(o);     // reparent every city object
-    this.scene.add(north);
 
     const south = new THREE.Group();
     south.rotation.set(Math.PI, 0.7, 0);    // flip to the underside + a twist
@@ -133,7 +135,17 @@ export class City {
       if (o === this.planet) continue;       // the sphere already spans both halves
       south.add(o.clone());
     }
-    this.scene.add(south);
+
+    // Everything that belongs to the little planet lives under ONE root. The app
+    // spins this root over the real day (the sun is FIXED), so a real day/night
+    // terminator sweeps across the sphere and KAI's town sits on the lit or the
+    // dark side to match Tokyo's clock. KAI and the lamp glows are reparented in
+    // here too (main.js) so they rotate rigidly with the town.
+    this.worldRoot = new THREE.Group();
+    this.worldRoot.add(north);
+    this.worldRoot.add(south);
+    this.scene.add(this.worldRoot);
+    this.north = north;
   }
 
   // Reposition + reorient every individual city mesh onto the planet. Batched
@@ -294,11 +306,17 @@ export class City {
           const t = this._rand(0.3, 0.7), off = this._rand(-hw * 0.45, hw * 0.45);
           this._manhole(a.x + dx * t + px * off, a.z + dz * t + pz * off);
         }
-        // a zebra crossing painted across a central, well-inside segment
-        if (painted < 2 && Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.6 && len > 4) {
+        // a zebra crossing — only on a flat, central, long-enough straight run so
+        // the stripes always land on real asphalt (never spilling onto the curved
+        // ground / curb down the planet's side).
+        if (painted < 2 && Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.4 && len > 6) {
           this._crosswalk(spos, sidx, (a.x + b.x) / 2, (a.z + b.z) / 2, dx / len, dz / len, px, pz, hw);
           painted++;
         }
+        // a flagstone sidewalk strip along the kerb (paving joints, drawn only on
+        // open ground so it never runs through a building)
+        if (Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.6)
+          this._sidewalkPaving(a, dx, dz, len, px, pz, hw);
       }
     }
     if (pos.length) {
@@ -322,7 +340,9 @@ export class City {
   // sphere so the paint hugs the curved tarmac. Appends into shared buffers.
   _crosswalk(spos, sidx, cx, cz, fx, fz, px, pz, hw) {
     const v = new THREE.Vector3();
-    const n = 5, sw = 0.34, gap = 0.32, ah = hw * 0.86, y = 0.075;
+    // stripes span ACROSS the asphalt, kept a clear margin inside the road edge
+    // (so the zebra never bleeds onto the curb/sidewalk), repeated ALONG the road.
+    const n = 5, sw = 0.34, gap = 0.32, ah = Math.min(hw * 0.8, hw - 0.3), y = 0.075;
     let base = spos.length / 3;
     for (let j = 0; j < n; j++) {
       const off = (j - (n - 1) / 2) * (sw + gap);
@@ -337,6 +357,31 @@ export class City {
       for (const [px2, pz2] of corners) { planetPoint(px2, y, pz2, v, this.R); spos.push(v.x, v.y, v.z); }
       sidx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
       base += 4;
+    }
+  }
+
+  // Flagstone sidewalk along a road segment's kerb: paving JOINTS (cross ties +
+  // lengthwise seams) laid as ink strokes, only where the strip sits on open
+  // ground (so it never runs under a building). Appends flat segments into the
+  // batched roof/stroke buffer (projected onto the planet in _finalizeLines).
+  _sidewalkPaving(a, dx, dz, len, px, pz, hw) {
+    const inA = hw + 0.12, inB = hw + 0.55, mid = hw + 0.33, y = 0.07;
+    const step = 0.95, N = Math.max(1, Math.floor(len / step));
+    for (const s of [-1, 1]) {
+      let prev = null;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N, cx = a.x + dx * t, cz = a.z + dz * t;
+        const mx = cx + px * s * mid, mz = cz + pz * s * mid;
+        if (this.isColliding(mx, mz)) { prev = null; continue; }
+        const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb edge
+        const bx = cx + px * s * inB, bz = cz + pz * s * inB;   // inner edge
+        this._roofSeg.push(ax, y, az, bx, y, bz);              // cross tie
+        if (prev) {                                            // lengthwise seams
+          this._roofSeg.push(prev.ax, y, prev.az, ax, y, az);
+          this._roofSeg.push(prev.bx, y, prev.bz, bx, y, bz);
+        }
+        prev = { ax, az, bx, bz };
+      }
     }
   }
 
@@ -619,11 +664,17 @@ export class City {
     const sc = this._toWorld(cx, cz, rot, nlx * (half + 0.07), nlz * (half + 0.07));
     const board = inkedMesh(new THREE.BoxGeometry(w, 0.52, 0.12), '#d8d5cd', { k: 1.03, cast: false });
     board.position.set(sc.x, signY, sc.z); board.rotation.y = rotY; this.scene.add(board);
-    // a couple of horizontal strokes so it reads as a lettered sign panel
-    for (const dy of [-0.13, 0.13]) {
-      const a = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (-w / 2 + 0.25), nlz * (half + 0.14) + tlz * (-w / 2 + 0.25));
-      const b = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (w / 2 - 0.25), nlz * (half + 0.14) + tlz * (w / 2 - 0.25));
-      this._roofSeg.push(a.x, signY + dy, a.z, b.x, signY + dy, b.z);
+    // a row of glyph strokes so the board reads as shop lettering (kanji-ish)
+    const glyphs = 3 + (seed % 3);
+    for (let gi = 0; gi < glyphs; gi++) {
+      const tcen = (gi - (glyphs - 1) / 2) * (w / (glyphs + 0.6));
+      const va = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * tcen, nlz * (half + 0.14) + tlz * tcen);
+      this._roofSeg.push(va.x, signY - 0.16, va.z, va.x, signY + 0.16, va.z);   // vertical stroke
+      for (const dy of [-0.09, 0.09]) {                                          // two horizontal ticks
+        const ha = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (tcen - 0.09), nlz * (half + 0.14) + tlz * (tcen - 0.09));
+        const hb = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (tcen + 0.09), nlz * (half + 0.14) + tlz * (tcen + 0.09));
+        this._roofSeg.push(ha.x, signY + dy, ha.z, hb.x, signY + dy, hb.z);
+      }
     }
 
     // awning projecting over the pavement (some shops)
@@ -642,6 +693,12 @@ export class City {
     const bx = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.3), nlz * (half + 0.2) + tlz * (w / 2 - 0.3));
     const blade = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.5), toonMat('#cdcac2', { side: THREE.DoubleSide }));
     blade.position.set(bx.x, 3.5, bx.z); blade.rotation.y = rotY + Math.PI / 2; addInk(blade, 1.03); this.scene.add(blade);
+    // vertical column of text on the blade sign (袖看板) — a tick per character row
+    for (let gi = -1; gi <= 1; gi++) {
+      const ca = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.4), nlz * (half + 0.2) + tlz * (w / 2 - 0.4));
+      const cb = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.2), nlz * (half + 0.2) + tlz * (w / 2 - 0.2));
+      this._roofSeg.push(ca.x, 3.5 + gi * 0.42, ca.z, cb.x, 3.5 + gi * 0.42, cb.z);
+    }
 
     if (CONFIG.shop.nightGlow) this.lampHeads.push(sc.x + n.x * 0.12, signY, sc.z + n.z * 0.12);
   }
@@ -1025,39 +1082,17 @@ export class City {
       im.instanceMatrix.needsUpdate = true;
       this.scene.add(im);
     };
+    make(FRAME_GEO, FRAME_MAT, this._winXf);   // sash frame behind each pane
     make(WIN_GEO, GLASS, this._winXf);
     make(SHU_GEO, SHUTTER, this._shutXf);
   }
-  _pottedPlant(x, z, s = 1) {
-    const pot = inkedMesh(new THREE.CylinderGeometry(0.16 * s, 0.20 * s, 0.34 * s, 8), '#dcdad6', { k: 1.05 });
-    pot.position.set(x, 0.17 * s, z); this.scene.add(pot);
-    this._leaf(x, 0.34 * s + 0.20 * s, z, 0.30 * s, LEAF[1]);
-    this._leaf(x + 0.13 * s, 0.34 * s + 0.40 * s, z - 0.05 * s, 0.20 * s, LEAF[3]);
-  }
-  _leaf(x, y, z, r, tone) {
-    // shared geometry + cached material, no ink hull (the Sobel post-pass inks
-    // foliage) — hundreds of leaves become cheap, batchable meshes
-    const m = new THREE.Mesh(LEAF_GEO, toonMat(tone));
-    m.scale.setScalar(r);
-    m.position.set(x, y, z); m.rotation.set(this.rng(), this.rng(), this.rng());
-    this.scene.add(m); return m;
-  }
-  _vine(x, z, h) {
-    for (let y = 0.4; y < h; y += 0.55)
-      this._leaf(x + this._rand(-0.18, 0.18), y, z + this._rand(-0.4, 0.4), 0.24 + this.rng() * 0.12, LEAF[(y * 7 | 0) % LEAF.length]);
-  }
-  _bush(x, z, s) {
-    this.colliders.push({ x, z, r: 0.28 + s * 0.12 });
-    [[0, 0.32, 0], [0.3, 0.30, 0.1], [-0.28, 0.34, -0.12], [0.05, 0.55, 0]].forEach(([ox, oy, oz], i) =>
-      this._leaf(x + ox * s, oy * s + 0.1, z + oz * s, (0.28 + (i % 2) * 0.08) * s, LEAF[i % LEAF.length]));
-  }
-  _bigTree(x, z) {
-    this.colliders.push({ x, z, r: 0.45 });
-    const trunk = inkedMesh(new THREE.CylinderGeometry(0.16, 0.22, 3.2, 7), '#231d18', { k: 1.05 });
-    trunk.position.set(x, 1.6, z); this.scene.add(trunk);
-    [[0, 3.8, 0, 1.4], [0.7, 4.3, 0.3, 1.0], [-0.6, 4.2, -0.4, 1.05], [0.1, 4.9, 0, 0.9]].forEach(([ox, oy, oz, r], i) =>
-      this._leaf(x + ox, oy, z + oz, r, LEAF[i % LEAF.length]));
-  }
+  // ── Greenery: delegated to the parametric item factory (js/items/nature.js) ─
+  // city.js owns LAYOUT (where things go); the factory owns the MESH of each item.
+  _pottedPlant(x, z, s = 1) { createItem(this, 'plant', { x, z, scale: s }); }
+  _leaf(x, y, z, r, tone)   { return createItem(this, 'leaf', { x, y, z, r, tone }); }
+  _vine(x, z, h)            { createItem(this, 'vine', { x, z, height: h }); }
+  _bush(x, z, s)            { createItem(this, 'bush', { x, z, scale: s }); }
+  _bigTree(x, z)            { createItem(this, 'tree', { x, z }); }
   _antenna(x, baseY, z) {
     const mast = inkedMesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5), '#1c1a17', { k: 1.12, cast: false });
     mast.position.set(x, baseY + 0.65, z); this.scene.add(mast);
@@ -1075,7 +1110,7 @@ export class City {
   _buildStreetProps() {
     const S = CONFIG.shop || {};
     let bikes = 0, banners = 0, planters = 0, signs = 0,
-        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, stairs = 0;
+        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, stairs = 0, benches = 0;
     for (const bld of this.buildings) {
       const r = this.rng();
       const sgn = this.rng() < 0.5 ? 1 : -1;
@@ -1119,6 +1154,13 @@ export class City {
           this._stairs(p.x, p.z, outAng, 4 + (this.rng() * 3 | 0)); stairs++; continue;
         }
       }
+      // a public bench set against the wall, facing the lane
+      if (benches < 6 && r > 0.52 && r < 0.74) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.7), along);
+        if (!this.isColliding(p.x, p.z) && this._distToMainRoad(p.x, p.z) > 1.0) {
+          this._bench(p.x, p.z, outAng + Math.PI, 1.1 + this.rng() * 0.5); benches++; continue;
+        }
+      }
     }
 
     // Convex mirrors, cones and barriers at/near road junctions.
@@ -1151,39 +1193,7 @@ export class City {
   }
 
   // A parked bicycle, seen side-on (its face turned toward the street).
-  _bicycle(x, z, ang) {
-    this.colliders.push({ x, z, r: 0.45 });
-    const g = new THREE.Group();
-    g.position.set(x, 0, z); g.rotation.y = ang;
-    const TIRE = '#1c1a17', FRAME = '#34302a', SEAT = '#262320';
-    const wr = 0.3, wheelGeo = new THREE.TorusGeometry(wr, 0.035, 5, 14);
-    for (const wx of [-0.52, 0.52]) {
-      const wheel = inkedMesh(wheelGeo, TIRE, { k: 1.05 });
-      wheel.position.set(wx, wr, 0); g.add(wheel);
-    }
-    const bar = (x1, y1, x2, y2, th = 0.045) => {
-      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 0.01;
-      const b = inkedMesh(new THREE.BoxGeometry(th, len, th), FRAME, { k: 1.12 });
-      b.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
-      b.rotation.z = Math.atan2(-dx, dy); g.add(b);
-    };
-    const bbx = 0.02, bby = wr, sx = -0.2, sy = 0.74, hx = 0.46, hy = 0.82;
-    bar(-0.52, wr, bbx, bby);   // chain stay
-    bar(bbx, bby, sx, sy);      // seat tube
-    bar(sx, sy, hx, hy);        // top tube
-    bar(hx, hy, bbx, bby);      // down tube
-    bar(sx, sy, -0.52, wr);     // seat stay
-    bar(hx, hy, 0.52, wr);      // fork
-    const saddle = inkedMesh(new THREE.BoxGeometry(0.28, 0.06, 0.12), SEAT, { k: 1.06, cast: false });
-    saddle.position.set(sx - 0.04, sy + 0.03, 0); g.add(saddle);
-    const grip = inkedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.34), FRAME, { k: 1.1, cast: false });
-    grip.position.set(hx, hy + 0.02, 0); g.add(grip);
-    if (this.rng() < 0.6) {     // the ubiquitous front basket
-      const basket = inkedMesh(new THREE.BoxGeometry(0.22, 0.18, 0.26), '#bcae90', { k: 1.05, cast: false });
-      basket.position.set(0.54, 0.66, 0); g.add(basket);
-    }
-    this.scene.add(g);
-  }
+  _bicycle(x, z, ang) { createItem(this, 'bicycle', { x, z, ang }); }
 
   // A vertical shop banner (幟) on a thin pole, facing the street.
   _nobori(x, z, ang) {
@@ -1231,26 +1241,7 @@ export class City {
 
   // ── Reference street dressing: vending machines, mirrors, cones, vehicles ──
 
-  // A vending machine (自販機): the most iconic Japanese street object. Greyscale
-  // box with a dark display window + selection panel; registers a night glow so
-  // it reads as the lone lit thing in a dark lane.
-  _vendingMachine(x, z, ang) {
-    this.colliders.push({ x, z, r: 0.5 });
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
-    const body = inkedMesh(new THREE.BoxGeometry(0.78, 1.9, 0.66), '#dedcd7', { k: 1.03 });
-    body.position.set(0, 0.95, 0); g.add(body);
-    const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.82), GLASS);
-    disp.position.set(0, 1.34, 0.34); g.add(disp);
-    const sel = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.3), SHUTTER);
-    sel.position.set(0, 0.82, 0.34); g.add(sel);
-    const tray = inkedMesh(new THREE.BoxGeometry(0.5, 0.16, 0.06), '#2a2824', { k: 1.05, cast: false });
-    tray.position.set(0, 0.38, 0.33); g.add(tray);
-    this.scene.add(g);
-    if (CONFIG.shop?.nightGlow) {
-      const dx = Math.sin(ang), dz = Math.cos(ang);
-      this.lampHeads.push(x + dx * 0.4, 1.3, z + dz * 0.4);
-    }
-  }
+  _vendingMachine(x, z, ang) { createItem(this, 'vending', { x, z, ang }); }
 
   // A convex traffic mirror (カーブミラー) on a pole at a junction, facing back
   // down the road. The dark frame + pale disc read in B&W.
@@ -1268,16 +1259,10 @@ export class City {
     face.position.set(mx - dx * 0.02, h - 0.06, mz - dz * 0.02); face.rotation.y = ang + Math.PI; this.scene.add(face);
   }
 
-  // A roadwork traffic cone with a reflective band.
-  _trafficCone(x, z) {
-    this.colliders.push({ x, z, r: 0.18 });
-    const cone = inkedMesh(new THREE.ConeGeometry(0.17, 0.5, 12), '#c9c6c0', { k: 1.05, cast: false });
-    cone.position.set(x, 0.27, z); this.scene.add(cone);
-    const base = inkedMesh(new THREE.BoxGeometry(0.34, 0.05, 0.34), '#9a968e', { k: 1.04, cast: false });
-    base.position.set(x, 0.025, z); this.scene.add(base);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.08, 12), toonMat('#efece6'));
-    band.position.set(x, 0.33, z); this.scene.add(band);
-  }
+  _trafficCone(x, z) { createItem(this, 'cone', { x, z }); }
+
+  // A public bench against a wall (length parametric).
+  _bench(x, z, ang, length) { createItem(this, 'bench', { x, z, ang, length }); }
 
   // An A-frame barricade (single-A sawhorse) with a striped board.
   _aFrameBarrier(x, z, ang) {
