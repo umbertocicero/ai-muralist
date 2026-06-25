@@ -3,6 +3,8 @@ import { CONFIG } from './config.js';
 import { clamp, lerpAngle } from './helpers.js';
 import { planetPoint, PLANET_R } from './planet.js';
 
+const _WORLD_UP = new THREE.Vector3(0, 1, 0);
+
 // ===========================================================================
 //  Camera rig — Apple-grade feel, Google-Street-View navigation.
 //
@@ -108,16 +110,12 @@ export class CameraRig {
         this._orbit(e.clientX - this._last.x, e.clientY - this._last.y);
         this._last.x = e.clientX; this._last.y = e.clientY;
       } else if (this._mode === 'pinch') {
-        const d = this._pairDist(), mid = this._pairMid(), ang = this._pairAngle();
-        const s = CONFIG.camDragSensitivity;
+        const d = this._pairDist(), mid = this._pairMid();
         if (this._pinch > 0) this._applyZoom(this._pinch / d, mid.x, mid.y);   // pinch → zoom into the spot
-        let dA = ang - this._pinchAng;                                          // twist → spin
-        if (dA >  Math.PI) dA -= 2 * Math.PI;
-        if (dA < -Math.PI) dA += 2 * Math.PI;
-        this.azimuth += dA - (mid.x - this._pinchMid.x) * s;                    // + horizontal slide spins
-        this.polar = clamp(this.polar - (mid.y - this._pinchMid.y) * s * 0.7,   // vertical slide tilts
-          CONFIG.camPolarMin, CONFIG.camPolarMax);
-        this._pinch = d; this._pinchMid = mid; this._pinchAng = ang;
+        // two-finger swipe → drag the world: the look-point slides OPPOSITE the
+        // swipe, so the planet rotates under your fingers (grab-and-spin).
+        this._dragWorld(mid.x - this._pinchMid.x, mid.y - this._pinchMid.y);
+        this._pinch = d; this._pinchMid = mid;
       }
     });
 
@@ -202,6 +200,23 @@ export class CameraRig {
         this.pivotTarget.lerp(g, Math.min(f, 0.6)).setLength(this.R + CONFIG.camLookY);
       }
     }
+  }
+
+  // Two-finger swipe = drag the planet: slide the look-point across the surface
+  // OPPOSITE the swipe (so the world rotates under your fingers). Leaves the
+  // follow (you're exploring) and keeps the pivot exactly on the sphere.
+  _dragWorld(dmx, dmy) {
+    if (!dmx && !dmy) return;
+    this._detach();
+    const cam = this.camera;
+    const fwd   = this._t.copy(this.pivot).sub(cam.position).normalize();
+    const right = this._b.crossVectors(fwd, _WORLD_UP).normalize();
+    const up    = this._off.crossVectors(right, fwd).normalize();
+    const k = this._renderEff * 0.0016 + 0.02;     // farther out → faster traverse
+    this.pivotTarget
+      .addScaledVector(right, -dmx * k)
+      .addScaledVector(up,     dmy * k)
+      .setLength(this.R + CONFIG.camLookY);
   }
 
   // double-tap the globe to glide the look-point there (Google-Earth style)
