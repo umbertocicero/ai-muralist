@@ -5,7 +5,7 @@
 
 ![status](https://img.shields.io/badge/status-experiment%20%E2%84%96001-ff6b35) ![cost](https://img.shields.io/badge/hosting-%240%2Fmo-2d6a4f)
 
-A manga student named **KAI** — black *gakuran* uniform, backpack, spray can in hand — walks the streets, finds a blank wall, imagines something, and paints it. No build step. No server. No framework install. Just a browser.
+A manga schoolkid named **KAI** — white short-sleeve shirt, dark shorts, backpack, spray can in hand — walks the streets, finds a blank wall, imagines something, and paints it. No build step. No server. No framework install. Just a browser.
 
 ---
 
@@ -33,7 +33,7 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   ├── helpers.js       rand, clamp, lerpAngle, rotateY2D
 │   ├── demo.js          offline fallback thoughts + procedural SVGs
 │   ├── city.js          City — procedural town gen, OBB collision, wall slots, steering
-│   ├── character.js     Character — KAI (gakuran student) mesh + animation states
+│   ├── character.js     Character — KAI (schoolkid) mesh + animation states
 │   ├── mural-factory.js MuralFactory — prompt, fetch, sanitize, rasterize
 │   ├── agent.js         Agent — 5-state machine, writes to Vue reactive state
 │   ├── camera-rig.js    CameraRig — follow-behind, inertial orbit, zoom, pan, travel, lift
