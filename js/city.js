@@ -76,6 +76,7 @@ export class City {
 
     this.HALF = CONFIG.world.half;
     this.R    = PLANET_R;
+    this.CAP  = 58;     // town radius (a round cap), keeps it on the upper hemisphere
     this.mainRoads = this._genMainRoads();
 
     // every object City adds after this index is a city object (the scene may
@@ -195,6 +196,8 @@ export class City {
     for (const r of this.mainRoads) {
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
+        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+        if (Math.hypot(mx, mz) > this.CAP) continue;   // keep roads on the cap
         const dx = b.x - a.x, dz = b.z - a.z;
         const len = Math.hypot(dx, dz);
         const rib = new THREE.Mesh(new THREE.PlaneGeometry(r.half * 2, len + r.half), ASPHALT2);
@@ -248,6 +251,9 @@ export class City {
       for (const czr of rows) {
         const cx = (cxr.a + cxr.b) / 2 + this._rand(-0.6, 0.6);
         const cz = (czr.a + czr.b) / 2 + this._rand(-0.6, 0.6);
+        // The town is a round cap on the planet: drop plots outside the disc so
+        // the square's corners don't wrap past the equator onto the underside.
+        if (Math.hypot(cx, cz) > this.CAP) continue;
         // keep the main road itself clear of buildings
         const nr = this._nearestRoad(cx, cz);
         if (nr.dist < 2.0) continue;
@@ -470,6 +476,7 @@ export class City {
         for (let t = 0; t < 1; t += 0.5) {
           const x = a.x + (b.x - a.x) * t + r.half + 0.3;
           const z = a.z + (b.z - a.z) * t;
+          if (Math.hypot(x, z) > this.CAP) continue;
           if (!this.isColliding(x, z) && Math.abs(x) < this.HALF && Math.abs(z) < this.HALF)
             { this._pole(x, z, 8.6, this.rng() < 0.3); this.poles.push({ x, z }); }
         }
@@ -477,6 +484,7 @@ export class City {
     }
     for (let k = 0; k < 60; k++) {
       const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
+      if (Math.hypot(x, z) > this.CAP) continue;
       if (!this.isColliding(x, z) && this._distToMainRoad(x, z) > 2) { this._pole(x, z, 8.4, this.rng() < 0.2); this.poles.push({ x, z }); }
     }
     // wire each pole to its 2 nearest neighbours → tangled net

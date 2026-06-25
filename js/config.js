@@ -63,7 +63,7 @@ export const CONFIG = {
   //     two-finger / shift-drag pan). Open-world free orbit. ---
   camFov: 52,
   camRadius: 20,
-  camPolar: 1.12,
+  camPolar: 0.8,    // a pleasant looking-down-at-the-town 3/4 (planet orbit)
   camPolarMin: 0.32,
   camPolarMax: 1.52,
   camRadiusMin: 6,

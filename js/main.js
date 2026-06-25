@@ -198,8 +198,8 @@ class App {
     this.key.intensity = 0.12 + 1.5 * day;
     // Lift the night floor so the town stays legible after dark (the lamp pools
     // do the warm accents), and let the cool moon fill carry the shaded sides.
-    this.ambient.intensity = 0.26 + 0.40 * day;
-    this.moonLight.intensity = (1 - day) * 0.6;
+    this.ambient.intensity = 0.34 + 0.36 * day;
+    this.moonLight.intensity = (1 - day) * 0.7;
 
     // Sky + fog ride the cycle: night → day (greyscale, stays monochrome).
     col.copy(NIGHT).lerp(DAY, day);

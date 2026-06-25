@@ -269,15 +269,43 @@ export class CameraRig {
     const followRate = cine ? 2.4 : CONFIG.camFollowLerp;
     this.radius += (this.targetRadius - this.radius) * (1 - Math.exp(-dt * zoomRate));
     this.pivot.lerp(this.pivotTarget, 1 - Math.exp(-dt * followRate));
-    this._renderPolar += (this.polar  - this._renderPolar) * (1 - Math.exp(-dt * 6));
-    this._renderEff   += (this.radius - this._renderEff)   * (1 - Math.exp(-dt * 6));
 
-    // local frame at the pivot: up = radial; tangent basis (T, B)
+    // local frame at the pivot: up = radial; a stable tangent basis (T, B)
     const up = this._up.copy(this.pivot).normalize();
     let T = this._t.set(0, 1, 0).cross(up);
     if (T.lengthSq() < 1e-6) T.set(1, 0, 0);
     T.normalize();
     const B = this._b.copy(up).cross(T).normalize();
+
+    // The camera's tangential (horizontal) direction for this azimuth — its XZ
+    // gives the flat direction camera→pivot, used for occlusion below.
+    const ddx = T.x * Math.cos(this.azimuth) + B.x * Math.sin(this.azimuth);
+    const ddz = T.z * Math.cos(this.azimuth) + B.z * Math.sin(this.azimuth);
+    const dl = Math.hypot(ddx, ddz) || 1;
+
+    // Occlusion-aware lift: when following/auto-framing, if a building sits
+    // between the camera and KAI, raise the pitch so the lens looks down over the
+    // rooftops instead of into a wall (the town hugs the pole, so flat ≈ world).
+    let polTarget = this.polar;
+    if ((this.following || this._cine) && this.city && charPos) {
+      const ux = ddx / dl, uz = ddz / dl;
+      for (let tries = 0; tries < 9; tries++) {
+        const camH  = Math.cos(polTarget) * this.radius + 1.2;
+        const horiz = Math.sin(polTarget) * this.radius;
+        let blocked = false;
+        const n = Math.max(4, Math.ceil(horiz / 1.3));
+        for (let i = 1; i <= n; i++) {
+          const f = i / n, d = f * horiz;
+          const top = this.city.hitsBuilding(charPos.x + ux * d, charPos.z + uz * d);
+          if (top > 0 && 1.2 + (camH - 1.2) * f < top + 0.5) { blocked = true; break; }
+        }
+        if (!blocked) break;
+        polTarget -= 0.12;
+        if (polTarget <= CONFIG.camPolarMin) { polTarget = CONFIG.camPolarMin; break; }
+      }
+    }
+    this._renderPolar += (polTarget - this._renderPolar) * (1 - Math.exp(-dt * 5));
+    this._renderEff   += (this.radius - this._renderEff)   * (1 - Math.exp(-dt * 6));
 
     const sinP = Math.sin(this._renderPolar), cosP = Math.cos(this._renderPolar);
     const off = this._off.copy(up).multiplyScalar(cosP)

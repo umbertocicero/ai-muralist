@@ -96,7 +96,9 @@ export function applyMangaTone(mat) {
         '    vec2 p = TROT45 * huv;\n' +
         '    float dist = length(fract(p) - 0.5);\n' +
         '    float cells = max(fwidth(p.x), fwidth(p.y));\n' +
-        '    float r = sqrt(coverage) * 0.66;\n' +
+        // cap dot growth so even uniformly-dark areas (night, deep shade) read as
+        // a clean tone instead of collapsing into a solid black dot field
+        '    float r = sqrt(min(coverage, 0.66)) * 0.6;\n' +
         '    float e = max(fwidth(dist), 0.001) * 1.3;\n' +
         '    float dots = 1.0 - smoothstep(r - e, r + e, dist);\n' +
         '    float hatch = 0.0;\n' +
