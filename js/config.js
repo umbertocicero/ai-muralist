@@ -37,13 +37,34 @@ export const CONFIG = {
     shaftCount: 12,    // number of radiating light-shafts
     shaftLen:   170,   // shaft length (world units)
     shaftWidth: 9,     // shaft base width
-    shaftOpacity: 0.28, // base beam opacity (jittered per beam)
-    dustCount:  360,   // floating motes
+    shaftOpacity: 0.20, // base beam opacity (jittered) — trimmed for a less soft, more inked mood
+    dustCount:  240,   // floating motes
     dustRange:  130,   // box the motes drift within
     dustSize:   0.15,
   },
   // Concrete-grey facade palette (apartment blocks).
   buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
+
+  // --- Commercial shopping street (商店街) ---
+  // One of the winding main roads is dressed as a shōtengai: taller, narrower
+  // mixed-use blocks line both sides, with ground-floor shopfronts (awning +
+  // storefront glass + projecting sign) and rooftop signboards. Recreates the
+  // dense "hero shot" Japanese high-street look of the reference photos.
+  shop: {
+    enabled: true,
+    band: 7.5,         // plots within this distance of the chosen road become shops
+    minTop: 7.0,       // shop blocks are taller…
+    topRange: 5.0,     // …minTop + rand*topRange
+    awningTones: ['#cfccc4', '#c4c1b9', '#d6d3cb'],  // greyscale (stays B&W)
+    roofSignChance: 0.55,   // chance a shop block carries a rooftop billboard
+    nightGlow: true,        // shop signs / vending machines register a night-glow lamp
+    // Street-prop caps for the new reference dressing
+    vendingMax: 14,
+    mirrorMax:  8,
+    coneMax:    18,
+    carMax:     8,
+    scooterMax: 8,
+  },
 
   // --- Agent / physics ---
   charStart: { x: 0, z: 0 },  // relocated to city.spawn at startup if blocked

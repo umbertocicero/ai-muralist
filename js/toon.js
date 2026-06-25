@@ -20,9 +20,9 @@ let _grad = null;
 export function gradientMap() {
   if (_grad) return _grad;
   const data = new Uint8Array([
-     78,  78,  78, 255,   // deep shade
-    168, 168, 168, 255,   // mid tone
-    255, 255, 255, 255,   // lit
+     58,  58,  58, 255,   // deep shade (darker → punchier manga banding)
+    156, 156, 156, 255,   // mid tone
+    255, 255, 255, 255,   // lit (pure paper white)
   ]);
   const tex = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
   tex.minFilter = THREE.NearestFilter;

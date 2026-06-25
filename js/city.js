@@ -83,6 +83,12 @@ export class City {
     this.CAP  = 64;     // town radius — now reaches near the equator (mirrored below)
     this.mainRoads = this._genMainRoads();
 
+    // One main road is dressed as a 商店街 (shopping street): plots within
+    // CONFIG.shop.band of it become taller mixed-use shops with shopfronts and
+    // rooftop signboards — the dense Japanese high-street of the reference photos.
+    this.shopRoad = (CONFIG.shop && CONFIG.shop.enabled && this.mainRoads.length)
+      ? this.mainRoads[0] : null;
+
     // every object City adds after this index is a city object (the scene may
     // already hold the lights); used by _spherifyIndividuals to wrap only ours.
     this._childBase = scene.children.length;
@@ -219,6 +225,17 @@ export class City {
     return best;
   }
 
+  // Edge distance to ONE specific road (used to detect plots on the shopping street).
+  _distToRoad(road, x, z) {
+    if (!road) return Infinity;
+    let best = Infinity;
+    for (let i = 0; i < road.pts.length - 1; i++) {
+      const d = segDist(x, z, road.pts[i], road.pts[i + 1]) - road.half;
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
   // Nearest main road: edge distance, direction angle, and the closest point —
   // used to keep the road clear and to line it with road-aligned houses.
   _nearestRoad(x, z) {
@@ -252,9 +269,11 @@ export class City {
   _buildRoads() {
     const v = new THREE.Vector3();
     const pos = [], idx = [];
+    const spos = [], sidx = [];   // crosswalk / stop-line stripes (lighter paint)
     let vi = 0;
     for (const r of this.mainRoads) {
       const hw = r.half;
+      let painted = 0;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
         if (Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) > this.CAP) continue;
@@ -275,6 +294,11 @@ export class City {
           const t = this._rand(0.3, 0.7), off = this._rand(-hw * 0.45, hw * 0.45);
           this._manhole(a.x + dx * t + px * off, a.z + dz * t + pz * off);
         }
+        // a zebra crossing painted across a central, well-inside segment
+        if (painted < 2 && Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.6 && len > 4) {
+          this._crosswalk(spos, sidx, (a.x + b.x) / 2, (a.z + b.z) / 2, dx / len, dz / len, px, pz, hw);
+          painted++;
+        }
       }
     }
     if (pos.length) {
@@ -284,6 +308,35 @@ export class City {
       const road = new THREE.Mesh(g, ASPHALT2);
       road.receiveShadow = true;
       this.scene.add(road);
+    }
+    if (spos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(spos, 3));
+      g.setIndex(sidx); g.computeVertexNormals();
+      this.scene.add(new THREE.Mesh(g, toonMat('#e9e7e2')));
+    }
+  }
+
+  // Lay zebra stripes across the road at (cx,cz): stripes repeat ALONG the road
+  // direction (fx,fz) and span ACROSS it (px,pz). Corners are projected onto the
+  // sphere so the paint hugs the curved tarmac. Appends into shared buffers.
+  _crosswalk(spos, sidx, cx, cz, fx, fz, px, pz, hw) {
+    const v = new THREE.Vector3();
+    const n = 5, sw = 0.34, gap = 0.32, ah = hw * 0.86, y = 0.075;
+    let base = spos.length / 3;
+    for (let j = 0; j < n; j++) {
+      const off = (j - (n - 1) / 2) * (sw + gap);
+      const mx = cx + fx * off, mz = cz + fz * off;
+      const sw2 = sw / 2;
+      const corners = [
+        [mx + fx * sw2 + px * ah, mz + fz * sw2 + pz * ah],
+        [mx + fx * sw2 - px * ah, mz + fz * sw2 - pz * ah],
+        [mx - fx * sw2 + px * ah, mz - fz * sw2 + pz * ah],
+        [mx - fx * sw2 - px * ah, mz - fz * sw2 - pz * ah],
+      ];
+      for (const [px2, pz2] of corners) { planetPoint(px2, y, pz2, v, this.R); spos.push(v.x, v.y, v.z); }
+      sidx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+      base += 4;
     }
   }
 
@@ -324,15 +377,18 @@ export class City {
         // keep the main road itself clear of buildings
         const nr = this._nearestRoad(cx, cz);
         if (nr.dist < 2.0) continue;
-        // ~15% of plots are left as open lots / pocket gardens
-        const open = this.rng() < 0.15;
+        // Plots hugging the shopping street become shops (taller, squared to it).
+        const isShop = this._distToRoad(this.shopRoad, cx, cz) < (CONFIG.shop?.band ?? 0);
+        // ~15% of plots are left as open lots / pocket gardens (never on the
+        // shopping street — a high street is a continuous wall of shopfronts).
+        const open = !isShop && this.rng() < 0.15;
         const hw = Math.max(2.4, (cxr.b - cxr.a) / 2 - this._rand(0.4, 1.1));
         const hd = Math.max(2.4, (czr.b - czr.a) / 2 - this._rand(0.4, 1.1));
 
-        // Houses lining the main road are squared up to it (walls parallel,
-        // door facing the road); the rest sit at little crooked angles.
+        // Houses lining the main road (and all shops) are squared up to it (walls
+        // parallel, door/shopfront facing the road); the rest sit at little angles.
         let rot, door = 0;
-        if (nr.dist < 7) {
+        if (nr.dist < 7 || isShop) {
           rot = nr.ang;
           const f = this._dir(rot, 1, 0);                 // +x face normal
           door = (f.x * (nr.px - cx) + f.z * (nr.pz - cz)) >= 0 ? 1 : -1;
@@ -342,8 +398,10 @@ export class City {
 
         if (open) { this._openLot(cx, cz, hw, hd, rot); continue; }
 
-        const H2 = 4.5 + (this.rng() * 3 | 0) * 1.4 + (this.rng() < 0.18 ? 2.4 : 0); // low, a few accents
-        this._block(cx, cz, hw, hd, rot, H2, idx, door);
+        const H2 = isShop
+          ? CONFIG.shop.minTop + this.rng() * CONFIG.shop.topRange   // taller mixed-use
+          : 4.5 + (this.rng() * 3 | 0) * 1.4 + (this.rng() < 0.18 ? 2.4 : 0); // low, a few accents
+        this._block(cx, cz, hw, hd, rot, H2, idx, door, isShop);
         this.buildings.push({ cx, cz, hw, hd, rot, top: H2 });
         this._addSlots(cx, cz, hw, hd, rot, idx);
         idx++;
@@ -384,8 +442,8 @@ export class City {
   }
 
   // ── A building (oriented box) + roof + facades ────────────────────────────
-  _block(cx, cz, hw, hd, rot, H, idx, door = 0) {
-    const wood = this.rng() < 0.22;     // some are wood-sided houses (板張り)
+  _block(cx, cz, hw, hd, rot, H, idx, door = 0, shop = false) {
+    const wood = !shop && this.rng() < 0.22;     // some are wood-sided houses (板張り)
     const tone = wood ? '#d8d2c6' : CONFIG.buildingColors[idx % CONFIG.buildingColors.length];
     const body = inkedMesh(new THREE.BoxGeometry(hw * 2, H, hd * 2), tone, { k: 1.014, receive: true });
     body.position.set(cx, H / 2, cz); body.rotation.y = rot;
@@ -428,6 +486,15 @@ export class City {
       d.position.set(f.x + n.x * 0.05, 0.96, f.z + n.z * 0.05);
       d.rotation.y = Math.atan2(n.x, n.z);
       this.scene.add(d);
+    }
+
+    // Shop dressing on the street-facing face: an awning + signboard at the
+    // storefront, and (sometimes) a rooftop billboard. The ground-floor wall
+    // itself stays a paintable slot (graffiti on the shutter, very manga).
+    if (shop && door) {
+      this._shopfront(cx, cz, rot, door, 0, hw, hd, H, idx);
+      if (this.rng() < (CONFIG.shop.roofSignChance ?? 0))
+        this._roofSign(cx, cz, rot, door, 0, hw, hd, H, idx);
     }
   }
 
@@ -534,13 +601,88 @@ export class City {
     }
   }
 
+  // ── Shop dressing (商店街) ────────────────────────────────────────────────
+  // A storefront on the street-facing ground floor: a horizontal name-board
+  // (kanban) across the top of the shopfront, an awning over the pavement, and
+  // a vertical projecting blade sign (袖看板). All greyscale so the world stays
+  // B&W; the signs register a night-glow point so they read as lit after dark.
+  _shopfront(cx, cz, rot, nlx, nlz, hw, hd, H, seed) {
+    const half = (nlx !== 0) ? hw : hd;
+    const wallLen = ((nlx !== 0) ? hd : hw) * 2;
+    const tlx = -nlz, tlz = nlx;                       // tangent (local)
+    const n = this._dir(rot, nlx, nlz);
+    const rotY = Math.atan2(n.x, n.z);
+    const w = Math.min(wallLen * 0.92, 4.4);
+
+    // horizontal shop name-board across the top of the storefront
+    const signY = 2.9;
+    const sc = this._toWorld(cx, cz, rot, nlx * (half + 0.07), nlz * (half + 0.07));
+    const board = inkedMesh(new THREE.BoxGeometry(w, 0.52, 0.12), '#d8d5cd', { k: 1.03, cast: false });
+    board.position.set(sc.x, signY, sc.z); board.rotation.y = rotY; this.scene.add(board);
+    // a couple of horizontal strokes so it reads as a lettered sign panel
+    for (const dy of [-0.13, 0.13]) {
+      const a = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (-w / 2 + 0.25), nlz * (half + 0.14) + tlz * (-w / 2 + 0.25));
+      const b = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (w / 2 - 0.25), nlz * (half + 0.14) + tlz * (w / 2 - 0.25));
+      this._roofSeg.push(a.x, signY + dy, a.z, b.x, signY + dy, b.z);
+    }
+
+    // awning projecting over the pavement (some shops)
+    if ((seed % 2) === 0) {
+      const tone = CONFIG.shop.awningTones[seed % CONFIG.shop.awningTones.length];
+      const aw = inkedMesh(new THREE.BoxGeometry(w, 0.1, 0.72), tone, { k: 1.03, cast: false });
+      const ac = this._toWorld(cx, cz, rot, nlx * (half + 0.4), nlz * (half + 0.4));
+      aw.position.set(ac.x, 2.5, ac.z); aw.rotation.y = rotY; this.scene.add(aw);
+      // a thin valance hanging off the awning's front lip
+      const val = inkedMesh(new THREE.BoxGeometry(w, 0.16, 0.04), tone, { k: 1.04, cast: false });
+      const vc = this._toWorld(cx, cz, rot, nlx * (half + 0.76), nlz * (half + 0.76));
+      val.position.set(vc.x, 2.44, vc.z); val.rotation.y = rotY; this.scene.add(val);
+    }
+
+    // vertical projecting blade sign at one end, perpendicular to the wall
+    const bx = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.3), nlz * (half + 0.2) + tlz * (w / 2 - 0.3));
+    const blade = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.5), toonMat('#cdcac2', { side: THREE.DoubleSide }));
+    blade.position.set(bx.x, 3.5, bx.z); blade.rotation.y = rotY + Math.PI / 2; addInk(blade, 1.03); this.scene.add(blade);
+
+    if (CONFIG.shop.nightGlow) this.lampHeads.push(sc.x + n.x * 0.12, signY, sc.z + n.z * 0.12);
+  }
+
+  // A rooftop billboard (屋上看板): two posts off the roof carrying a panel that
+  // faces the street, with stroke "lettering" rows. Optional night glow.
+  _roofSign(cx, cz, rot, nlx, nlz, hw, hd, H, seed) {
+    const half = (nlx !== 0) ? hw : hd;
+    const wallLen = ((nlx !== 0) ? hd : hw) * 2;
+    const tlx = -nlz, tlz = nlx;
+    const n = this._dir(rot, nlx, nlz);
+    const rotY = Math.atan2(n.x, n.z);
+    const w = Math.min(wallLen * 0.8, 3.6), sh = 1.3 + this.rng() * 0.8;
+    const baseY = H + 0.2;
+    for (const s of [-1, 1]) {
+      const pc = this._toWorld(cx, cz, rot, nlx * (half - 0.4) + tlx * (s * w * 0.4), nlz * (half - 0.4) + tlz * (s * w * 0.4));
+      const post = inkedMesh(new THREE.BoxGeometry(0.08, sh + 0.4, 0.08), '#2a2620', { k: 1.1, cast: false });
+      post.position.set(pc.x, baseY + (sh + 0.4) / 2, pc.z); post.rotation.y = rotY; this.scene.add(post);
+    }
+    const fc = this._toWorld(cx, cz, rot, nlx * (half - 0.4), nlz * (half - 0.4));
+    const panel = inkedMesh(new THREE.BoxGeometry(w, sh, 0.1), '#dad7cf', { k: 1.02, cast: false });
+    panel.position.set(fc.x, baseY + 0.4 + sh / 2, fc.z); panel.rotation.y = rotY; this.scene.add(panel);
+    const rows = 2 + (this.rng() * 2 | 0);
+    for (let i = 1; i <= rows; i++) {
+      const yy = baseY + 0.4 + sh * (i / (rows + 1));
+      const a = this._toWorld(cx, cz, rot, nlx * (half - 0.34) + tlx * (-w / 2 + 0.25), nlz * (half - 0.34) + tlz * (-w / 2 + 0.25));
+      const b = this._toWorld(cx, cz, rot, nlx * (half - 0.34) + tlx * (w / 2 - 0.25), nlz * (half - 0.34) + tlz * (w / 2 - 0.25));
+      this._roofSeg.push(a.x, yy, a.z, b.x, yy, b.z);
+    }
+    if (CONFIG.shop.nightGlow) this.lampHeads.push(fc.x + n.x * 0.12, baseY + 0.4 + sh / 2, fc.z + n.z * 0.12);
+  }
+
   // ── Poles + organic overhead wire net ─────────────────────────────────────
   _buildPolesAndWires() {
-    // poles strung along the main roads + a scatter on open ground
+    // poles strung along the main roads + a scatter on open ground. The shopping
+    // street gets a denser run of poles (finer spacing) for its tangled cable net.
     for (const r of this.mainRoads) {
+      const step = (r === this.shopRoad) ? 0.34 : 0.5;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
-        for (let t = 0; t < 1; t += 0.5) {
+        for (let t = 0; t < 1; t += step) {
           const x = a.x + (b.x - a.x) * t + r.half + 0.3;
           const z = a.z + (b.z - a.z) * t;
           if (Math.hypot(x, z) > this.CAP) continue;
@@ -554,12 +696,12 @@ export class City {
       if (Math.hypot(x, z) > this.CAP) continue;
       if (!this.isColliding(x, z) && this._distToMainRoad(x, z) > 2) { this._pole(x, z, 8.4, this.rng() < 0.2); this.poles.push({ x, z }); }
     }
-    // wire each pole to its 2 nearest neighbours → tangled net
+    // wire each pole to its 3 nearest neighbours → a denser tangled net
     for (let i = 0; i < this.poles.length; i++) {
       const a = this.poles[i];
       const near = this.poles
         .map((p, j) => ({ j, d: (p.x - a.x) ** 2 + (p.z - a.z) ** 2 }))
-        .filter(o => o.j !== i && o.d < 18 * 18).sort((u, v) => u.d - v.d).slice(0, 2);
+        .filter(o => o.j !== i && o.d < 18 * 18).sort((u, v) => u.d - v.d).slice(0, 3);
       for (const o of near) {
         if (o.j < i) continue;
         const b = this.poles[o.j];
@@ -931,7 +1073,9 @@ export class City {
   // boxes, and a few road signs. Counts are capped and collisions checked so
   // the lanes stay walkable.
   _buildStreetProps() {
-    let bikes = 0, banners = 0, planters = 0, signs = 0;
+    const S = CONFIG.shop || {};
+    let bikes = 0, banners = 0, planters = 0, signs = 0,
+        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, stairs = 0;
     for (const bld of this.buildings) {
       const r = this.rng();
       const sgn = this.rng() < 0.5 ? 1 : -1;
@@ -940,17 +1084,61 @@ export class City {
       const along = bld.hd * this._rand(-0.55, 0.55);
       const f = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.5), along);
       if (Math.abs(f.x) > this.HALF - 1 || Math.abs(f.z) > this.HALF - 1) continue;
+      const isShop = this._distToRoad(this.shopRoad, bld.cx, bld.cz) < (S.band ?? 0);
 
-      if (bikes < 12 && r < 0.22) {
-        if (!this.isColliding(f.x, f.z)) { this._bicycle(f.x, f.z, outAng); bikes++; }
-      } else if (banners < 14 && r < 0.42) {
-        const b = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.4), along);
-        if (!this.isColliding(b.x, b.z)) { this._nobori(b.x, b.z, outAng); banners++; }
-      } else if (planters < 16 && r < 0.62) {
+      // Vending machines cluster on the shopping street, rarer elsewhere.
+      if (vending < (S.vendingMax ?? 0) && (isShop ? r < 0.36 : r < 0.06)) {
         const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.6), along);
-        if (!this.isColliding(p.x, p.z)) { this._planterBox(p.x, p.z, outAng); planters++; }
+        if (!this.isColliding(p.x, p.z)) { this._vendingMachine(p.x, p.z, outAng); vending++; continue; }
+      }
+      // a parked kei-car a little further off the wall, clear of the main road
+      if (cars < (S.carMax ?? 0) && r < 0.12) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 1.2), along);
+        if (!this.isColliding(p.x, p.z) && this._distToMainRoad(p.x, p.z) > 0.9) {
+          this._keiCar(p.x, p.z, outAng + Math.PI / 2); cars++; continue;
+        }
+      }
+      if (scooters < (S.scooterMax ?? 0) && r < 0.2) {
+        if (!this.isColliding(f.x, f.z)) { this._scooter(f.x, f.z, outAng + Math.PI / 2); scooters++; continue; }
+      }
+      if (bikes < 12 && r < 0.32) {
+        if (!this.isColliding(f.x, f.z)) { this._bicycle(f.x, f.z, outAng); bikes++; continue; }
+      }
+      if (banners < 14 && r < 0.5) {
+        const b = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.4), along);
+        if (!this.isColliding(b.x, b.z)) { this._nobori(b.x, b.z, outAng); banners++; continue; }
+      }
+      if (planters < 16 && r < 0.68) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.6), along);
+        if (!this.isColliding(p.x, p.z)) { this._planterBox(p.x, p.z, outAng); planters++; continue; }
+      }
+      // a staircase up to some residential entrances (not on the high street)
+      if (!isShop && stairs < 8 && r < 0.78) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.85), along);
+        if (!this.isColliding(p.x, p.z) && this._distToMainRoad(p.x, p.z) > 1.2) {
+          this._stairs(p.x, p.z, outAng, 4 + (this.rng() * 3 | 0)); stairs++; continue;
+        }
       }
     }
+
+    // Convex mirrors, cones and barriers at/near road junctions.
+    for (let k = 0; k < 80 && (mirrors < (S.mirrorMax ?? 0) || cones < (S.coneMax ?? 0)); k++) {
+      const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
+      const d = this._distToMainRoad(x, z);
+      if (d <= 0.4 || d >= 2.0 || this.isColliding(x, z)) continue;
+      const nr = this._nearestRoad(x, z);
+      const ang = Math.atan2(nr.px - x, nr.pz - z);
+      if (mirrors < (S.mirrorMax ?? 0) && this.rng() < 0.4) { this._curveMirror(x, z, ang); mirrors++; }
+      else if (cones < (S.coneMax ?? 0)) {
+        this._trafficCone(x, z); cones++;
+        if (this.rng() < 0.3 && cones < (S.coneMax ?? 0)) {
+          const p = this._toWorld(x, z, ang, 0.55, 0);
+          if (!this.isColliding(p.x, p.z)) { this._trafficCone(p.x, p.z); cones++; }
+        }
+        if (this.rng() < 0.25) this._aFrameBarrier(x, z, ang + Math.PI / 2);
+      }
+    }
+
     // a few road signs at open spots just off the main roads
     for (let k = 0; k < 50 && signs < 8; k++) {
       const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
@@ -1039,6 +1227,134 @@ export class City {
     const tri = new THREE.Mesh(tg, toonMat('#f4f1ea', { side: THREE.DoubleSide }));
     tri.position.set(x + dx * 0.06, h - 0.12, z + dz * 0.06); tri.rotation.y = ang;
     addInk(tri, 1.1, 0x141414); this.scene.add(tri);
+  }
+
+  // ── Reference street dressing: vending machines, mirrors, cones, vehicles ──
+
+  // A vending machine (自販機): the most iconic Japanese street object. Greyscale
+  // box with a dark display window + selection panel; registers a night glow so
+  // it reads as the lone lit thing in a dark lane.
+  _vendingMachine(x, z, ang) {
+    this.colliders.push({ x, z, r: 0.5 });
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+    const body = inkedMesh(new THREE.BoxGeometry(0.78, 1.9, 0.66), '#dedcd7', { k: 1.03 });
+    body.position.set(0, 0.95, 0); g.add(body);
+    const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.82), GLASS);
+    disp.position.set(0, 1.34, 0.34); g.add(disp);
+    const sel = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.3), SHUTTER);
+    sel.position.set(0, 0.82, 0.34); g.add(sel);
+    const tray = inkedMesh(new THREE.BoxGeometry(0.5, 0.16, 0.06), '#2a2824', { k: 1.05, cast: false });
+    tray.position.set(0, 0.38, 0.33); g.add(tray);
+    this.scene.add(g);
+    if (CONFIG.shop?.nightGlow) {
+      const dx = Math.sin(ang), dz = Math.cos(ang);
+      this.lampHeads.push(x + dx * 0.4, 1.3, z + dz * 0.4);
+    }
+  }
+
+  // A convex traffic mirror (カーブミラー) on a pole at a junction, facing back
+  // down the road. The dark frame + pale disc read in B&W.
+  _curveMirror(x, z, ang) {
+    this.colliders.push({ x, z, r: 0.16 });
+    const dx = Math.sin(ang), dz = Math.cos(ang), h = 2.9;
+    const pole = inkedMesh(new THREE.CylinderGeometry(0.05, 0.06, h, 6), '#6e6a62', { k: 1.07 });
+    pole.position.set(x, h / 2, z); this.scene.add(pole);
+    const arm = inkedMesh(new THREE.BoxGeometry(0.05, 0.05, 0.5), '#6e6a62', { k: 1.1, cast: false });
+    arm.position.set(x + dx * 0.25, h - 0.12, z + dz * 0.25); arm.rotation.y = ang; this.scene.add(arm);
+    const mx = x + dx * 0.5, mz = z + dz * 0.5;
+    const frame = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), toonMat('#3a3833', { side: THREE.DoubleSide }));
+    frame.position.set(mx, h - 0.06, mz); frame.rotation.y = ang + Math.PI; addInk(frame, 1.08); this.scene.add(frame);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.28, 20), toonMat('#f2efe9', { side: THREE.DoubleSide }));
+    face.position.set(mx - dx * 0.02, h - 0.06, mz - dz * 0.02); face.rotation.y = ang + Math.PI; this.scene.add(face);
+  }
+
+  // A roadwork traffic cone with a reflective band.
+  _trafficCone(x, z) {
+    this.colliders.push({ x, z, r: 0.18 });
+    const cone = inkedMesh(new THREE.ConeGeometry(0.17, 0.5, 12), '#c9c6c0', { k: 1.05, cast: false });
+    cone.position.set(x, 0.27, z); this.scene.add(cone);
+    const base = inkedMesh(new THREE.BoxGeometry(0.34, 0.05, 0.34), '#9a968e', { k: 1.04, cast: false });
+    base.position.set(x, 0.025, z); this.scene.add(base);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.08, 12), toonMat('#efece6'));
+    band.position.set(x, 0.33, z); this.scene.add(band);
+  }
+
+  // An A-frame barricade (single-A sawhorse) with a striped board.
+  _aFrameBarrier(x, z, ang) {
+    this.barriers.push({ cx: x, cz: z, hw: 0.6, hd: 0.12, rot: ang });
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+    const board = inkedMesh(new THREE.BoxGeometry(1.2, 0.22, 0.06), '#dcd9d2', { k: 1.04, cast: false });
+    board.position.set(0, 0.78, 0); g.add(board);
+    for (let i = -1; i <= 1; i++) {                         // diagonal hazard stripes
+      const st = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.22), SHUTTER);
+      st.position.set(i * 0.34, 0.78, 0.035); g.add(st);
+    }
+    for (const s of [-1, 1]) {
+      const leg = inkedMesh(new THREE.BoxGeometry(0.06, 0.95, 0.06), '#6e6a62', { k: 1.08, cast: false });
+      leg.position.set(s * 0.45, 0.47, 0); leg.rotation.z = s * 0.16; g.add(leg);
+    }
+    this.scene.add(g);
+  }
+
+  // A small boxy kei-car / van parked along the kerb.
+  _keiCar(x, z, ang) {
+    this.barriers.push({ cx: x, cz: z, hw: 0.78, hd: 0.45, rot: ang });
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+    const tone = '#e2dfd9';
+    const lower = inkedMesh(new THREE.BoxGeometry(1.5, 0.62, 0.78), tone, { k: 1.02 });
+    lower.position.set(0, 0.5, 0); g.add(lower);
+    const cabin = inkedMesh(new THREE.BoxGeometry(1.0, 0.5, 0.74), tone, { k: 1.02, cast: false });
+    cabin.position.set(-0.05, 1.0, 0); g.add(cabin);
+    for (const sz of [0.38, -0.38]) {
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.34), GLASS);
+      win.position.set(-0.05, 1.0, sz); win.rotation.y = sz > 0 ? 0 : Math.PI; g.add(win);
+    }
+    const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.16, 12);
+    for (const wx of [-0.52, 0.52]) for (const wz of [-0.4, 0.4]) {
+      const wheel = inkedMesh(wheelGeo, '#1c1a17', { k: 1.05, cast: false });
+      wheel.position.set(wx, 0.22, wz); wheel.rotation.x = Math.PI / 2; g.add(wheel);
+    }
+    this.scene.add(g);
+  }
+
+  // A parked scooter / moped against a wall.
+  _scooter(x, z, ang) {
+    this.colliders.push({ x, z, r: 0.4 });
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+    const FRAME = '#34302a', TIRE = '#1c1a17', SHELL = '#cfccc4';
+    const wheelGeo = new THREE.TorusGeometry(0.22, 0.06, 6, 14);
+    for (const wx of [-0.42, 0.42]) {
+      const wheel = inkedMesh(wheelGeo, TIRE, { k: 1.05 });
+      wheel.position.set(wx, 0.22, 0); g.add(wheel);
+    }
+    const body = inkedMesh(new THREE.BoxGeometry(0.72, 0.26, 0.26), SHELL, { k: 1.03, cast: false });
+    body.position.set(-0.05, 0.5, 0); g.add(body);
+    const front = inkedMesh(new THREE.BoxGeometry(0.16, 0.5, 0.22), SHELL, { k: 1.03, cast: false });
+    front.position.set(0.42, 0.56, 0); g.add(front);
+    const seat = inkedMesh(new THREE.BoxGeometry(0.42, 0.1, 0.22), '#262320', { k: 1.05, cast: false });
+    seat.position.set(-0.2, 0.66, 0); g.add(seat);
+    const hb = inkedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.42), FRAME, { k: 1.1, cast: false });
+    hb.position.set(0.46, 0.84, 0); g.add(hb);
+    this.scene.add(g);
+  }
+
+  // A short flight of concrete steps (with low cheek walls) — the level-change
+  // cue of the reference backstreets. Footprint is a barrier so KAI walks round.
+  _stairs(x, z, rot, n = 5) {
+    const stepW = 1.2, stepH = 0.18, stepD = 0.32;
+    this.barriers.push({ cx: x, cz: z, hw: stepW / 2 + 0.12, hd: (n * stepD) / 2, rot });
+    for (let i = 0; i < n; i++) {
+      const p = this._toWorld(x, z, rot, 0, (i - (n - 1) / 2) * stepD);
+      const step = inkedMesh(new THREE.BoxGeometry(stepW, stepH * (i + 1), stepD + 0.02), '#d2cfc8', { k: 1.02, cast: false, receive: true });
+      step.position.set(p.x, stepH * (i + 1) / 2, p.z); step.rotation.y = rot; this.scene.add(step);
+    }
+    // low cheek walls flanking the flight
+    const topH = stepH * n;
+    for (const s of [-1, 1]) {
+      const cheek = inkedMesh(new THREE.BoxGeometry(0.12, topH + 0.2, n * stepD), '#cdcac3', { k: 1.03, cast: false });
+      const p = this._toWorld(x, z, rot, s * (stepW / 2 + 0.06), 0);
+      cheek.position.set(p.x, (topH + 0.2) / 2, p.z); cheek.rotation.y = rot; this.scene.add(cheek);
+    }
   }
 }
 
