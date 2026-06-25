@@ -4,16 +4,15 @@ import { PLANET_R } from './planet.js';
 
 // ===========================================================================
 //  Manga atmosphere — the things that turn a clean cel-shaded model into a
-//  *drawn panel*: the sun blown out at the end of the alley, hard light-shafts
-//  raining down from it, and dust motes hanging in the beam.
+//  *drawn panel*: the sun blown out at the end of the alley as a clean inked
+//  white-out, with hard light-shafts (speed lines) radiating down from it.
 //
 //  Everything here is additive, depth-tested but not depth-writing, and pinned
-//  to the sun. It costs almost nothing (a sprite, ~8 quads, a few hundred
-//  points) and works from any orbit angle — exactly what the reference photos
-//  have: a backlit haze with radiating light streaks, like inked sunbeams.
+//  to the sun. It costs almost nothing (a couple of sprites + ~12 quads) and
+//  works from any orbit angle — a backlit white-out with radiating ink streaks.
 // ===========================================================================
 
-// Soft round sprite — used for the sun glow and for each dust mote.
+// Soft round sprite — used for lamp glows / pools / the moon.
 function discTexture(inner = 0.0) {
   const s = 128;
   const cv = document.createElement('canvas');
@@ -22,6 +21,26 @@ function discTexture(inner = 0.0) {
   const g = ctx.createRadialGradient(s / 2, s / 2, s * inner, s / 2, s / 2, s / 2);
   g.addColorStop(0, 'rgba(255,255,255,1)');
   g.addColorStop(0.5, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// A crisp inked WHITE-OUT disc for the sun: a solid white core out to `core`
+// (so it reads as a flat blown highlight, not a fuzzy photographic bloom), then
+// a short, decisive falloff to nothing — the clean white sun of a manga panel.
+function whiteOutTexture(core = 0.62) {
+  const s = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(core, 'rgba(255,255,255,1)');     // solid white-out core
+  g.addColorStop(core + (1 - core) * 0.5, 'rgba(255,255,255,0.4)');
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
@@ -83,7 +102,6 @@ export class Atmosphere {
     this._buildGlow();
     this._buildShafts();
     this._buildMoon();
-    this._buildDust();
   }
 
   // Move the sun (and its glow/shafts) to a new world position, and set the
@@ -200,14 +218,16 @@ export class Atmosphere {
   // Blown-out highlight where the light pours in — the white-out at the
   // vanishing point of every reference alley.
   _buildGlow() {
+    // The outer white-out: a crisp inked disc (solid core + short falloff), not a
+    // soft photographic bloom — a clean manga sun.
     const mat = new THREE.SpriteMaterial({
-      map: discTexture(0.0),
+      map: whiteOutTexture(0.55),
       color: 0xffffff,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       depthTest: true,          // the OPAQUE planet hides it when it's behind us
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.85,
     });
     this.glow = new THREE.Sprite(mat);
     this.glow.scale.setScalar(CONFIG.atmo.glowSize);
@@ -215,9 +235,9 @@ export class Atmosphere {
     this.glow.renderOrder = 998;
     this.scene.add(this.glow);
 
-    // A smaller, sharper core for a crisp hot centre.
+    // A smaller, fully-solid hot core for the blown-out centre.
     const core = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: discTexture(0.0), color: 0xffffff,
+      map: whiteOutTexture(0.7), color: 0xffffff,
       blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
       transparent: true, opacity: 1,
     }));
@@ -262,31 +282,6 @@ export class Atmosphere {
     this.scene.add(this.shafts);
   }
 
-  // Dust motes drifting in the light — slow upward float, recycled in a box.
-  _buildDust() {
-    const n = CONFIG.atmo.dustCount;
-    const pos = new Float32Array(n * 3);
-    this._vel = new Float32Array(n);
-    const R = CONFIG.atmo.dustRange;
-    for (let i = 0; i < n; i++) {
-      pos[i * 3]     = (Math.random() - 0.5) * R;
-      pos[i * 3 + 1] = Math.random() * 14 + 0.5;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * R;
-      this._vel[i]   = 0.15 + Math.random() * 0.5;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const mat = new THREE.PointsMaterial({
-      map: discTexture(0.0), color: 0xffffff,
-      size: CONFIG.atmo.dustSize, sizeAttenuation: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false, transparent: true, opacity: 0.55,
-    });
-    this.dust = new THREE.Points(geo, mat);
-    this.dust.renderOrder = 996;
-    this.scene.add(this.dust);
-  }
-
   update(dt, t, camera) {
     // Face the shaft fan toward the camera (rays splay across screen).
     if (camera) this.shafts.lookAt(camera.position);
@@ -300,23 +295,7 @@ export class Atmosphere {
     const pulse = 1 + Math.sin(t * 0.5) * 0.04;
     this.glow.scale.setScalar(CONFIG.atmo.glowSize * pulse);
     this.core.scale.setScalar(CONFIG.atmo.glowSize * 0.42 * pulse);
-    this.glow.material.opacity = 0.9 * day;
+    this.glow.material.opacity = 0.85 * day;
     this.core.material.opacity = 1.0 * day;
-    this.dust.material.opacity = 0.12 + 0.45 * day;
-
-    // Drift the dust upward; recycle past the ceiling back to the floor.
-    const p = this.dust.geometry.attributes.position;
-    const R = CONFIG.atmo.dustRange;
-    for (let i = 0; i < this._vel.length; i++) {
-      let y = p.array[i * 3 + 1] + this._vel[i] * dt;
-      p.array[i * 3]     += Math.sin(t * 0.3 + i) * dt * 0.12; // lazy drift
-      if (y > 15) {
-        y = 0.3;
-        p.array[i * 3]     = (Math.random() - 0.5) * R;
-        p.array[i * 3 + 2] = (Math.random() - 0.5) * R;
-      }
-      p.array[i * 3 + 1] = y;
-    }
-    p.needsUpdate = true;
   }
 }

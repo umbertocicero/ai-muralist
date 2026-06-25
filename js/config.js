@@ -38,9 +38,6 @@ export const CONFIG = {
     shaftLen:   170,   // shaft length (world units)
     shaftWidth: 9,     // shaft base width
     shaftOpacity: 0.20, // base beam opacity (jittered) — trimmed for a less soft, more inked mood
-    dustCount:  240,   // floating motes
-    dustRange:  130,   // box the motes drift within
-    dustSize:   0.15,
   },
   // Concrete-grey facade palette (apartment blocks).
   buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
