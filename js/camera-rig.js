@@ -61,8 +61,13 @@ export class CameraRig {
   }
 
   // ---- input -------------------------------------------------------------
+  //  Touch:  one finger drags to spin/tilt the globe (with a fling), two fingers
+  //  pinch to zoom (into the spot between them), twist to spin, and slide up/down
+  //  to tilt. A clean tap = nothing; a clean double-tap glides there. A small
+  //  dead-zone means a tap never accidentally drops the follow-cam.
   _bind() {
     const el = this.canvas;
+    const MOVE_EPS = 6;   // px before a touch counts as a drag (not a tap)
 
     el.addEventListener('pointerdown', e => {
       el.setPointerCapture?.(e.pointerId);
@@ -71,12 +76,17 @@ export class CameraRig {
       this._cine = null;   // user takes over → stop auto-watching the mural
       if (this._ptrs.size === 1) {
         this._mode = (e.shiftKey || e.button === 1) ? 'pan' : 'orbit';
-        this._last = { x: e.clientX, y: e.clientY, t: performance.now(), dx: 0, dy: 0 };
+        this._last = { x: e.clientX, y: e.clientY, t: performance.now(), dx: 0, dy: 0, dt: 0 };
         this.velAz = this.velPolar = 0;
+        this._moved = false;
+        this._downT = performance.now();
       } else if (this._ptrs.size === 2) {
         this._mode = 'pinch';
-        this._pinch = this._pairDist();
+        this._pinch    = this._pairDist();
         this._pinchMid = this._pairMid();
+        this._pinchAng = this._pairAngle();
+        this._moved = true;            // a two-finger gesture is never a tap
+        this.velAz = this.velPolar = 0;
       }
     });
 
@@ -88,39 +98,50 @@ export class CameraRig {
 
       if (this._mode === 'orbit') {
         const dx = e.clientX - this._last.x, dy = e.clientY - this._last.y;
-        this._orbit(dx, dy);
+        if (!this._moved && Math.abs(dx) + Math.abs(dy) > MOVE_EPS) { this._moved = true; this._detach(); }
+        if (this._moved) this._orbit(dx, dy);
         const now = performance.now(), dt = Math.max(1, now - this._last.t) / 1000;
-        this._last = { x: e.clientX, y: e.clientY, t: now, dx, dy: dy, dt };
+        this._last = { x: e.clientX, y: e.clientY, t: now, dx, dy, dt };
       } else if (this._mode === 'pan') {
-        this._pan(e.clientX - this._last.x, e.clientY - this._last.y);
+        this._detach();
+        this._orbit(e.clientX - this._last.x, e.clientY - this._last.y);
         this._last.x = e.clientX; this._last.y = e.clientY;
       } else if (this._mode === 'pinch') {
-        const d = this._pairDist();
-        if (this._pinch > 0) {
-          this.targetRadius = clamp(this.targetRadius * (this._pinch / d), CONFIG.camRadiusMin, CONFIG.camRadiusMax);
-        }
-        const mid = this._pairMid();
-        this._pan(mid.x - this._pinchMid.x, mid.y - this._pinchMid.y);
-        this._pinch = d; this._pinchMid = mid;
+        const d = this._pairDist(), mid = this._pairMid(), ang = this._pairAngle();
+        const s = CONFIG.camDragSensitivity;
+        if (this._pinch > 0) this._applyZoom(this._pinch / d, mid.x, mid.y);   // pinch → zoom into the spot
+        let dA = ang - this._pinchAng;                                          // twist → spin
+        if (dA >  Math.PI) dA -= 2 * Math.PI;
+        if (dA < -Math.PI) dA += 2 * Math.PI;
+        this.azimuth += dA - (mid.x - this._pinchMid.x) * s;                    // + horizontal slide spins
+        this.polar = clamp(this.polar - (mid.y - this._pinchMid.y) * s * 0.7,   // vertical slide tilts
+          CONFIG.camPolarMin, CONFIG.camPolarMax);
+        this._pinch = d; this._pinchMid = mid; this._pinchAng = ang;
       }
     });
 
     const end = e => {
       if (!this._ptrs.has(e.pointerId)) return;
-      this._ptrs.delete(e.pointerId);
       // fling: turn the last drag delta into orbit momentum
-      if (this._mode === 'orbit' && this._last.dt) {
-        const recent = (performance.now() - this._last.t) < 90;
-        if (recent) {
-          this.velAz   = -this._last.dx * CONFIG.camDragSensitivity / this._last.dt;
-          this.velPolar = this._last.dy * CONFIG.camDragSensitivity * 0.7 / this._last.dt;
-        }
+      if (this._mode === 'orbit' && this._moved && this._last.dt && (performance.now() - this._last.t) < 90) {
+        this.velAz    = -this._last.dx * CONFIG.camDragSensitivity / this._last.dt;
+        this.velPolar =  this._last.dy * CONFIG.camDragSensitivity * 0.7 / this._last.dt;
       }
-      this._mode = this._ptrs.size === 1 ? 'orbit' : null;
-      if (this._ptrs.size === 1) {
+      // clean touch tap → double-tap glides there (single tap does nothing)
+      if (e.pointerType === 'touch' && this._ptrs.size === 1 && !this._moved &&
+          performance.now() - this._downT < 300) {
+        const now = performance.now();
+        if (now - this._lastTapT < 320) this._travel(e.clientX, e.clientY);
+        this._lastTapT = now;
+      }
+      this._ptrs.delete(e.pointerId);
+      this._mode = this._ptrs.size >= 2 ? 'pinch' : (this._ptrs.size === 1 ? 'orbit' : null);
+      if (this._ptrs.size >= 1) {
         const [only] = this._ptrs.values();
-        this._last = { x: only.x, y: only.y, t: performance.now(), dx: 0, dy: 0 };
+        this._last = { x: only.x, y: only.y, t: performance.now(), dx: 0, dy: 0, dt: 0 };
+        this._moved = true;   // lifting a finger mid-gesture isn't a fresh tap
       }
+      if (this._ptrs.size === 2) { this._pinch = this._pairDist(); this._pinchMid = this._pairMid(); this._pinchAng = this._pairAngle(); }
     };
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
@@ -129,18 +150,11 @@ export class CameraRig {
       e.preventDefault();
       this._idle = 0;
       this._cine = null;
-      this._zoom(e.deltaY, e.clientX, e.clientY);
+      this._applyZoom(1 + e.deltaY * CONFIG.camZoomStep, e.clientX, e.clientY);
     }, { passive: false });
 
-    // Street-View travel: double-click / double-tap the ground to glide there
+    // Desktop: double-click the ground to glide there
     el.addEventListener('dblclick', e => this._travel(e.clientX, e.clientY));
-    el.addEventListener('pointerup', e => {
-      if (e.pointerType === 'touch') {
-        const now = performance.now();
-        if (now - this._lastTapT < 300) this._travel(e.clientX, e.clientY);
-        this._lastTapT = now;
-      }
-    });
   }
 
   _pairDist() {
@@ -151,12 +165,17 @@ export class CameraRig {
     const [a, b] = [...this._ptrs.values()];
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
+  _pairAngle() {
+    const [a, b] = [...this._ptrs.values()];
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  }
 
+  // Rotate the globe around the look-point. Detaching is handled by the caller
+  // (so a pinch can rotate while still following KAI).
   _orbit(dx, dy) {
     const s = CONFIG.camDragSensitivity;
     this.azimuth -= dx * s;
     this.polar    = clamp(this.polar - dy * s * 0.7, CONFIG.camPolarMin, CONFIG.camPolarMax);
-    this._detach();   // taking manual control → stop following (the Follow button reappears)
   }
 
   // world point on the little planet under a screen position (null if it misses)
@@ -169,18 +188,26 @@ export class CameraRig {
     return hits.length ? hits[0].point.clone() : null;
   }
 
-  _zoom(deltaY) {
-    this.targetRadius = clamp(this.targetRadius * (1 + deltaY * CONFIG.camZoomStep), CONFIG.camRadiusMin, CONFIG.camRadiusMax);
+  // Zoom by a multiplicative factor (>1 out, <1 in). When the user is driving
+  // (not following), also glide the look-point toward the spot under the cursor
+  // / pinch — so you zoom *into where you're looking*, the way maps do.
+  _applyZoom(factor, clientX, clientY) {
+    const old = this.targetRadius;
+    this.targetRadius = clamp(old * factor, CONFIG.camRadiusMin, CONFIG.camRadiusMax);
+    if (!this.following && clientX != null) {
+      const g = this._planetAt(clientX, clientY);
+      if (g) {
+        const f = Math.max(0, (1 - this.targetRadius / old) * CONFIG.camZoomToCursor);
+        this.pivotTarget.lerp(g, Math.min(f, 0.6)).setLength(this.R + CONFIG.camLookY);
+      }
+    }
   }
-
-  // two-finger / shift drag spins the globe → treat as orbit
-  _pan(dx, dy) { this._orbit(dx, dy); }
 
   // double-tap the globe to glide the look-point there (Google-Earth style)
   _travel(clientX, clientY) {
     const g = this._planetAt(clientX, clientY);
     if (!g) return;
-    this.pivotTarget.copy(g);
+    this.pivotTarget.copy(g).setLength(this.R + CONFIG.camLookY);
     this._detach();
   }
 

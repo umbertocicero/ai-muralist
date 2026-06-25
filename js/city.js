@@ -28,6 +28,10 @@ function mulberry32(a) {
 
 const ASPHALT  = toonMat('#d4d2ce');
 const ASPHALT2 = toonMat('#cbc9c5');   // main-road ribbon (slightly darker)
+// The planet ground itself: a warm taupe/brown-grey, a touch darker than the
+// pale building walls so the earth reads apart from the facades — still low
+// saturation so it stays inside the B&W manga look (screentone + ink survive).
+const GROUND   = toonMat('#c1b8a8');
 const CURB     = toonMat('#e6e4e0');
 // polygonOffset pushes windows/shutters in front of the wall in depth so they
 // never z-fight it (the cause of the "striped" windows at a distance).
@@ -235,7 +239,7 @@ export class City {
   _buildGround() {
     // The ground is the little planet: a sphere of radius R. The town sits as a
     // cap on top; the rest is bare asphalt-grey surface curving away.
-    const planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 120, 80), ASPHALT);
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 120, 80), GROUND);
     planet.receiveShadow = true;
     this.scene.add(planet);
     this.planet = planet;
