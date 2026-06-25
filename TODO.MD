@@ -16,14 +16,16 @@
 - [x] Pulsante per riposizionare il mondo/ground in basso → componente ResetButton ("Raddrizza") + rig.resetView()
 - [x] Aggiorna il README.MD → aggiornato
 
-
-
 # TODO secondari
-- [ ] inserisci un laghetto
+- [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
-- [ ] il solo segue la posizione in cui in questo momento si troverebbe questa ipotetica cittadina Giapponese
-- [ ] il sole si muove nel tempo, calcola l'orario, e diventa giorno o notte in base all'ora reale in Giappone.
+- [ ] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno.
+
+# TODO futuri
+- [ ] inserisci un laghetto
 - [ ] fare in modo che giri in background e salvi le info di murales fatti, dove, posizione in cui si trova. Limitare il tempo di run e renderlo configurabile, con allert che si consumano token
 - [ ] permettere la configurazione del prompt per lo stile, o automatico
 - [ ] permettere  inserimento licenza e quindi la creazione di un ulteriore omino per cui si puo definire nome, automatic stile per riconoscerlo, anche lui ha tempi di run, stile di prompt, etc.
 - [ ] fotogafia o export murales
+- [ ] lanciare vecchio scenario salvato con annessi murales
+- [ ] reset simulazione in backgroud ogni x giorni o al complatamento degli spazi
