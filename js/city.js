@@ -76,7 +76,7 @@ export class City {
 
     this.HALF = CONFIG.world.half;
     this.R    = PLANET_R;
-    this.CAP  = 58;     // town radius (a round cap), keeps it on the upper hemisphere
+    this.CAP  = 64;     // town radius — now reaches near the equator (mirrored below)
     this.mainRoads = this._genMainRoads();
 
     // every object City adds after this index is a city object (the scene may
@@ -101,7 +101,28 @@ export class City {
     this._spherifyIndividuals();
     this._finalizeLines();    // merge all batched strokes into 2 LineSegments
     this._buildInstances();   // windows + shutters → 1 InstancedMesh each
+    this._fillPlanet();       // mirror the town onto the far (dark-side) hemisphere
     this.spawn = this._findOpen(0, 0);
+  }
+
+  // Fill the rest of the little planet: the playable town is a cap on top, so we
+  // mirror a decorative copy of it onto the opposite hemisphere (rotated 180°
+  // about X, twisted a little so it isn't an obvious twin). It shares geometry,
+  // has no collision/slots — KAI stays on the top cap — and gives the planet a
+  // built-up "dark side" instead of a bare underside.
+  _fillPlanet() {
+    const north = new THREE.Group();
+    const mine = this.scene.children.slice(this._childBase);
+    for (const o of mine) north.add(o);     // reparent every city object
+    this.scene.add(north);
+
+    const south = new THREE.Group();
+    south.rotation.set(Math.PI, 0.7, 0);    // flip to the underside + a twist
+    for (const o of north.children) {
+      if (o === this.planet) continue;       // the sphere already spans both halves
+      south.add(o.clone());
+    }
+    this.scene.add(south);
   }
 
   // Reposition + reorient every individual city mesh onto the planet. Batched
@@ -114,10 +135,37 @@ export class City {
       const o = kids[i];
       if (o === this.planet || o.isLight || o.isCamera) continue;
       const ox = o.position.x, oy = o.position.y, oz = o.position.z;
-      base.copy(o.quaternion);                       // keep the flat orientation
-      planetPoint(ox, oy, oz, o.position, this.R);    // → world point on the sphere
-      planetQuat(ox, oz, o.quaternion, this.R);       // transport rotation …
-      o.quaternion.multiply(base);                    // … carrying the original heading
+      // A flat-bottomed box sits tangent on the curved planet, so the surface
+      // curves away under its edges and it looks like it floats. Sink the base
+      // by the footprint's sagitta (R·(1-cos(hr/R))) AND extend the box downward
+      // by the same amount (keeping the top in place), so the wall grows into the
+      // ground exactly as much as it sinks — no gap, no lost height. Tiny props
+      // (poles, leaves) have ~0 sagitta and stay put.
+      let yEff = oy;
+      if (o.geometry) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        const bb = o.geometry.boundingBox;
+        const hx = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x));
+        const hz = Math.max(Math.abs(bb.min.z), Math.abs(bb.max.z));
+        const hr = Math.hypot(hx, hz);
+        const h0 = (bb.max.y - bb.min.y) * 0.5;
+        if (hr > 0.7 && h0 > 0.05) {
+          const sink = Math.min(this.R * (1 - Math.cos(Math.min(hr, this.R) / this.R)) + 0.06, 1.2);
+          o.scale.y *= (h0 + sink / 2) / h0;   // extend down, top stays put
+          yEff = oy - sink / 2;
+        }
+      }
+      base.copy(o.quaternion);                         // keep the flat orientation
+      planetPoint(ox, yEff, oz, o.position, this.R);   // → world point on the sphere
+      planetQuat(ox, oz, o.quaternion, this.R);        // transport rotation …
+      o.quaternion.multiply(base);                     // … carrying the original heading
+    }
+    // map the lamp-lens positions (flat) onto the planet too, so the night glow
+    // points sit on the real lamps instead of floating at the old flat coords
+    const v = new THREE.Vector3();
+    for (let i = 0; i < this.lampHeads.length; i += 3) {
+      planetPoint(this.lampHeads[i], this.lampHeads[i + 1], this.lampHeads[i + 2], v, this.R);
+      this.lampHeads[i] = v.x; this.lampHeads[i + 1] = v.y; this.lampHeads[i + 2] = v.z;
     }
   }
 
