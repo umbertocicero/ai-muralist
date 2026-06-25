@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { rotateY2D } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
-import { planetPoint, planetQuat, PLANET_R } from './planet.js';
+import { planetPoint, planetQuat, placeOnPlanet, PLANET_R } from './planet.js';
 
 // ===========================================================================
 //  A procedurally generated Setagaya-style neighbourhood.
@@ -103,6 +103,7 @@ export class City {
     // added above, then build the batched lines + instanced windows already
     // mapped onto the sphere.
     this._spherifyIndividuals();
+    this._buildRoads();       // curved road ribbons that hug the sphere (+ manholes)
     this._finalizeLines();    // merge all batched strokes into 2 LineSegments
     this._buildInstances();   // windows + shutters → 1 InstancedMesh each
     this._fillPlanet();       // mirror the town onto the far (dark-side) hemisphere
@@ -235,50 +236,64 @@ export class City {
     return { dist: best, ang, px, pz };
   }
 
-  // ── Ground (the planet itself) + main-road ribbons ────────────────────────
+  // ── Ground = the planet itself (a sphere of radius R) ─────────────────────
   _buildGround() {
-    // The ground is the little planet: a sphere of radius R. The town sits as a
-    // cap on top; the rest is bare asphalt-grey surface curving away.
-    const planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 120, 80), GROUND);
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(this.R, 160, 110), GROUND);
     planet.receiveShadow = true;
     this.scene.add(planet);
     this.planet = planet;
+  }
 
-    // paint the winding main roads as slightly darker ribbons
+  // Main roads as darker ribbons that HUG the planet: each segment is a strip
+  // subdivided along its length with every vertex projected onto the sphere, so
+  // the lanes follow the curve instead of floating as flat tiles (which made the
+  // ground look disconnected). Built after the spherify pass, so the projected
+  // vertices are used as-is. One merged mesh = one draw call.
+  _buildRoads() {
+    const v = new THREE.Vector3();
+    const pos = [], idx = [];
+    let vi = 0;
     for (const r of this.mainRoads) {
+      const hw = r.half;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
-        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
-        if (Math.hypot(mx, mz) > this.CAP) continue;   // keep roads on the cap
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const len = Math.hypot(dx, dz);
-        const rib = new THREE.Mesh(new THREE.PlaneGeometry(r.half * 2, len + r.half), ASPHALT2);
-        rib.rotation.x = -Math.PI / 2;
-        rib.rotation.z = -Math.atan2(dz, dx) + Math.PI / 2;
-        rib.position.set((a.x + b.x) / 2, 0.01, (a.z + b.z) / 2);
-        rib.receiveShadow = true;   // else it hides KAI's shadow cast on the ground below
-        this.scene.add(rib);
-
-        // a manhole cover dotted onto the lane here and there
-        if (this.rng() < 0.55) {
-          const t = this._rand(0.3, 0.7);
-          const off = this._rand(-r.half * 0.45, r.half * 0.45);
-          const px = -dz / len, pz = dx / len;
+        if (Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) > this.CAP) continue;
+        const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+        const px = -dz / len, pz = dx / len;            // perpendicular (across width)
+        const N = Math.max(2, Math.ceil(len / 2.5));    // subdivide along length
+        for (let s = 0; s <= N; s++) {
+          const cx = a.x + dx * (s / N), cz = a.z + dz * (s / N);
+          planetPoint(cx + px * hw, 0.06, cz + pz * hw, v, this.R); pos.push(v.x, v.y, v.z);
+          planetPoint(cx - px * hw, 0.06, cz - pz * hw, v, this.R); pos.push(v.x, v.y, v.z);
+        }
+        for (let s = 0; s < N; s++) {
+          const o = vi + s * 2;
+          idx.push(o, o + 1, o + 2,  o + 1, o + 3, o + 2);
+        }
+        vi += (N + 1) * 2;
+        if (this.rng() < 0.5) {                          // an occasional manhole
+          const t = this._rand(0.3, 0.7), off = this._rand(-hw * 0.45, hw * 0.45);
           this._manhole(a.x + dx * t + px * off, a.z + dz * t + pz * off);
         }
       }
     }
+    if (pos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(idx); g.computeVertexNormals();
+      const road = new THREE.Mesh(g, ASPHALT2);
+      road.receiveShadow = true;
+      this.scene.add(road);
+    }
   }
 
-  // A round manhole cover: a dark rim with a lighter inset disc, sitting flush
-  // on the asphalt (a small but very "Tokyo street" detail).
+  // A round manhole cover lying tangent on the planet (built post-spherify).
   _manhole(x, z) {
-    const rim = new THREE.Mesh(new THREE.CircleGeometry(0.46, 20), toonMat('#3a3833'));
-    rim.rotation.x = -Math.PI / 2; rim.position.set(x, 0.02, z); rim.receiveShadow = true;
-    this.scene.add(rim);
-    const inner = new THREE.Mesh(new THREE.CircleGeometry(0.36, 20), toonMat('#86837e'));
-    inner.rotation.x = -Math.PI / 2; inner.position.set(x, 0.025, z); inner.receiveShadow = true;
-    this.scene.add(inner);
+    const baseQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    const rim = new THREE.Mesh(new THREE.CircleGeometry(0.46, 18), toonMat('#3a3833'));
+    placeOnPlanet(rim, x, 0.08, z, baseQ, this.R); rim.receiveShadow = true; this.scene.add(rim);
+    const inner = new THREE.Mesh(new THREE.CircleGeometry(0.36, 18), toonMat('#86837e'));
+    placeOnPlanet(inner, x, 0.09, z, baseQ, this.R); this.scene.add(inner);
   }
 
   // ── Generate plots → buildings + open lots ────────────────────────────────

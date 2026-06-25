@@ -98,12 +98,13 @@ export class CameraRig {
 
       if (this._mode === 'orbit') {
         const dx = e.clientX - this._last.x, dy = e.clientY - this._last.y;
-        if (!this._moved && Math.abs(dx) + Math.abs(dy) > MOVE_EPS) { this._moved = true; this._detach(); }
+        if (!this._moved && Math.abs(dx) + Math.abs(dy) > MOVE_EPS) this._moved = true;
+        // Orbiting does NOT drop the follow — you look around KAI and it eases
+        // back behind him when you let go. Only double-tap (travel) detaches.
         if (this._moved) this._orbit(dx, dy);
         const now = performance.now(), dt = Math.max(1, now - this._last.t) / 1000;
         this._last = { x: e.clientX, y: e.clientY, t: now, dx, dy, dt };
       } else if (this._mode === 'pan') {
-        this._detach();
         this._orbit(e.clientX - this._last.x, e.clientY - this._last.y);
         this._last.x = e.clientX; this._last.y = e.clientY;
       } else if (this._mode === 'pinch') {
@@ -234,6 +235,7 @@ export class CameraRig {
     this.targetRadius = CONFIG.camRadius;
     planetPoint(charPos.x, CONFIG.camLookY, charPos.z, this.pivotTarget, this.R);
     this.velAz = 0;
+    this._idle = 999;   // settle straight behind KAI right away
   }
 
   // ── Cinematic: zoom in on the wall KAI is painting ────────────────────────
@@ -270,7 +272,7 @@ export class CameraRig {
   //  pivot point sitting on the sphere, and swings around it in that point's
   //  LOCAL frame (up = the radial direction there). Following keeps the pivot
   //  glued to KAI's spot on the globe; dragging spins the view around it.
-  update(dt, charPos) {
+  update(dt, charPos, facing = null) {
     this._idle += dt;
 
     if (this._cine) {
@@ -303,6 +305,17 @@ export class CameraRig {
     if (T.lengthSq() < 1e-6) T.set(1, 0, 0);
     T.normalize();
     const B = this._b.copy(up).cross(T).normalize();
+
+    // Follow from BEHIND: a short moment after you stop touching, ease the
+    // azimuth so the camera settles behind KAI, looking the way he walks. His
+    // flat heading (sin f, cos f) is the walk direction; the camera goes
+    // opposite, expressed in this point's tangent (T,B) basis.
+    if (this.following && this._ptrs.size === 0 && this._idle > 1.4 && facing != null) {
+      const dx = -Math.sin(facing), dz = -Math.cos(facing);
+      const behindAz = Math.atan2(dx * B.x + dz * B.z, dx * T.x + dz * T.z);
+      this.azimuth = lerpAngle(this.azimuth, behindAz, 1 - Math.exp(-dt * CONFIG.camFollowSpin));
+      this.velAz = 0;
+    }
 
     // The camera's tangential (horizontal) direction for this azimuth — its XZ
     // gives the flat direction camera→pivot, used for occlusion below.

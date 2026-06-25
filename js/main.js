@@ -130,7 +130,7 @@ class App {
     this.rig.pivotTarget.copy(this.rig.pivot);
 
     // Wire callbacks: Vue → Three.js
-    ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.group.rotation.y);
+    ui.onFollowRequest = () => this.rig.reattach(this.character.pos, this.character.yaw);
     ui.onMuralFocus    = (target) => this.rig.focusMural(target);
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
     ui.onAdmire        = (slot) => this.rig.admireMural(slot);
@@ -236,7 +236,7 @@ class App {
     // map KAI's flat (pos, eased yaw) onto the little planet for rendering
     this._yawQ.setFromAxisAngle(this._up, this.character.yaw);
     placeOnPlanet(this.character.group, this.character.pos.x, 0, this.character.pos.z, this._yawQ);
-    this.rig.update(dt, this.character.pos);
+    this.rig.update(dt, this.character.pos, this.character.yaw);
     // track the real sun ~3×/s on wall-clock time (frame-rate independent, so the
     // clock keeps ticking even when the scene runs slowly)
     const nowMs = performance.now();
