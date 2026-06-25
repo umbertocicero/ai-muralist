@@ -11,7 +11,7 @@
 - [ ] Nel lato notturno è notte, quindi i lampioni sono accesi e proiettano un cone di luce verso il basso
 - [ ] strisce pedonali devono essere solo su strada
 - [ ] Pulsante per riposizionare il mondo/ruotare la camera, tale per cui il ground è in basso, utile soprattutto quando abbiamo ruotato il mondo e siamo al contrario.
-- [ ] ...
+- [ ] Aggiorna il README.MD
 
 
 # TODO secondari
