@@ -236,6 +236,7 @@ class App {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t  = this.clock.elapsedTime;
     this.agent.update(dt, t);
+    this.city.update(dt, t);     // spin AC fans, sway tree crowns + hanging laundry
     // map KAI's flat (pos, eased yaw) onto the little planet for rendering
     this._yawQ.setFromAxisAngle(this._up, this.character.yaw);
     placeOnPlanet(this.character.group, this.character.pos.x, 0, this.character.pos.z, this._yawQ);

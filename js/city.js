@@ -79,6 +79,11 @@ export class City {
     this._winXf    = [];   // window transforms [x,y,z,rotY,…] → one InstancedMesh
     this._shutXf   = [];   // shutter transforms
     this.lampHeads = [];   // lamp lens positions [x,y,z,…] → night glow points
+    // per-object animators: each is a fn(t, dt) that nudges a LOCAL transform of
+    // a child object (a spinning AC fan, a swaying tree crown, a flapping futon).
+    // They animate children of already-spherified anchors, so the planet mapping
+    // is untouched. main.js drives them via city.update().
+    this.animators = [];
     this.rng       = mulberry32(20260623);
 
     this.HALF = CONFIG.world.half;
@@ -190,6 +195,12 @@ export class City {
       planetPoint(this.lampHeads[i], this.lampHeads[i + 1], this.lampHeads[i + 2], v, this.R);
       this.lampHeads[i] = v.x; this.lampHeads[i + 1] = v.y; this.lampHeads[i + 2] = v.z;
     }
+  }
+
+  // Drive every registered per-object animator (called once per frame by the app).
+  update(dt, t) {
+    const a = this.animators;
+    for (let i = 0; i < a.length; i++) a[i](t, dt);
   }
 
   _rand(a, b) { return a + this.rng() * (b - a); }
@@ -586,11 +597,11 @@ export class City {
         }
         this._winXf.push(w.x + ox, wy, w.z + oz, rotY);                  // instanced
 
-        // occasional AC outdoor unit, sitting flush against the wall
+        // occasional AC outdoor unit, sitting flush against the wall — with the
+        // grille ring + spinning fan blades drawn on its street-facing face
         if (f >= 1 && (c + seed) % 4 === 1) {
           const a = this._toWorld(cx, cz, rot, nlx * (half + 0.17) + tlx * (tc + 0.7), nlz * (half + 0.17) + tlz * (tc + 0.7));
-          const ac = inkedMesh(new THREE.BoxGeometry(0.4, 0.34, 0.3), '#dcdad6', { k: 1.05, cast: false });
-          ac.position.set(a.x, wy - 0.55, a.z); ac.rotation.y = rotY; this.scene.add(ac);
+          this._acUnit(a.x, wy - 0.55, a.z, rotY);
         }
       }
     }
@@ -610,6 +621,38 @@ export class City {
       if (this.rng() < 0.6) this._vine(e.x + n.x * 0.16, e.z + n.z * 0.16, 2.8 + this.rng() * 2.4);
       if (this.rng() < 0.3) this._bush(pb.x, pb.z, 0.6 + this.rng() * 0.35);
     }
+  }
+
+  // An air-conditioner outdoor unit (室外機): a greyscale box with louvre slats,
+  // and on its street-facing face the iconic circular grille ring with a fan that
+  // spins. The body is spherified like any prop; the blades live in a child group
+  // whose LOCAL z-rotation is animated, so the planet mapping is never disturbed.
+  _acUnit(x, y, z, rotY) {
+    const W = 0.5, Hh = 0.36, D = 0.3, front = D / 2 + 0.001;
+    const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY;
+    const body = inkedMesh(new THREE.BoxGeometry(W, Hh, D), '#dcdad6', { k: 1.05, cast: false });
+    g.add(body);
+    // a few horizontal louvre slats across the front so the box reads as a vent
+    for (let i = -1; i <= 1; i++) {
+      const slat = inkedMesh(new THREE.BoxGeometry(W * 0.86, 0.018, 0.01), '#8f8b83', { k: 1.1, cast: false });
+      slat.position.set(-0.02, i * 0.08, front); g.add(slat);
+    }
+    // circular grille ring on the right of the face
+    const fr = 0.13, fx = W * 0.22;
+    const ring = inkedMesh(new THREE.TorusGeometry(fr, 0.014, 6, 20), '#3a3631', { k: 1.05, cast: false });
+    ring.position.set(fx, 0, front); g.add(ring);
+    // the spinning fan: a hub + radial blades, on a child group rotated each frame
+    const fan = new THREE.Group(); fan.position.set(fx, 0, front - 0.004); g.add(fan);
+    const hub = inkedMesh(new THREE.CylinderGeometry(0.022, 0.022, 0.02, 10), '#2a2824', { k: 1.06, cast: false });
+    hub.rotation.x = Math.PI / 2; fan.add(hub);
+    for (let b = 0; b < 4; b++) {
+      const arm = new THREE.Group(); arm.rotation.z = b * Math.PI / 2; fan.add(arm);
+      const blade = inkedMesh(new THREE.BoxGeometry(fr * 1.05, 0.05, 0.006), '#7a766e', { k: 1.1, cast: false });
+      blade.position.set(fr * 0.5, 0, 0); blade.rotation.z = 0.5; arm.add(blade);
+    }
+    this.scene.add(g);
+    const spd = 7 + this.rng() * 3;
+    this.animators.push((t) => { fan.rotation.z = t * spd; });
   }
 
   // A coherent concrete balcony: a floor slab + a solid 3-sided parapet (front +
@@ -635,14 +678,25 @@ export class City {
     // dark metal rail cap along the top
     const cap = inkedMesh(new THREE.BoxGeometry(w + 0.1, 0.07, 0.16), '#6e695f', { k: 1.05, cast: false });
     cap.position.set(pc.x, y + ph + 0.03, pc.z); cap.rotation.y = rotY; this.scene.add(cap);
-    // futon / blanket draped over the rail and hanging down the front
+    // futon / blanket draped over the rail and hanging down the front — each one
+    // flaps gently in the breeze. The cloth hangs from a pivot at the rail (a
+    // spherified anchor group); a child group swings about the rail axis, so the
+    // bottom of the cloth sways while the top stays pinned to the railing.
     const nF = this.rng() < 0.7 ? (this.rng() < 0.5 ? 2 : 1) : 0;
     for (let i = 0; i < nF; i++) {
       const toff = (i - (nF - 1) / 2) * 0.92 + this._rand(-0.06, 0.06);
       const lp = this._toWorld(cx, cz, rot, nlx * (half + out + 0.06) + tlx * toff, nlz * (half + out + 0.06) + tlz * toff);
       const fh = 0.66 + this.rng() * 0.22;
+      const anchor = new THREE.Group();
+      anchor.position.set(lp.x, y + ph + 0.05, lp.z); anchor.rotation.y = rotY; this.scene.add(anchor);
+      const swing = new THREE.Group(); anchor.add(swing);
       const futon = inkedMesh(new THREE.BoxGeometry(0.6, fh, 0.05), i % 2 ? '#9c9890' : '#d7d3cb', { k: 1.04, cast: false });
-      futon.position.set(lp.x, y + ph - fh / 2 + 0.05, lp.z); futon.rotation.y = rotY; this.scene.add(futon);
+      futon.position.set(0, -fh / 2, 0); swing.add(futon);
+      const ph2 = this.rng() * 6.283, fr = 0.7 + this.rng() * 0.6, amp = 0.05 + this.rng() * 0.05;
+      this.animators.push((t) => {
+        swing.rotation.x = Math.sin(t * fr + ph2) * amp;          // flap toward / away from the wall
+        swing.rotation.z = Math.cos(t * fr * 0.7 + ph2) * amp * 0.5;
+      });
     }
   }
 
@@ -1281,23 +1335,80 @@ export class City {
     this.scene.add(g);
   }
 
-  // A small boxy kei-car / van parked along the kerb.
+  // A parked car along the kerb — a proper hatchback silhouette rather than a
+  // plain two-box. Length runs along local X (front at +X): a lower body with a
+  // separate sloped bonnet, a stepped-back greenhouse with a raked windscreen,
+  // side + rear glass, head/tail lights, bumpers, wing mirrors, a number plate
+  // and capped wheels in dark wheel-arches.
   _keiCar(x, z, ang) {
-    this.barriers.push({ cx: x, cz: z, hw: 0.78, hd: 0.45, rot: ang });
+    this.barriers.push({ cx: x, cz: z, hw: 0.92, hd: 0.46, rot: ang });
     const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
-    const tone = '#e2dfd9';
-    const lower = inkedMesh(new THREE.BoxGeometry(1.5, 0.62, 0.78), tone, { k: 1.02 });
+    const BODY = '#e2dfd9', DARK = '#1c1a17', TRIM = '#3a3631', CHROME = '#cfccc4', LAMP = '#f2efe9';
+    const hw = 0.86, bw = 0.78;   // half-length (X), full body width (Z)
+
+    // lower body shell
+    const lower = inkedMesh(new THREE.BoxGeometry(hw * 2, 0.4, bw), BODY, { k: 1.02 });
     lower.position.set(0, 0.5, 0); g.add(lower);
-    const cabin = inkedMesh(new THREE.BoxGeometry(1.0, 0.5, 0.74), tone, { k: 1.02, cast: false });
-    cabin.position.set(-0.05, 1.0, 0); g.add(cabin);
-    for (const sz of [0.38, -0.38]) {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.34), GLASS);
-      win.position.set(-0.05, 1.0, sz); win.rotation.y = sz > 0 ? 0 : Math.PI; g.add(win);
+    // sloped bonnet at the front (lower than the cabin)
+    const bonnet = inkedMesh(new THREE.BoxGeometry(0.5, 0.2, bw - 0.04), BODY, { k: 1.02, cast: false });
+    bonnet.position.set(0.56, 0.78, 0); bonnet.rotation.z = -0.06; g.add(bonnet);
+    // a short rear deck / hatch
+    const deck = inkedMesh(new THREE.BoxGeometry(0.3, 0.2, bw - 0.04), BODY, { k: 1.02, cast: false });
+    deck.position.set(-0.7, 0.8, 0); g.add(deck);
+    // the cabin / greenhouse, set back from the nose
+    const cabin = inkedMesh(new THREE.BoxGeometry(0.98, 0.42, bw - 0.06), BODY, { k: 1.02, cast: false });
+    cabin.position.set(-0.16, 1.04, 0); g.add(cabin);
+
+    // a thin waist trim line + door seam along each flank
+    for (const sz of [bw / 2 + 0.001, -bw / 2 - 0.001]) {
+      const trim = inkedMesh(new THREE.BoxGeometry(hw * 1.9, 0.03, 0.01), TRIM, { k: 1.1, cast: false });
+      trim.position.set(0, 0.62, sz); g.add(trim);
+      const seam = inkedMesh(new THREE.BoxGeometry(0.012, 0.34, 0.012), TRIM, { k: 1.2, cast: false });
+      seam.position.set(-0.16, 0.6, sz); g.add(seam);
+      const handle = inkedMesh(new THREE.BoxGeometry(0.12, 0.025, 0.012), TRIM, { k: 1.15, cast: false });
+      handle.position.set(-0.34, 0.74, sz); g.add(handle);
     }
-    const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.16, 12);
-    for (const wx of [-0.52, 0.52]) for (const wz of [-0.4, 0.4]) {
-      const wheel = inkedMesh(wheelGeo, '#1c1a17', { k: 1.05, cast: false });
-      wheel.position.set(wx, 0.22, wz); wheel.rotation.x = Math.PI / 2; g.add(wheel);
+
+    // glass: raked windscreen, two side windows, rear screen
+    const ws = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.36), GLASS);
+    ws.position.set(0.34, 1.04, 0); ws.rotation.set(0, Math.PI / 2, Math.PI / 2 - 0.5); g.add(ws);
+    const rs = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.36), GLASS);
+    rs.position.set(-0.66, 1.04, 0); rs.rotation.set(0, Math.PI / 2, Math.PI / 2 + 0.45); g.add(rs);
+    for (const sz of [bw / 2 - 0.02, -(bw / 2 - 0.02)]) {
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.3), GLASS);
+      win.position.set(-0.16, 1.06, sz); win.rotation.y = sz > 0 ? 0 : Math.PI; g.add(win);
+    }
+
+    // head- and tail-lights
+    for (const sz of [bw / 2 - 0.16, -(bw / 2 - 0.16)]) {
+      const head = inkedMesh(new THREE.BoxGeometry(0.05, 0.1, 0.16), LAMP, { k: 1.08, cast: false });
+      head.position.set(hw + 0.01, 0.62, sz); g.add(head);
+      const tail = inkedMesh(new THREE.BoxGeometry(0.05, 0.1, 0.14), TRIM, { k: 1.08, cast: false });
+      tail.position.set(-hw - 0.01, 0.66, sz); g.add(tail);
+    }
+    // bumpers front + rear
+    for (const [bx, sign] of [[hw + 0.02, 1], [-hw - 0.02, -1]]) {
+      const bumper = inkedMesh(new THREE.BoxGeometry(0.1, 0.16, bw + 0.04), CHROME, { k: 1.05, cast: false });
+      bumper.position.set(bx, 0.42, 0); g.add(bumper);
+      const plate = inkedMesh(new THREE.BoxGeometry(0.015, 0.1, 0.22), LAMP, { k: 1.1, cast: false });
+      plate.position.set(bx + sign * 0.05, 0.52, 0); g.add(plate);
+    }
+    // wing mirrors
+    for (const sz of [bw / 2 + 0.06, -(bw / 2 + 0.06)]) {
+      const mir = inkedMesh(new THREE.BoxGeometry(0.08, 0.06, 0.04), BODY, { k: 1.1, cast: false });
+      mir.position.set(0.2, 0.96, sz); g.add(mir);
+    }
+
+    // wheels: a dark tyre + a lighter hub cap, tucked into a slim dark arch
+    const tyreGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.14, 14);
+    const hubGeo  = new THREE.CylinderGeometry(0.08, 0.08, 0.15, 10);
+    for (const wx of [-0.52, 0.54]) for (const wz of [bw / 2 - 0.06, -(bw / 2 - 0.06)]) {
+      const arch = inkedMesh(new THREE.BoxGeometry(0.46, 0.16, 0.05), DARK, { k: 1.02, cast: false });
+      arch.position.set(wx, 0.34, wz + (wz > 0 ? 0.01 : -0.01)); g.add(arch);
+      const tyre = inkedMesh(tyreGeo, DARK, { k: 1.05, cast: false });
+      tyre.position.set(wx, 0.2, wz); tyre.rotation.x = Math.PI / 2; g.add(tyre);
+      const hub = inkedMesh(hubGeo, CHROME, { k: 1.06, cast: false });
+      hub.position.set(wx, 0.2, wz + (wz > 0 ? 0.01 : -0.01)); hub.rotation.x = Math.PI / 2; g.add(hub);
     }
     this.scene.add(g);
   }
