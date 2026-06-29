@@ -188,8 +188,29 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           // Murals must live under city.north (inside worldRoot) so they rotate
           // with the planet — adding to scene would leave them fixed in world
           // space while the planet spins underneath them.
-          (this.city?.north ?? this.scene).add(plane);
+          const parent = this.city?.north ?? this.scene;
+          parent.add(plane);
           slot.mesh = plane;
+
+          // Shadow veil: a coplanar shadow-catcher a hair in FRONT of the mural.
+          // The mural itself is unlit (always vivid), so building shadows that
+          // fall across the wall would otherwise skip it — leaving a bright
+          // "sticker" floating on a shaded wall. This transparent ShadowMaterial
+          // plane catches those same cast shadows and lays them over the mural as
+          // a semi-transparent veil, so a shaded mural reads as shaded yet stays
+          // clearly visible.
+          const shadowMesh = new THREE.Mesh(
+            plane.geometry,
+            new THREE.ShadowMaterial({
+              opacity: 0.45, transparent: true, depthWrite: false,
+              polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+            })
+          );
+          shadowMesh.receiveShadow = true;
+          placeOnPlanet(shadowMesh,
+            slot.px + slot.nx * 0.03, slot.py, slot.pz + slot.nz * 0.03, _yawQ);
+          parent.add(shadowMesh);
+          slot.shadowMesh = shadowMesh;
           resolve();
         } catch (e) { fail(e); }
       };

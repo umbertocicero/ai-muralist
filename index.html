@@ -151,13 +151,14 @@
     #counter .num { font-size: 28px; }
     #counter .cap { font-size: 9px; }
 
-    /* Thought + follow sit above the bottom HUD */
-    #thought { bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+    /* Thought sits above the bottom HUD, centred between the two corner buttons */
+    #thought { bottom: calc(env(safe-area-inset-bottom, 0px) + 116px); }
     #thought .text { font-size: 15px; }
-    #follow-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); padding: 9px 16px; font-size: 11px; }
-    /* Reset sits at the same height as Follow but anchored to the RIGHT edge —
-       opposite sides of the screen, no overlap even on small phones. */
-    #reset-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: auto; right: 10px; padding: 7px 12px; font-size: 10px; }
+    /* Follow + Reset share one bottom row but are pinned to OPPOSITE edges, so
+       they can never overlap (and never intercept each other's taps) however
+       narrow the phone is. The thought bubble keeps the free centre above them. */
+    #follow-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: auto; right: 10px; transform: none; padding: 9px 16px; font-size: 11px; }
+    #reset-btn  { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: 10px; right: auto; padding: 7px 12px; font-size: 10px; }
   }
 </style>
 </head>
