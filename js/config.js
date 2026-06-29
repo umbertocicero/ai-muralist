@@ -33,7 +33,7 @@ export const CONFIG = {
   // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
   sun: { x: 34, y: 22, z: -78 },
   atmo: {
-    glowSize:   58,    // diameter of the blown highlight at the sun
+    glowSize:   32,    // diameter of the blown highlight at the sun (contained — must not wash the panel)
     shaftCount: 12,    // number of radiating light-shafts
     shaftLen:   170,   // shaft length (world units)
     shaftWidth: 9,     // shaft base width

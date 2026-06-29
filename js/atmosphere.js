@@ -218,16 +218,17 @@ export class Atmosphere {
   // Blown-out highlight where the light pours in — the white-out at the
   // vanishing point of every reference alley.
   _buildGlow() {
-    // The outer white-out: a crisp inked disc (solid core + short falloff), not a
-    // soft photographic bloom — a clean manga sun.
+    // A CONTAINED manga sun: a small disc with a hot centre and a soft falloff.
+    // Kept deliberately small + gentle so its additive light reads as "the sun is
+    // there" without washing the whole panel (and the taupe ground) to white.
     const mat = new THREE.SpriteMaterial({
-      map: whiteOutTexture(0.55),
+      map: whiteOutTexture(0.28),
       color: 0xffffff,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       depthTest: true,          // the OPAQUE planet hides it when it's behind us
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.55,
     });
     this.glow = new THREE.Sprite(mat);
     this.glow.scale.setScalar(CONFIG.atmo.glowSize);
@@ -235,13 +236,13 @@ export class Atmosphere {
     this.glow.renderOrder = 998;
     this.scene.add(this.glow);
 
-    // A smaller, fully-solid hot core for the blown-out centre.
+    // A small hot core for a crisp white-out centre (the sun's disc itself).
     const core = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: whiteOutTexture(0.7), color: 0xffffff,
+      map: whiteOutTexture(0.55), color: 0xffffff,
       blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
-      transparent: true, opacity: 1,
+      transparent: true, opacity: 0.9,
     }));
-    core.scale.setScalar(CONFIG.atmo.glowSize * 0.42);
+    core.scale.setScalar(CONFIG.atmo.glowSize * 0.4);
     core.position.copy(this.sun);
     core.renderOrder = 999;
     this.scene.add(core);
@@ -294,8 +295,8 @@ export class Atmosphere {
     // Subtle pulse on the glow so the white-out feels alive (day only).
     const pulse = 1 + Math.sin(t * 0.5) * 0.04;
     this.glow.scale.setScalar(CONFIG.atmo.glowSize * pulse);
-    this.core.scale.setScalar(CONFIG.atmo.glowSize * 0.42 * pulse);
-    this.glow.material.opacity = 0.85 * day;
-    this.core.material.opacity = 1.0 * day;
+    this.core.scale.setScalar(CONFIG.atmo.glowSize * 0.4 * pulse);
+    this.glow.material.opacity = 0.55 * day;
+    this.core.material.opacity = 0.9 * day;
   }
 }
