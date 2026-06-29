@@ -623,35 +623,56 @@ export class City {
     }
   }
 
-  // An air-conditioner outdoor unit (室外機): a greyscale box with louvre slats,
-  // and on its street-facing face the iconic circular grille ring with a fan that
-  // spins. The body is spherified like any prop; the blades live in a child group
-  // whose LOCAL z-rotation is animated, so the planet mapping is never disturbed.
+  // An air-conditioner outdoor unit (室外機), modelled on a Mitsubishi Electric
+  // split-system condenser: a wide, low cream box whose FRONT face is dominated
+  // by one big circular fan grille — a recessed dish behind a static spoked guard
+  // with concentric rings, with the fan blades spinning behind it. The left flank
+  // carries the vertical louvre slats of the heat-exchanger vent. A lipped top lid
+  // and two feet finish it. The body is spherified like any prop; only the fan
+  // (a child group) is animated, so the planet mapping is never disturbed.
   _acUnit(x, y, z, rotY) {
-    const W = 0.5, Hh = 0.36, D = 0.3, front = D / 2 + 0.001;
+    const W = 0.62, Hh = 0.42, D = 0.28, front = D / 2;
+    const CASE = '#dedcd7', EDGE = '#c2bfb8', GUARD = '#5d5950', DARK = '#2a2824';
     const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY;
-    const body = inkedMesh(new THREE.BoxGeometry(W, Hh, D), '#dcdad6', { k: 1.05, cast: false });
-    g.add(body);
-    // a few horizontal louvre slats across the front so the box reads as a vent
-    for (let i = -1; i <= 1; i++) {
-      const slat = inkedMesh(new THREE.BoxGeometry(W * 0.86, 0.018, 0.01), '#8f8b83', { k: 1.1, cast: false });
-      slat.position.set(-0.02, i * 0.08, front); g.add(slat);
-    }
-    // circular grille ring on the right of the face
-    const fr = 0.13, fx = W * 0.22;
-    const ring = inkedMesh(new THREE.TorusGeometry(fr, 0.014, 6, 20), '#3a3631', { k: 1.05, cast: false });
-    ring.position.set(fx, 0, front); g.add(ring);
-    // the spinning fan: a hub + radial blades, on a child group rotated each frame
-    const fan = new THREE.Group(); fan.position.set(fx, 0, front - 0.004); g.add(fan);
-    const hub = inkedMesh(new THREE.CylinderGeometry(0.022, 0.022, 0.02, 10), '#2a2824', { k: 1.06, cast: false });
+    const box = (w, h, d, col, px, py, pz, k = 1.04, cast = false) => {
+      const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast });
+      m.position.set(px, py, pz); g.add(m); return m;
+    };
+
+    box(W, Hh, D, CASE, 0, 0, 0, 1.04);                              // main case
+    box(W + 0.03, 0.05, D + 0.03, EDGE, 0, Hh / 2 + 0.005, 0, 1.04); // lipped top lid (overhang)
+    for (const fx of [-W / 2 + 0.1, W / 2 - 0.1])                    // two feet
+      box(0.1, 0.05, D + 0.04, DARK, fx, -Hh / 2 - 0.02, 0, 1.05);
+    // vertical louvre slats on the left flank (heat-exchanger vent)
+    for (let i = 0; i < 5; i++)
+      box(0.012, Hh * 0.8, D * 0.7, '#9a968e', -W / 2 - 0.002, 0, (i - 2) * 0.045, 1.1);
+
+    // ── the big circular fan grille on the front, right of centre ─────────────
+    const R = 0.165, gx = W * 0.2;                                   // grille radius · centre x
+    // recessed dish so the fan reads as set INTO the case
+    const dish = inkedMesh(new THREE.CylinderGeometry(R, R, 0.04, 24), '#c8c5be', { k: 1.02, cast: false });
+    dish.position.set(gx, 0, front - 0.03); dish.rotation.x = Math.PI / 2; g.add(dish);
+    // spinning fan: a hub + 3 broad blades, behind the guard
+    const fan = new THREE.Group(); fan.position.set(gx, 0, front - 0.02); g.add(fan);
+    const hub = inkedMesh(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 12), DARK, { k: 1.05, cast: false });
     hub.rotation.x = Math.PI / 2; fan.add(hub);
-    for (let b = 0; b < 4; b++) {
-      const arm = new THREE.Group(); arm.rotation.z = b * Math.PI / 2; fan.add(arm);
-      const blade = inkedMesh(new THREE.BoxGeometry(fr * 1.05, 0.05, 0.006), '#7a766e', { k: 1.1, cast: false });
-      blade.position.set(fr * 0.5, 0, 0); blade.rotation.z = 0.5; arm.add(blade);
+    for (let b = 0; b < 3; b++) {
+      const arm = new THREE.Group(); arm.rotation.z = b * (Math.PI * 2 / 3); fan.add(arm);
+      const blade = inkedMesh(new THREE.BoxGeometry(R * 0.82, 0.13, 0.006), '#8d897f', { k: 1.06, cast: false });
+      blade.position.set(R * 0.42, 0, 0); blade.rotation.z = 0.55; arm.add(blade);
+    }
+    // static guard: outer rim + two concentric rings + radial spokes (in front)
+    const ringAt = (rr, tube) => {
+      const ring = inkedMesh(new THREE.TorusGeometry(rr, tube, 6, 28), GUARD, { k: 1.05, cast: false });
+      ring.position.set(gx, 0, front); g.add(ring);
+    };
+    ringAt(R, 0.016); ringAt(R * 0.66, 0.01); ringAt(R * 0.33, 0.01);
+    for (let s = 0; s < 6; s++) {
+      const spoke = inkedMesh(new THREE.BoxGeometry(0.009, R * 2, 0.008), GUARD, { k: 1.06, cast: false });
+      spoke.position.set(gx, 0, front - 0.002); spoke.rotation.z = s * (Math.PI / 6); g.add(spoke);
     }
     this.scene.add(g);
-    const spd = 7 + this.rng() * 3;
+    const spd = 8 + this.rng() * 4;
     this.animators.push((t) => { fan.rotation.z = t * spd; });
   }
 
@@ -1335,80 +1356,87 @@ export class City {
     this.scene.add(g);
   }
 
-  // A parked car along the kerb — a proper hatchback silhouette rather than a
-  // plain two-box. Length runs along local X (front at +X): a lower body with a
-  // separate sloped bonnet, a stepped-back greenhouse with a raked windscreen,
-  // side + rear glass, head/tail lights, bumpers, wing mirrors, a number plate
-  // and capped wheels in dark wheel-arches.
+  // A parked kei-car (軽自動車) along the kerb, modelled on the tall, square
+  // "kei box" body (e.g. the BYD RACCO): a near-vertical two-box with a short
+  // nose, a very tall cabin, a wrap-around band of dark tinted glass, a
+  // contrasting black roof, a full-width front LED light bar, a recessed sliding-
+  // door handle and 5-spoke alloy wheels at the corners. Length runs along local
+  // X (front at +X), width along Z.
   _keiCar(x, z, ang) {
-    this.barriers.push({ cx: x, cz: z, hw: 0.92, hd: 0.46, rot: ang });
+    this.barriers.push({ cx: x, cz: z, hw: 0.9, hd: 0.46, rot: ang });
     const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
-    const BODY = '#e2dfd9', DARK = '#1c1a17', TRIM = '#3a3631', CHROME = '#cfccc4', LAMP = '#f2efe9';
-    const hw = 0.86, bw = 0.78;   // half-length (X), full body width (Z)
+    const WHITE = '#ebe8e2', GLASSD = '#2a2926', BLACK = '#1b1916', TRIM = '#39352f',
+          CHR = '#cfccc4', LAMP = '#f4f1eb', HUB = '#b8b4ac';
+    const hw = 0.84, bw = 0.8, sillY = 0.84, roofY = 1.48;   // half-length · width · window-sill · roof
+    const box = (w, h, d, col, px, py, pz, k = 1.02, cast = false) => {
+      const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast });
+      m.position.set(px, py, pz); g.add(m); return m;
+    };
 
-    // lower body shell
-    const lower = inkedMesh(new THREE.BoxGeometry(hw * 2, 0.4, bw), BODY, { k: 1.02 });
-    lower.position.set(0, 0.5, 0); g.add(lower);
-    // sloped bonnet at the front (lower than the cabin)
-    const bonnet = inkedMesh(new THREE.BoxGeometry(0.5, 0.2, bw - 0.04), BODY, { k: 1.02, cast: false });
-    bonnet.position.set(0.56, 0.78, 0); bonnet.rotation.z = -0.06; g.add(bonnet);
-    // a short rear deck / hatch
-    const deck = inkedMesh(new THREE.BoxGeometry(0.3, 0.2, bw - 0.04), BODY, { k: 1.02, cast: false });
-    deck.position.set(-0.7, 0.8, 0); g.add(deck);
-    // the cabin / greenhouse, set back from the nose
-    const cabin = inkedMesh(new THREE.BoxGeometry(0.98, 0.42, bw - 0.06), BODY, { k: 1.02, cast: false });
-    cabin.position.set(-0.16, 1.04, 0); g.add(cabin);
+    // ── body masses ─────────────────────────────────────────────────────────
+    box(hw * 2, 0.62, bw, WHITE, 0, 0.55, 0, 1.02, true);             // lower white body
+    box(hw * 2 - 0.04, 0.14, bw + 0.01, TRIM, 0, 0.3, 0, 1.0);        // dark rocker / lower cladding
+    box(hw * 2 - 0.3, 0.6, bw - 0.02, GLASSD, -0.04, 1.14, 0, 1.0);   // wrap-around tinted greenhouse
+    box(hw * 2 - 0.22, 0.12, bw + 0.03, BLACK, -0.04, roofY, 0, 1.02); // contrasting black roof (overhang)
+    box(hw * 2 - 0.5, 0.05, bw - 0.06, BLACK, -0.04, roofY - 0.08, 0, 1.04, false); // roof-glass header strip
 
-    // a thin waist trim line + door seam along each flank
-    for (const sz of [bw / 2 + 0.001, -bw / 2 - 0.001]) {
-      const trim = inkedMesh(new THREE.BoxGeometry(hw * 1.9, 0.03, 0.01), TRIM, { k: 1.1, cast: false });
-      trim.position.set(0, 0.62, sz); g.add(trim);
-      const seam = inkedMesh(new THREE.BoxGeometry(0.012, 0.34, 0.012), TRIM, { k: 1.2, cast: false });
-      seam.position.set(-0.16, 0.6, sz); g.add(seam);
-      const handle = inkedMesh(new THREE.BoxGeometry(0.12, 0.025, 0.012), TRIM, { k: 1.15, cast: false });
-      handle.position.set(-0.34, 0.74, sz); g.add(handle);
+    // ── greenhouse pillars + waistline + doors, mirrored on both flanks ───────
+    for (const sz of [bw / 2 - 0.005, -(bw / 2 - 0.005)]) {
+      box(0.07, 0.6, 0.025, WHITE, hw - 0.22, 1.14, sz, 1.05);        // A-pillar (raked front)
+      box(0.06, 0.6, 0.025, TRIM,  -0.02, 1.14, sz, 1.07);            // B-pillar (between doors)
+      box(0.09, 0.6, 0.025, WHITE, -hw + 0.22, 1.14, sz, 1.05);       // thick C-pillar (kei-box rear)
+      box(hw * 1.72, 0.05, 0.02, CHR, -0.04, sillY + 0.02, sz, 1.05); // bright window-sill trim
+      box(hw * 1.7, 0.012, 0.012, TRIM, -0.04, 0.58, sz, 1.2);        // body waistline crease
+      box(0.018, 0.5, 0.012, TRIM, -0.04, 0.56, sz, 1.25);            // sliding-door seam
+      box(0.018, 0.5, 0.012, TRIM,  0.5, 0.56, sz, 1.25);             // front-door seam
+      box(0.18, 0.05, 0.03, TRIM, -0.18, 0.7, sz, 1.1);              // recessed sliding-door handle
+      box(0.1, 0.05, 0.03, TRIM,  0.34, 0.7, sz, 1.1);               // front-door handle
     }
 
-    // glass: raked windscreen, two side windows, rear screen
-    const ws = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.36), GLASS);
-    ws.position.set(0.34, 1.04, 0); ws.rotation.set(0, Math.PI / 2, Math.PI / 2 - 0.5); g.add(ws);
-    const rs = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.36), GLASS);
-    rs.position.set(-0.66, 1.04, 0); rs.rotation.set(0, Math.PI / 2, Math.PI / 2 + 0.45); g.add(rs);
-    for (const sz of [bw / 2 - 0.02, -(bw / 2 - 0.02)]) {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.3), GLASS);
-      win.position.set(-0.16, 1.06, sz); win.rotation.y = sz > 0 ? 0 : Math.PI; g.add(win);
-    }
-
-    // head- and tail-lights
+    // ── front face (x = +hw): full-width LED light bar, lamps, bumper, plate ──
+    const fx = hw + 0.005;
+    box(0.03, 0.06, bw - 0.12, BLACK, fx, 0.74, 0, 1.04);            // dark light-bar housing
+    box(0.04, 0.025, bw - 0.16, LAMP, fx + 0.005, 0.74, 0, 1.06);    // glowing LED strip across it
     for (const sz of [bw / 2 - 0.16, -(bw / 2 - 0.16)]) {
-      const head = inkedMesh(new THREE.BoxGeometry(0.05, 0.1, 0.16), LAMP, { k: 1.08, cast: false });
-      head.position.set(hw + 0.01, 0.62, sz); g.add(head);
-      const tail = inkedMesh(new THREE.BoxGeometry(0.05, 0.1, 0.14), TRIM, { k: 1.08, cast: false });
-      tail.position.set(-hw - 0.01, 0.66, sz); g.add(tail);
+      box(0.045, 0.11, 0.17, LAMP, fx, 0.72, sz, 1.06);              // headlight cluster
     }
-    // bumpers front + rear
-    for (const [bx, sign] of [[hw + 0.02, 1], [-hw - 0.02, -1]]) {
-      const bumper = inkedMesh(new THREE.BoxGeometry(0.1, 0.16, bw + 0.04), CHROME, { k: 1.05, cast: false });
-      bumper.position.set(bx, 0.42, 0); g.add(bumper);
-      const plate = inkedMesh(new THREE.BoxGeometry(0.015, 0.1, 0.22), LAMP, { k: 1.1, cast: false });
-      plate.position.set(bx + sign * 0.05, 0.52, 0); g.add(plate);
+    box(0.04, 0.18, bw - 0.18, BLACK, fx, 0.46, 0, 1.03);            // lower bumper intake
+    for (const sz of [bw / 2 - 0.2, -(bw / 2 - 0.2)]) {
+      box(0.05, 0.06, 0.08, LAMP, fx + 0.005, 0.44, sz, 1.08);       // fog lamps
     }
-    // wing mirrors
-    for (const sz of [bw / 2 + 0.06, -(bw / 2 + 0.06)]) {
-      const mir = inkedMesh(new THREE.BoxGeometry(0.08, 0.06, 0.04), BODY, { k: 1.1, cast: false });
-      mir.position.set(0.2, 0.96, sz); g.add(mir);
+    box(0.025, 0.11, 0.24, LAMP, fx + 0.01, 0.58, 0, 1.1);          // number plate
+
+    // ── rear face (x = -hw): tall corner tail-lights + plate ──────────────────
+    for (const sz of [bw / 2 - 0.06, -(bw / 2 - 0.06)]) {
+      box(0.04, 0.22, 0.1, TRIM, -fx, 0.74, sz, 1.06);               // vertical tail-light
+    }
+    box(0.025, 0.1, 0.22, LAMP, -fx - 0.01, 0.5, 0, 1.1);           // rear plate
+
+    // ── wing mirrors ──────────────────────────────────────────────────────────
+    for (const sz of [bw / 2 + 0.05, -(bw / 2 + 0.05)]) {
+      box(0.09, 0.06, 0.05, WHITE, hw - 0.18, 0.92, sz, 1.1);
     }
 
-    // wheels: a dark tyre + a lighter hub cap, tucked into a slim dark arch
-    const tyreGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.14, 14);
-    const hubGeo  = new THREE.CylinderGeometry(0.08, 0.08, 0.15, 10);
-    for (const wx of [-0.52, 0.54]) for (const wz of [bw / 2 - 0.06, -(bw / 2 - 0.06)]) {
-      const arch = inkedMesh(new THREE.BoxGeometry(0.46, 0.16, 0.05), DARK, { k: 1.02, cast: false });
-      arch.position.set(wx, 0.34, wz + (wz > 0 ? 0.01 : -0.01)); g.add(arch);
-      const tyre = inkedMesh(tyreGeo, DARK, { k: 1.05, cast: false });
-      tyre.position.set(wx, 0.2, wz); tyre.rotation.x = Math.PI / 2; g.add(tyre);
-      const hub = inkedMesh(hubGeo, CHROME, { k: 1.06, cast: false });
-      hub.position.set(wx, 0.2, wz + (wz > 0 ? 0.01 : -0.01)); hub.rotation.x = Math.PI / 2; g.add(hub);
+    // ── 5-spoke alloy wheels in dark arches at the corners ────────────────────
+    const tyreGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.16, 16);
+    const rimGeo  = new THREE.CylinderGeometry(0.13, 0.13, 0.165, 14);
+    const capGeo  = new THREE.CylinderGeometry(0.035, 0.035, 0.17, 8);
+    const spokeGeo = new THREE.BoxGeometry(0.025, 0.2, 0.01);
+    for (const wx of [-0.56, 0.58]) for (const wz of [bw / 2 - 0.05, -(bw / 2 - 0.05)]) {
+      const out = wz > 0 ? 0.01 : -0.01;
+      box(0.52, 0.2, 0.06, BLACK, wx, 0.32, wz + out, 1.02);         // squared dark wheel-arch
+      const tyre = inkedMesh(tyreGeo, BLACK, { k: 1.04, cast: false });
+      tyre.position.set(wx, 0.22, wz); tyre.rotation.x = Math.PI / 2; g.add(tyre);
+      const rim = inkedMesh(rimGeo, HUB, { k: 1.05, cast: false });
+      rim.position.set(wx, 0.22, wz + out); rim.rotation.x = Math.PI / 2; g.add(rim);
+      const spokes = new THREE.Group();                              // 5 alloy spokes
+      for (let s = 0; s < 5; s++) {
+        const sp = inkedMesh(spokeGeo, TRIM, { k: 1.1, cast: false });
+        sp.rotation.z = s * (Math.PI * 2 / 5); spokes.add(sp);
+      }
+      spokes.position.set(wx, 0.22, wz + out * 1.4); spokes.rotation.x = 0; g.add(spokes);
+      const cap = inkedMesh(capGeo, BLACK, { k: 1.06, cast: false });
+      cap.position.set(wx, 0.22, wz + out * 1.6); cap.rotation.x = Math.PI / 2; g.add(cap);
     }
     this.scene.add(g);
   }
