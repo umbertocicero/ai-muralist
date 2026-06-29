@@ -1398,18 +1398,25 @@ export class City {
     });
     bodyGeo.translate(0, 0, -(W - 0.16) / 2);
     bodyGeo.computeVertexNormals();
+    // recentre the geometry on its own centroid so the inverted-hull ink shell
+    // expands evenly all round (the profile's origin sits at the body's foot)
+    bodyGeo.computeBoundingBox();
+    const bc = new THREE.Vector3(); bodyGeo.boundingBox.getCenter(bc);
+    bodyGeo.translate(-bc.x, -bc.y, -bc.z);
     const body = new THREE.Mesh(bodyGeo, BODY);
-    body.castShadow = true; g.add(body);
+    body.position.copy(bc); body.castShadow = true;
+    addInk(body, 1.015);                                              // light manga ink contour
+    g.add(body);
 
     // ── tinted wrap-around glazing (flat panels hugging the cabin) ────────────
     const sideWin = new THREE.BoxGeometry(1.16, 0.5, 0.02);
-    for (const sz of [W / 2 + 0.005, -(W / 2 + 0.005)]) panel(sideWin, GLASSM, -0.06, 1.22, sz);
+    for (const sz of [W / 2 + 0.005, -(W / 2 + 0.005)]) addInk(panel(sideWin, GLASSM, -0.06, 1.22, sz), 1.025);
     // raked windscreen + rear screen — inset from the flanks and kept under the
     // roofline so they don't poke through the silhouette
-    const ws = panel(new THREE.BoxGeometry(0.04, 0.44, W - 0.26), GLASSM, 0.575, 1.2, 0); ws.rotation.z = -0.22;
-    const rs = panel(new THREE.BoxGeometry(0.04, 0.3, W - 0.28), GLASSM, -0.88, 1.34, 0); rs.rotation.z = 0.5;
+    const ws = panel(new THREE.BoxGeometry(0.04, 0.44, W - 0.26), GLASSM, 0.575, 1.2, 0); ws.rotation.z = -0.22; addInk(ws, 1.03);
+    const rs = panel(new THREE.BoxGeometry(0.04, 0.3, W - 0.28), GLASSM, -0.88, 1.34, 0); rs.rotation.z = 0.5; addInk(rs, 1.03);
     // black roof, wrapping just over the cant-rail for the two-tone look
-    panel(new THREE.BoxGeometry(1.2, 0.1, W + 0.015), BLACK, -0.25, 1.55, 0);
+    addInk(panel(new THREE.BoxGeometry(1.2, 0.1, W + 0.015), BLACK, -0.25, 1.55, 0), 1.02);
 
     // ── doors: seams + smooth recessed handles, both flanks ───────────────────
     for (const sz of [W / 2 + 0.006, -(W / 2 + 0.006)]) {
@@ -1429,7 +1436,7 @@ export class City {
     for (const sz of [W / 2 - 0.14, -(W / 2 - 0.14)]) {
       const h = new THREE.Mesh(lamp, LAMP); h.scale.set(0.55, 0.8, 1.0); h.position.set(fx - 0.02, 0.8, sz); g.add(h);
     }
-    panel(new THREE.BoxGeometry(0.05, 0.16, W - 0.2), BLACK, fx - 0.01, 0.5, 0);     // lower intake
+    addInk(panel(new THREE.BoxGeometry(0.05, 0.16, W - 0.2), BLACK, fx - 0.01, 0.5, 0), 1.04);   // lower intake
     for (const sz of [W / 2 - 0.18, -(W / 2 - 0.18)]) {
       const f = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 10), LAMP); f.position.set(fx + 0.01, 0.47, sz); g.add(f);
     }
@@ -1456,7 +1463,7 @@ export class City {
     const archGeo = new THREE.TorusGeometry(0.25, 0.03, 8, 20, Math.PI);// half-ring fender eyebrow
     for (const wx of [-0.6, 0.62]) for (const wz of [W / 2 - 0.05, -(W / 2 - 0.05)]) {
       const sgn = wz > 0 ? 1 : -1, face = wz + sgn * 0.085;
-      const tire = new THREE.Mesh(tireGeo, TIRE); tire.position.set(wx, 0.21, wz); tire.rotation.x = Math.PI / 2; g.add(tire);
+      const tire = new THREE.Mesh(tireGeo, TIRE); tire.position.set(wx, 0.21, wz); tire.rotation.x = Math.PI / 2; addInk(tire, 1.05); g.add(tire);
       const disc = new THREE.Mesh(discGeo, TRIM); disc.position.set(wx, 0.21, face - sgn * 0.012); disc.rotation.x = Math.PI / 2; g.add(disc);
       const spokes = new THREE.Group();                                  // 5 light spokes on the dark face
       for (let s = 0; s < 5; s++) { const sp = new THREE.Mesh(spokeGeo, ALLOY); sp.rotation.z = s * (Math.PI * 2 / 5); spokes.add(sp); }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { toonMat, inkedMesh } from '../toon.js';
+import { toonMat, inkedMesh, addInk } from '../toon.js';
 import { GLASS, SHUTTER } from './materials.js';
 
 // ===========================================================================
@@ -9,37 +9,57 @@ import { GLASS, SHUTTER } from './materials.js';
 //  opts, and the prop is built, added to the scene, and its collider registered.
 // ===========================================================================
 
-// A parked bicycle, seen side-on (its face turned toward the street).
+// A parked bicycle, seen side-on (its face turned toward the street). Same
+// compromise as the car: SMOOTH, rounded geometry (tube-shaped frame, round
+// rims with spokes) shaded with MeshStandardMaterial — but kept tied to the
+// manga scene with a LIGHT inverted-hull ink contour on every part.
 export function makeBicycle(ctx, { x, z, ang = 0 }) {
   ctx.colliders.push({ x, z, r: 0.45 });
   const g = new THREE.Group();
   g.position.set(x, 0, z); g.rotation.y = ang;
-  const TIRE = '#1c1a17', FRAME = '#34302a', SEAT = '#262320';
-  const wr = 0.3, wheelGeo = new THREE.TorusGeometry(wr, 0.035, 5, 14);
+  const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.25, ...o });
+  const TIRE  = std('#1c1a17', { roughness: 0.9, metalness: 0.0 });
+  const FRAME = std('#3a352e', { roughness: 0.4, metalness: 0.45 });
+  const RIM   = std('#a6a29a', { roughness: 0.35, metalness: 0.6 });
+  const SEAT  = std('#262320', { roughness: 0.6 });
+
+  // ── round wheels: a tyre torus + a thin bright rim + a few spokes + hub ─────
+  const wr = 0.3;
+  const tyreGeo = new THREE.TorusGeometry(wr, 0.04, 14, 32);
+  const rimGeo  = new THREE.TorusGeometry(wr - 0.05, 0.012, 8, 32);
+  const spokeGeo = new THREE.CylinderGeometry(0.006, 0.006, (wr - 0.06) * 2, 6);
+  const hubGeo  = new THREE.CylinderGeometry(0.03, 0.03, 0.05, 10);
   for (const wx of [-0.52, 0.52]) {
-    const wheel = inkedMesh(wheelGeo, TIRE, { k: 1.05 });
-    wheel.position.set(wx, wr, 0); g.add(wheel);
+    const tyre = new THREE.Mesh(tyreGeo, TIRE); tyre.position.set(wx, wr, 0); addInk(tyre, 1.04); g.add(tyre);
+    const rim = new THREE.Mesh(rimGeo, RIM); rim.position.set(wx, wr, 0); g.add(rim);
+    for (let s = 0; s < 6; s++) {
+      const sp = new THREE.Mesh(spokeGeo, RIM); sp.position.set(wx, wr, 0); sp.rotation.z = s * (Math.PI / 6); g.add(sp);
+    }
+    const hub = new THREE.Mesh(hubGeo, FRAME); hub.position.set(wx, wr, 0); hub.rotation.x = Math.PI / 2; addInk(hub, 1.06); g.add(hub);
   }
-  const bar = (x1, y1, x2, y2, th = 0.045) => {
+
+  // ── tube-shaped frame members (cylinders, lightly inked) ───────────────────
+  const tube = (x1, y1, x2, y2, r = 0.024) => {
     const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 0.01;
-    const b = inkedMesh(new THREE.BoxGeometry(th, len, th), FRAME, { k: 1.12 });
-    b.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
-    b.rotation.z = Math.atan2(-dx, dy); g.add(b);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 10), FRAME);
+    t.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
+    t.rotation.z = Math.atan2(-dx, dy); addInk(t, 1.07); g.add(t);
   };
   const bbx = 0.02, bby = wr, sx = -0.2, sy = 0.74, hx = 0.46, hy = 0.82;
-  bar(-0.52, wr, bbx, bby);   // chain stay
-  bar(bbx, bby, sx, sy);      // seat tube
-  bar(sx, sy, hx, hy);        // top tube
-  bar(hx, hy, bbx, bby);      // down tube
-  bar(sx, sy, -0.52, wr);     // seat stay
-  bar(hx, hy, 0.52, wr);      // fork
-  const saddle = inkedMesh(new THREE.BoxGeometry(0.28, 0.06, 0.12), SEAT, { k: 1.06, cast: false });
-  saddle.position.set(sx - 0.04, sy + 0.03, 0); g.add(saddle);
-  const grip = inkedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.34), FRAME, { k: 1.1, cast: false });
-  grip.position.set(hx, hy + 0.02, 0); g.add(grip);
+  tube(-0.52, wr, bbx, bby);   // chain stay
+  tube(bbx, bby, sx, sy);      // seat tube
+  tube(sx, sy, hx, hy);        // top tube
+  tube(hx, hy, bbx, bby);      // down tube
+  tube(sx, sy, -0.52, wr);     // seat stay
+  tube(hx, hy, 0.52, wr);      // fork
+
+  const saddle = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.06, 10), SEAT);
+  saddle.scale.set(1, 1, 2.0); saddle.position.set(sx - 0.04, sy + 0.05, 0); addInk(saddle, 1.06); g.add(saddle);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.34, 10), FRAME);
+  grip.rotation.x = Math.PI / 2; grip.position.set(hx, hy + 0.04, 0); addInk(grip, 1.08); g.add(grip);
   if (ctx.rng() < 0.6) {     // the ubiquitous front basket
-    const basket = inkedMesh(new THREE.BoxGeometry(0.22, 0.18, 0.26), '#bcae90', { k: 1.05, cast: false });
-    basket.position.set(0.54, 0.66, 0); g.add(basket);
+    const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.1, 0.18, 12), std('#bcae90', { roughness: 0.7, metalness: 0.0 }));
+    basket.position.set(0.54, 0.66, 0); addInk(basket, 1.05); g.add(basket);
   }
   ctx.scene.add(g);
 }
