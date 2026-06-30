@@ -9,7 +9,6 @@ import { MuralFactory }  from './mural-factory.js';
 import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
-import { clockIn } from './solar.js';
 import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
 import BootScreen    from '../components/BootScreen.js';
@@ -22,7 +21,6 @@ import ThoughtBubble from '../components/ThoughtBubble.js';
 import FollowButton  from '../components/FollowButton.js';
 import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
-import TimeBar       from '../components/TimeBar.js';
 
 const DAY = new THREE.Color(CONFIG.sky);
 const col = new THREE.Color();
@@ -44,8 +42,6 @@ const ui = reactive({
   cameraFollowing: true,
   viewTilted:      false,        // horizon rolled → show the "Raddrizza" button
 
-  clock:           '--:--:--',  // JST wall-clock (Setagaya, Tokyo)
-  phase:           'day',       // day · night · dawn · dusk
   // Callback slots: Vue / Agent → Three.js CameraRig
   onFollowRequest: null,
   onResetView:     null,   // "right the world" button → snap camera upright behind KAI
@@ -60,7 +56,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay, TimeBar },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay },
   setup() {
     return { ui };
   },
@@ -79,7 +75,6 @@ const VueRoot = {
     <FlashOverlay  :active="ui.flashActive" />
     <BootScreen    :hidden="ui.booted" :error="ui.bootError" />
     <TitlePanel />
-    <TimeBar       :clock="ui.clock" :phase="ui.phase" />
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
     <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" />
     <StatusBar     :state="ui.status" />
@@ -214,11 +209,6 @@ class App {
     this.scene.background.copy(col);
     this.scene.fog.color.copy(col);
     this.atmosphere.setSun(CONFIG.sun, 1);
-
-    // Clock still shows real Tokyo time (informational only).
-    const now = new Date();
-    ui.clock = clockIn(CONFIG.location.tz, now).text;
-    ui.phase = 'day';
   }
 
   _onResize() {

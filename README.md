@@ -59,8 +59,7 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   ├── ThoughtBubble.js KAI's inner monologue (bottom-center)
 │   ├── FollowButton.js  re-lock camera behind KAI
 │   ├── ResetButton.js   "Raddrizza" — right the world / camera upright behind KAI
-│   ├── FlashOverlay.js  orange radial flash on mural paint
-│   └── TimeBar.js       live JST clock + day/night phase (top-centre)
+│   └── FlashOverlay.js  orange radial flash on mural paint
 │
 ├── worker.js       ← Cloudflare Worker: API proxy + rate limiting
 ├── wrangler.toml   ← Worker deploy config
