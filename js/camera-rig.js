@@ -405,29 +405,51 @@ export class CameraRig {
     const ddz = T.z * Math.cos(this.azimuth) + B.z * Math.sin(this.azimuth);
     const dl = Math.hypot(ddx, ddz) || 1;
 
-    // Occlusion-aware lift: when following/auto-framing, if a building sits
-    // between the camera and KAI, raise the pitch so the lens looks down over the
-    // rooftops instead of into a wall (the town hugs the pole, so flat ≈ world).
+    // Occlusion-aware framing: when following/auto-framing, if a building sits
+    // between the camera and KAI, first raise the pitch so the lens looks down
+    // over the rooftops; if that alone can't clear it, ALSO pull the camera in
+    // (zoom toward KAI) so it slips in front of the obstruction. Both targets are
+    // transient — they relax back to the user's pitch/zoom once the shot is clear,
+    // so the camera eases out and re-levels on its own (the town hugs the pole, so
+    // flat ≈ world for this ray test).
     let polTarget = this.polar;
+    let radTarget = this.radius;
     if ((this.following || this._cine) && this.city && charPos) {
       const ux = ddx / dl, uz = ddz / dl;
-      for (let tries = 0; tries < 9; tries++) {
-        const camH  = Math.cos(polTarget) * this.radius + 1.2;
-        const horiz = Math.sin(polTarget) * this.radius;
-        let blocked = false;
+      const blocked = (pol, rad) => {
+        const camH  = Math.cos(pol) * rad + 1.2;
+        const horiz = Math.sin(pol) * rad;
         const n = Math.max(4, Math.ceil(horiz / 1.3));
         for (let i = 1; i <= n; i++) {
           const f = i / n, d = f * horiz;
           const top = this.city.hitsBuilding(charPos.x + ux * d, charPos.z + uz * d);
-          if (top > 0 && 1.2 + (camH - 1.2) * f < top + 0.5) { blocked = true; break; }
+          if (top > 0 && 1.2 + (camH - 1.2) * f < top + 0.5) return true;
         }
-        if (!blocked) break;
+        return false;
+      };
+      // 1) a GENTLE pitch lift first — enough to peek over a near wall without
+      //    swinging fully overhead (keeps the third-person, behind-KAI framing)
+      const softPol = Math.max(CONFIG.camPolarMin, this.polar - 0.36);
+      for (let tries = 0; tries < 4 && blocked(polTarget, radTarget); tries++) {
+        polTarget = Math.max(softPol, polTarget - 0.12);
+        if (polTarget <= softPol) break;
+      }
+      // 2) then ZOOM IN toward KAI — slip the camera in front of the obstruction
+      for (let tries = 0; tries < 12 && blocked(polTarget, radTarget); tries++) {
+        radTarget *= 0.9;
+        if (radTarget <= CONFIG.camRadiusMin) { radTarget = CONFIG.camRadiusMin; break; }
+      }
+      // 3) last resort (a really tall block right on top of him) → lift the rest
+      //    of the way over the rooftops
+      for (let tries = 0; tries < 9 && blocked(polTarget, radTarget); tries++) {
         polTarget -= 0.12;
         if (polTarget <= CONFIG.camPolarMin) { polTarget = CONFIG.camPolarMin; break; }
       }
     }
     this._renderPolar += (polTarget - this._renderPolar) * (1 - Math.exp(-dt * 5));
-    this._renderEff   += (this.radius - this._renderEff)   * (1 - Math.exp(-dt * 6));
+    // pull IN quickly so KAI isn't lost behind a wall, but ease back OUT gently
+    const pullRate = radTarget < this._renderEff ? 7 : 3;
+    this._renderEff   += (radTarget - this._renderEff) * (1 - Math.exp(-dt * pullRate));
 
     const sinP = Math.sin(this._renderPolar), cosP = Math.cos(this._renderPolar);
     const off = this._off.copy(up).multiplyScalar(cosP)
