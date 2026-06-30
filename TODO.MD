@@ -17,10 +17,11 @@
 - [x] Aggiorna il README.MD → aggiornato
 
 # TODO secondari
-- [ ] Didegna anche su porte e finestre, facendo capire che sotto ci sono porte e finestre, una sorta di overlay trasparente
-- [ ] nella daskside del pianeta, essendo al buio, ci devono esere i lampioni accesi che illuminano le strade
-- [ ] le scale sono montate al contrario erronemante
-- [ ]  tutti gli oggetti creati in city.js andreabbero postati in prop.js e eliminati da city.js
+- [x] Didegna anche su porte e finestre, facendo capire che sotto ci sono porte e finestre, una sorta di overlay trasparente → mural-factory: il murale è un overlay translucido (muralOpacity 0.85) dipinto sopra porte/finestre, che traspaiono sotto la vernice
+- [x] nella daskside del pianeta, essendo al buio, ci devono esere i lampioni accesi che illuminano le strade → atmosphere: luminosità lampione bakizzata per emisfero (lens/pozze/coni) + lampioni anche sullo specchio sud → solo il lato notte si accende
+- [x] le scale sono montate al contrario erronemante → city `_stairs`: la rampa ora sale verso l'ingresso (gradino alto contro il muro), non verso la strada
+- [ ] tutti gli oggetti creati in city.js andreabbero postati in prop.js e eliminati da city.js → RIMANE: refactor ampio (spostare i builder discreti — lamppost/waterTower/antenna/nobori/planterBox/roadSign/curveMirror/aFrameBarrier/keiCar/scooter/stairs/acUnit/plankFence — in js/items/props.js, lasciando la generazione strutturale)
+- [x] elimina orario e bordo della pagina → rimossi TimeBar (#clock) e la cornice inchiostrata (#paper .frame)
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare,aaggiungi flag in un yaml di onfigurazione se salvare o meno
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.

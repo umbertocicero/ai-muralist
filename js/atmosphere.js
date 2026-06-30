@@ -114,10 +114,11 @@ export class Atmosphere {
     this.core.position.copy(this.glow.position);
     this.shafts.position.copy(this.glow.position);
     if (this.moon) this.moon.material.opacity = (1 - day) * 0.85;
-    const night = 1 - day;
-    if (this.lamps)     this.lamps.material.opacity     = night * 1.0;   // lamp lens bloom
-    if (this.lampPools) this.lampPools.material.opacity = night * 0.55;  // warm light on the lane
-    if (this.lampCones) this.lampCones.material.opacity = night * 0.17;  // downward light cones
+    // Street lamps are NOT driven by this global day factor any more: the town
+    // is permanently lit (it faces the fixed sun), but the planet's far side is
+    // permanently in the dark and its lamps must stay on. Each lamp's glow is
+    // baked per-hemisphere in setLamps instead, so the dark-side lanes are lit
+    // while the day-side lamps stay dark.
   }
 
   // Street-lamp glows — added UNDER `parent` (the spun planet root) so they ride
@@ -128,12 +129,30 @@ export class Atmosphere {
     if (!heads || !heads.length) return;
     const n = heads.length / 3;
 
+    // Per-lamp brightness, baked once. The planet is oriented so the town faces
+    // the fixed sun, which puts the sun straight "up" (local +Y) in this frame —
+    // so a lamp is on the NIGHT side when its own up (its normalised position)
+    // points away from +Y. We ramp from lit-side-off to dark-side-on just past
+    // the equator. Baked as a grey vertex/instance colour; with additive
+    // blending a brightness of 0 makes the day-side lamps simply invisible.
+    const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const nightAt = (i) => {
+      const x = heads[i * 3], y = heads[i * 3 + 1], z = heads[i * 3 + 2];
+      const len = Math.hypot(x, y, z) || 1;
+      return smooth(-0.05, 0.32, -y / len);   // 0 on the lit hemisphere → 1 on the dark side
+    };
+    const night = new Float32Array(n);
+    for (let i = 0; i < n; i++) night[i] = nightAt(i);
+
     // (1) bright lens bloom at each cobra head
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(heads, 3));
+    const lensCol = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) lensCol[i * 3] = lensCol[i * 3 + 1] = lensCol[i * 3 + 2] = night[i];
+    geo.setAttribute('color', new THREE.BufferAttribute(lensCol, 3));
     const mat = new THREE.PointsMaterial({
-      map: discTexture(0.12), color: 0xffe2b0, size: 3.4, sizeAttenuation: true,
-      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0,
+      map: discTexture(0.12), color: 0xffe2b0, size: 3.4, sizeAttenuation: true, vertexColors: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 1,
     });
     this.lamps = new THREE.Points(geo, mat);
     this.lamps.renderOrder = 995;
@@ -146,6 +165,7 @@ export class Atmosphere {
           t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
     const pos = new Float32Array(n * 4 * 3);
     const uv  = new Float32Array(n * 4 * 2);
+    const pcol = new Float32Array(n * 4 * 3);   // per-lamp brightness (dark-side pools only)
     const idx = [];
     for (let i = 0; i < n; i++) {
       const hx = heads[i * 3], hy = heads[i * 3 + 1], hz = heads[i * 3 + 2], v = i * 4;
@@ -162,15 +182,18 @@ export class Atmosphere {
         c.x - ax + bx, c.y - ay + by, c.z - az + bz,
       ], v * 3);
       uv.set([0, 0, 1, 0, 1, 1, 0, 1], v * 2);
+      const g = night[i] * 0.55;                      // pools were at 0.55 master opacity
+      for (let k = 0; k < 4; k++) pcol[(v + k) * 3] = pcol[(v + k) * 3 + 1] = pcol[(v + k) * 3 + 2] = g;
       idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
     }
     const pg = new THREE.BufferGeometry();
     pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     pg.setAttribute('uv',       new THREE.BufferAttribute(uv, 2));
+    pg.setAttribute('color',    new THREE.BufferAttribute(pcol, 3));
     pg.setIndex(idx);
     const pmat = new THREE.MeshBasicMaterial({
-      map: discTexture(0.0), color: 0xffcf8c,
-      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0,
+      map: discTexture(0.0), color: 0xffcf8c, vertexColors: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 1,
     });
     this.lampPools = new THREE.Mesh(pg, pmat);
     this.lampPools.renderOrder = 994;
@@ -183,19 +206,23 @@ export class Atmosphere {
     const cgeo = new THREE.ConeGeometry(cr, h, 16, 1, true);
     const cmat = new THREE.MeshBasicMaterial({
       map: coneTexture(), color: 0xffcf8c, blending: THREE.AdditiveBlending,
-      depthWrite: false, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      depthWrite: false, transparent: true, opacity: 1, side: THREE.DoubleSide,
     });
     const cones = new THREE.InstancedMesh(cgeo, cmat, n);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
-          p = new THREE.Vector3(), cc = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
+          p = new THREE.Vector3(), cc = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1),
+          col = new THREE.Color();
     for (let i = 0; i < n; i++) {
       p.set(heads[i * 3], heads[i * 3 + 1], heads[i * 3 + 2]);
       up.copy(p).normalize();
       q.setFromUnitVectors(Y, up);                    // local +Y (apex side) → up
       cc.copy(p).addScaledVector(up, -h / 2);         // apex lands exactly on the lamp
       cones.setMatrixAt(i, m.compose(cc, q, s));
+      const g = night[i] * 0.17;                      // cones were at 0.17 master opacity
+      cones.setColorAt(i, col.setRGB(g, g, g));
     }
     cones.instanceMatrix.needsUpdate = true;
+    if (cones.instanceColor) cones.instanceColor.needsUpdate = true;
     cones.renderOrder = 993;
     this.lampCones = cones;
     parent.add(cones);

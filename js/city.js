@@ -208,6 +208,18 @@ export class City {
     this.worldRoot.add(south);
     this.scene.add(this.worldRoot);
     this.north = north;
+
+    // The mirrored dark-side town needs its own lit lamps. Transform every
+    // (already spherified) north lamp position by the same flip the south group
+    // uses, so a glow sits on each dark-side lamp too. atmosphere.setLamps then
+    // lights lamps per hemisphere, so only the ones on the night side glow.
+    const e = new THREE.Euler(south.rotation.x, south.rotation.y, south.rotation.z);
+    const v = new THREE.Vector3();
+    const nLamp = this.lampHeads.length;
+    for (let i = 0; i < nLamp; i += 3) {
+      v.set(this.lampHeads[i], this.lampHeads[i + 1], this.lampHeads[i + 2]).applyEuler(e);
+      this.lampHeads.push(v.x, v.y, v.z);
+    }
   }
 
   // Reposition + reorient every individual city mesh onto the planet. Batched
@@ -1568,10 +1580,15 @@ export class City {
   _stairs(x, z, rot, n = 5) {
     const stepW = 1.2, stepH = 0.18, stepD = 0.32;
     this.barriers.push({ cx: x, cz: z, hw: stepW / 2 + 0.12, hd: (n * stepD) / 2, rot });
+    // The flight ASCENDS toward the building entrance: the local +z end faces the
+    // lane (low) and the -z end meets the wall (high). So the step's height must
+    // GROW as we move toward the wall (decreasing i), not toward the street —
+    // previously it was reversed, so the stairs climbed away from the door.
     for (let i = 0; i < n; i++) {
       const p = this._toWorld(x, z, rot, 0, (i - (n - 1) / 2) * stepD);
-      const step = inkedMesh(new THREE.BoxGeometry(stepW, stepH * (i + 1), stepD + 0.02), '#d2cfc8', { k: 1.02, cast: false, receive: true });
-      step.position.set(p.x, stepH * (i + 1) / 2, p.z); step.rotation.y = rot; this.scene.add(step);
+      const sh = stepH * (n - i);
+      const step = inkedMesh(new THREE.BoxGeometry(stepW, sh, stepD + 0.02), '#d2cfc8', { k: 1.02, cast: false, receive: true });
+      step.position.set(p.x, sh / 2, p.z); step.rotation.y = rot; this.scene.add(step);
     }
     // low cheek walls flanking the flight
     const topH = stepH * n;

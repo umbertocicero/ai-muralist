@@ -171,9 +171,19 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           // Unlit material — the mural keeps its full vivid colour regardless
           // of the B&W scene lighting, so it reads as a burst of paint on a
           // grey wall (the only colour in the world).
+          //
+          // It's also a slightly TRANSPARENT overlay: KAI paints right across the
+          // doors and windows, and at this opacity the dark glass/door panes
+          // beneath show through faintly — so you can still read that there's a
+          // window or a doorway under the paint, like spray on a real shutter.
+          // Drawn in the transparent pass (after the opaque facade) so the panes
+          // it covers are already there to bleed through.
           const plane = new THREE.Mesh(
             new THREE.PlaneGeometry(slot.wallW * CONFIG.muralCoverW, slot.wallH * CONFIG.muralCoverH),
-            new THREE.MeshBasicMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })
+            new THREE.MeshBasicMaterial({
+              map: tex, transparent: true, opacity: CONFIG.muralOpacity ?? 0.85,
+              polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+            })
           );
 
           // Place on the little planet: anchor at the wall point (offset a hair
