@@ -81,32 +81,56 @@ export class Character {
     const strapL = cyl(0.033, 0.033, 0.52, STRAP, true, 1.08, 8); strapL.position.set(-0.16, 1.18, 0.13); strapL.rotation.x = 0.08;
     const strapR = cyl(0.033, 0.033, 0.52, STRAP, true, 1.08, 8); strapR.position.set( 0.16, 1.18, 0.13); strapR.rotation.x = 0.08;
 
-    // ── Arms: bare tapered limbs (short sleeves) + ball hands ────────────────
-    this.armL = cyl(0.072, 0.058, 0.6, SKIN, true, 1.05, 12); this.armL.position.set(-0.30, 1.06, 0);
-    this.armR = cyl(0.072, 0.058, 0.6, SKIN, true, 1.05, 12); this.armR.position.set( 0.30, 1.06, 0);
-    const sleeveL = cyl(0.105, 0.092, 0.22, SHIRT, true, 1.04, 14); sleeveL.position.set(0, 0.22, 0); this.armL.add(sleeveL);
-    const sleeveR = cyl(0.105, 0.092, 0.22, SHIRT, true, 1.04, 14); sleeveR.position.set(0, 0.22, 0); this.armR.add(sleeveR);
-    const handL = ball(0.085, SKIN, true, 1.07); handL.position.set(0, -0.34, 0.02); this.armL.add(handL);
-    const handR = ball(0.085, SKIN, true, 1.07); handR.position.set(0, -0.34, 0.05); this.armR.add(handR);
+    // ── Arms: rigged at the shoulder, folding at the elbow ──────────────────
+    // Each arm is a Group whose pivot sits at the shoulder ball. The upper arm
+    // hangs from that pivot; an elbow Group hangs from the bottom of the upper
+    // arm; the forearm + hand hang from the elbow. So the whole arm swings from
+    // the shoulder and bends at the elbow, instead of a single cylinder spinning
+    // about its own middle.
+    const buildArm = (side) => {
+      const shoulder = new THREE.Group(); shoulder.position.set(side * 0.30, 1.36, 0);
+      const upper  = cyl(0.072, 0.062, 0.34, SKIN, true, 1.05, 12); upper.position.y  = -0.17;
+      const sleeve = cyl(0.105, 0.092, 0.22, SHIRT, true, 1.04, 14); sleeve.position.y = -0.07;
+      const elbow  = new THREE.Group(); elbow.position.y = -0.34;
+      const fore   = cyl(0.062, 0.05, 0.30, SKIN, true, 1.05, 12); fore.position.y = -0.15;
+      const hand   = ball(0.085, SKIN, true, 1.07); hand.position.set(0, -0.31, 0.02);
+      elbow.add(fore, hand);
+      shoulder.add(upper, sleeve, elbow);
+      return { shoulder, elbow };
+    };
+    const aL = buildArm(-1), aR = buildArm(1);
+    this.armL = aL.shoulder; this.elbowL = aL.elbow;
+    this.armR = aR.shoulder; this.elbowR = aR.elbow;
 
-    // Spray can in the right hand (a signature colour accent)
+    // Spray can (the lone colour accent), carried on the right forearm so it
+    // tracks the elbow as the arm folds.
     const can = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.22, 12), toonMat('#d8d4cc'));
-    can.castShadow = true; addInk(can, 1.12); can.position.set(0, -0.4, 0.11); this.armR.add(can);
+    can.castShadow = true; addInk(can, 1.12); can.position.set(0, -0.33, 0.11); aR.elbow.add(can);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.06, 12), toonMat('#ff6b35'));
-    addInk(cap, 1.14); cap.position.set(0, -0.27, 0.11); this.armR.add(cap);
+    addInk(cap, 1.14); cap.position.set(0, -0.20, 0.11); aR.elbow.add(cap);
 
-    // ── Dark shorts + bare tapered legs + rounded sneakers ──────────────────
+    // ── Dark shorts + rigged legs (hip pivot, bending knee) + sneakers ──────
+    // Same idea as the arms: a hip Group pivots the whole leg, the thigh hangs
+    // from it, a knee Group hangs from the thigh, and the shin + shoe hang from
+    // the knee — so the leg swings from the hip and the foot lifts at the knee.
     const shorts = cyl(0.235, 0.205, 0.34, SHORTS, true, 1.03, 16); shorts.position.set(0, 0.73, 0); shorts.scale.z = 0.84;
-    this.legL = cyl(0.082, 0.066, 0.56, SKIN, true, 1.05, 12); this.legL.position.set(-0.11, 0.37, 0);
-    this.legR = cyl(0.082, 0.066, 0.56, SKIN, true, 1.05, 12); this.legR.position.set( 0.11, 0.37, 0);
-    const shoeL = blob(0.13, SHOE, 0.8, 0.62, 1.26, true, 1.05); shoeL.position.set(-0.11, 0.075, 0.06);
-    const shoeR = blob(0.13, SHOE, 0.8, 0.62, 1.26, true, 1.05); shoeR.position.set( 0.11, 0.075, 0.06);
-    const soleL = blob(0.13, SOLE, 0.86, 0.28, 1.32, false); soleL.position.set(-0.11, 0.025, 0.06);
-    const soleR = blob(0.13, SOLE, 0.86, 0.28, 1.32, false); soleR.position.set( 0.11, 0.025, 0.06);
+    const buildLeg = (side) => {
+      const hip   = new THREE.Group(); hip.position.set(side * 0.11, 0.65, 0);
+      const thigh = cyl(0.082, 0.07, 0.30, SKIN, true, 1.05, 12); thigh.position.y = -0.15;
+      const knee  = new THREE.Group(); knee.position.y = -0.30;
+      const shin  = cyl(0.07, 0.062, 0.275, SKIN, true, 1.05, 12); shin.position.y = -0.1375;
+      const shoe  = blob(0.13, SHOE, 0.8, 0.62, 1.26, true, 1.05); shoe.position.set(0, -0.275, 0.06);
+      const sole  = blob(0.13, SOLE, 0.86, 0.28, 1.32, false);     sole.position.set(0, -0.325, 0.06);
+      knee.add(shin, shoe, sole);
+      hip.add(thigh, knee);
+      return { hip, knee };
+    };
+    const lL = buildLeg(-1), lR = buildLeg(1);
+    this.legL = lL.hip; this.kneeL = lL.knee;
+    this.legR = lR.hip; this.kneeR = lR.knee;
 
     [this.head, neck, this.body, chest, collar, shoulderL, shoulderR, pack, flap, strapL, strapR,
-     this.armL, this.armR, shorts, this.legL, this.legR,
-     shoeL, shoeR, soleL, soleR].forEach(m => this.group.add(m));
+     this.armL, this.armR, shorts, this.legL, this.legR].forEach(m => this.group.add(m));
 
     this.group.position.set(start.x, 0, start.z);
     scene.add(this.group);
@@ -116,24 +140,39 @@ export class Character {
   faceNormalInward(slot) { this.facing = Math.atan2(-slot.nx, -slot.nz); }
 
   walk(t, scale = 1) {
-    const s = Math.sin(t * 8) * 0.36 * scale;
-    this.armL.rotation.x =  s; this.armR.rotation.x = -s;
-    this.legL.rotation.x = -s; this.legR.rotation.x =  s;
-    this.head.position.y = 1.66 + Math.sin(t * 16) * 0.012;
+    const ph = t * 8, s = Math.sin(ph);
+    // Shoulders swing fore/aft, opposite to the hips, with a soft elbow carry
+    // that folds a little harder on each backswing.
+    this.armL.rotation.x   =  s * 0.45 * scale;
+    this.armR.rotation.x   = -s * 0.45 * scale;
+    this.elbowL.rotation.x = -(0.3 + Math.max(0,  s) * 0.45) * scale;
+    this.elbowR.rotation.x = -(0.3 + Math.max(0, -s) * 0.45) * scale;
+    // Hips swing the legs; the trailing leg's knee folds to lift the foot clear.
+    this.legL.rotation.x  = -s * 0.5 * scale;
+    this.legR.rotation.x  =  s * 0.5 * scale;
+    this.kneeL.rotation.x =  Math.max(0,  s) * 0.95 * scale;
+    this.kneeR.rotation.x =  Math.max(0, -s) * 0.95 * scale;
+    this.head.position.y = 1.66 + Math.sin(ph * 2) * 0.012;
     this.head.rotation.y = 0;
   }
 
   idle(t) {
     this.armL.rotation.x = this.armR.rotation.x = 0;
+    this.elbowL.rotation.x = this.elbowR.rotation.x = -0.22;   // relaxed soft bend
     this.legL.rotation.x = this.legR.rotation.x = 0;
-    this.head.position.y = 1.66;
+    this.kneeL.rotation.x = this.kneeR.rotation.x =  0.04;     // knees not locked
+    this.head.position.y = 1.66 + Math.sin(t * 1.8) * 0.004;  // breathing
     this.head.rotation.y = Math.sin(t * 0.9) * 0.06;
   }
 
   paint(t) {
-    this.armL.rotation.x = 0;
+    this.armL.rotation.x = 0; this.elbowL.rotation.x = -0.3;
     this.legL.rotation.x = this.legR.rotation.x = 0;
-    this.armR.rotation.x = Math.sin(t * 6) * 0.55 - 0.5;   // lifted, spraying
+    this.kneeL.rotation.x = this.kneeR.rotation.x =  0.05;
+    // Right shoulder lifts the arm to the wall; the elbow works the can up and
+    // down for the spraying stroke.
+    this.armR.rotation.x   = -1.1 + Math.sin(t * 6) * 0.12;
+    this.elbowR.rotation.x = -0.7 + Math.sin(t * 6) * 0.35;
     this.head.rotation.y = Math.sin(t * 3) * 0.04;
   }
 
