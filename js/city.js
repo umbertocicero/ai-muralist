@@ -60,6 +60,65 @@ function gableGeometry(halfSpan, rh, len) {
   g.computeVertexNormals();
   return g;
 }
+// A SOFT draped cloth (futon / blanket over a balcony rail). A thin double-sided
+// shell shaped so it reads as fabric, not a plank: it bellies out in the middle,
+// runs in a few gentle vertical folds, rounds forward into a lip where it bends
+// over the rail at the top, and has a wavy, slightly-sagging hem at the bottom.
+// Local origin is the TOP centre (at the rail); +y is up, the cloth hangs to -y,
+// +z is the outward (street) side. Each `seed` gives a different fold pattern.
+function drapedClothGeometry(w, h, {
+  depth = 0.045, nx = 18, ny = 16, nfolds = 3,
+  foldAmp = 0.04, bellyAmp = 0.06, lipAmp = 0.06,
+  hemSag = 0.05, hemWave = 0.028, seed = 0,
+} = {}) {
+  const ph = seed * 1.7;
+  // outward (+z) offset of the cloth's mid-surface at (u in 0..1 across, v in 0..1 down)
+  const zMid = (u, v) => {
+    const belly = bellyAmp * Math.sin(Math.min(v, 1) * Math.PI);                 // bulge out mid-height
+    const folds = foldAmp * Math.sin(u * Math.PI * 2 * nfolds + ph) * (0.35 + 0.65 * v); // vertical folds, fuller low
+    const lip   = lipAmp * Math.exp(-(v * v) / (2 * 0.08 * 0.08));               // rounded fold-over lip at the rail
+    return belly + folds + lip;
+  };
+  const yAt = (u, v) => {
+    const hemT = Math.max(0, (v - 0.55) / 0.45);                                 // 0 until 55% down, 1 at the hem
+    const s = hemT * hemT * (3 - 2 * hemT);                                      // smoothstep so the hem eases in
+    // a gentle overall droop (deeper toward the centre) + a soft fold-tied ripple
+    const droop  = hemSag * Math.sin(u * Math.PI) * 0.7;
+    const ripple = hemWave * Math.cos(u * Math.PI * 2 * nfolds + ph);
+    return -v * h - (hemSag * 0.4 + droop + ripple) * s;
+  };
+  const xAt = (u) => (u - 0.5) * w;
+
+  const cols = nx + 1, rows = ny + 1;
+  const id = (side, i, j) => side * cols * rows + j * cols + i;
+  const pos = [];
+  for (let side = 0; side < 2; side++) {
+    const sgn = side === 0 ? 0.5 : -0.5;
+    for (let j = 0; j < rows; j++) {
+      const v = j / ny;
+      for (let i = 0; i < cols; i++) { const u = i / nx; pos.push(xAt(u), yAt(u, v), zMid(u, v) + depth * sgn); }
+    }
+  }
+  const idx = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const a = id(0, i, j), b = id(0, i + 1, j), c = id(0, i + 1, j + 1), d = id(0, i, j + 1);
+    idx.push(a, c, b, a, d, c);                                                  // front (+z)
+    const e = id(1, i, j), f = id(1, i + 1, j), g = id(1, i + 1, j + 1), k = id(1, i, j + 1);
+    idx.push(e, f, g, e, g, k);                                                  // back (-z)
+  }
+  const seam = (a, b, c, d) => idx.push(a, c, b, a, d, c);                       // close the perimeter
+  for (let i = 0; i < nx; i++) seam(id(0, i, 0),  id(1, i, 0),  id(1, i + 1, 0),  id(0, i + 1, 0));   // top
+  for (let i = 0; i < nx; i++) seam(id(1, i, ny), id(0, i, ny), id(0, i + 1, ny), id(1, i + 1, ny));  // hem
+  for (let j = 0; j < ny; j++) seam(id(1, 0, j),  id(0, 0, j),  id(0, 0, j + 1),  id(1, 0, j + 1));   // left
+  for (let j = 0; j < ny; j++) seam(id(0, nx, j), id(1, nx, j), id(1, nx, j + 1), id(0, nx, j + 1));  // right
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
 const DOOR_GEO = new THREE.PlaneGeometry(0.95, 1.9);
 const DOOR     = new THREE.MeshBasicMaterial({ color: '#322e28', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -709,8 +768,10 @@ export class City {
       const anchor = new THREE.Group();
       anchor.position.set(lp.x, y + ph + 0.05, lp.z); anchor.rotation.y = rotY; this.scene.add(anchor);
       const swing = new THREE.Group(); anchor.add(swing);
-      const futon = inkedMesh(new THREE.BoxGeometry(0.6, fh, 0.05), i % 2 ? '#9c9890' : '#d7d3cb', { k: 1.04, cast: false });
-      futon.position.set(0, -fh / 2, 0); swing.add(futon);
+      // a SOFT draped cloth (folds + rounded fold-over lip + wavy hem), not a plank
+      const cloth = drapedClothGeometry(0.6, fh, { seed: (seed * 3 + i) | 0, nfolds: 2 + (i % 2) });
+      const futon = inkedMesh(cloth, i % 2 ? '#9c9890' : '#d7d3cb', { k: 1.03, cast: false });
+      futon.position.set(0, 0, 0); swing.add(futon);
       const ph2 = this.rng() * 6.283, fr = 0.7 + this.rng() * 0.6, amp = 0.05 + this.rng() * 0.05;
       this.animators.push((t) => {
         swing.rotation.x = Math.sin(t * fr + ph2) * amp;          // flap toward / away from the wall
