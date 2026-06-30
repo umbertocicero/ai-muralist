@@ -437,12 +437,18 @@ export class CameraRig {
     // planet spin so the shot stays glued to KAI as the world turns under it.
     const lookAt = this._pw.copy(this.pivot);
     this.camera.position.copy(this.pivot).addScaledVector(off, this._renderEff);
-    this.camera.up.set(0, 1, 0);
+    // Camera "up" is the LOCAL surface normal at the pivot (the radial direction
+    // there), NOT world-Y. The town reaches far from the pole, so world-Y would
+    // diverge from the local vertical and roll the horizon — that's the crooked
+    // tilt you see when KAI roams far. Using the radial up keeps KAI upright and
+    // the frame perfectly vertical everywhere on the planet (near the pole it IS
+    // ≈ world-Y, so nothing changes there). It tracks `pivot`, which is eased, so
+    // the verticality settles back smoothly after any orbit/occlusion move.
+    this.camera.up.copy(up);
     if (this.worldQuat) {
-      // The rig works in the planet's UN-spun (north-pole) frame, where KAI's cap
-      // sits near the pole and "up" is world-Y. Rotate the camera, its target AND
-      // its up by the planet spin together, so KAI's ground stays at the bottom of
-      // frame (no roll) however the day/night terminator has turned the world.
+      // The rig works in the planet's UN-spun frame; rotate the camera, its
+      // target AND its up by the planet spin together so the shot stays glued to
+      // KAI (and stays level) however the day/night terminator has turned the world.
       lookAt.applyQuaternion(this.worldQuat);
       this.camera.position.applyQuaternion(this.worldQuat);
       this.camera.up.applyQuaternion(this.worldQuat);
