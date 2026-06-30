@@ -66,6 +66,7 @@ export class CameraRig {
     this._pw = new THREE.Vector3(); this._invQ = new THREE.Quaternion(); this._camL = new THREE.Vector3();
     this._cineN = null;            // slot normal the paint-cam frames from behind
     this._cineSide = 0;            // shoulder offset (rad) for the paint-cam
+    this._cineAdmire = false;      // true = admiring a finished mural (frames itself; no occlusion-lift)
     this._snapBehind = false;      // reattach → snap straight behind KAI next frame
     this._offAxis = false;         // user has orbited/panned off the follow axis
     this._ptrs  = new Map();                       // active pointers
@@ -289,6 +290,7 @@ export class CameraRig {
   reattach(charPos) {
     this.following = true;
     this._cine = null;
+    this._cineAdmire = false;
     this._cineN = null;
     this.ui.cameraFollowing = true;
     this.targetRadius = CONFIG.camRadius;
@@ -327,6 +329,7 @@ export class CameraRig {
   watchMural(slot) {
     if (!slot || !this.following) return;     // only auto-frame if KAI was followed
     this._cine  = slot;
+    this._cineAdmire = false;                  // paint cam keeps the occlusion-lift
     this._cineN = { x: slot.nx, z: slot.nz }; // outward wall normal = "behind KAI"
     this._cineSide = 0.26;                     // a touch over one shoulder
     this.ui.cameraFollowing = true;           // auto-framing → hide the button
@@ -339,18 +342,43 @@ export class CameraRig {
   admireMural(slot) {
     if (!slot || !this._cine) return;
     this._cine  = slot;
+    this._cineAdmire = true;                    // admire frames itself (probe below); skip occlusion-lift
     this._cineN = { x: slot.nx, z: slot.nz };
-    this._cineSide = 0.72;                     // swing round to reveal the full piece
     this.following = false;
     this.ui.cameraFollowing = true;
-    this._cinePolar = 1.24;
-    this.targetRadius = 5.2;
-    planetPoint(slot.px, slot.py + 0.15, slot.pz, this.pivotTarget, this.R);
+
+    // Probe a small FAN out from the wall (the normal and ±~17°): is a neighbour
+    // standing in — or just beside — the head-on line of sight (a tight alley)?
+    // If so the frontal shot would bury the lens or be tipped overhead by the
+    // occlusion-lift, so swing round a shoulder to see past it. Otherwise frame
+    // the piece nearly head-on (KAI has stepped aside, so he's clear either way).
+    let frontalBlocked = false;
+    if (this.city) {
+      const ang = [0, 0.3, -0.3];
+      for (const a of ang) {
+        const nx = slot.nx * Math.cos(a) - slot.nz * Math.sin(a);
+        const nz = slot.nx * Math.sin(a) + slot.nz * Math.cos(a);
+        for (let d = 2.0; d <= 6.0; d += 1.0) {
+          if (this.city.hitsBuilding(slot.px + nx * d, slot.pz + nz * d) > 0) { frontalBlocked = true; break; }
+        }
+        if (frontalBlocked) break;
+      }
+    }
+    this._cineSide    = frontalBlocked ? 0.70 : 0.22;  // swing past a neighbour, else head-on
+    this._cinePolar   = frontalBlocked ? 1.28 : 1.46;  // dip a touch when swung, else level/square
+    this.targetRadius = frontalBlocked ? 5.6  : 4.4;   // closer when head-on so lateral blocks fall outside frame
+
+    planetPoint(slot.px, slot.py + 0.20, slot.pz, this.pivotTarget, this.R);
   }
+
+  // True while the camera is auto-framing a mural (watch/admire). The app reads
+  // this to calm the sun glow so the artwork isn't washed out half the frame.
+  get watching() { return !!this._cine; }
 
   releaseWatch() {
     if (!this._cine) return;
     this._cine = null;
+    this._cineAdmire = false;
     this._cineN = null;
     this.following = true;
     this.ui.cameraFollowing = true;
@@ -449,7 +477,11 @@ export class CameraRig {
     // flat ≈ world for this ray test).
     let polTarget = this.polar;
     let radTarget = this.radius;
-    if ((this.following || this._cine) && this.city && charPos) {
+    // The admire shot frames itself (admireMural probes the frontage and either
+    // stays head-on or swings past a neighbour), so it opts OUT of the lift —
+    // otherwise the ray, aimed at a pivot sitting ON the mural's wall, always
+    // reads "blocked" and tips the shot overhead. Follow + paint cam keep it.
+    if ((this.following || (this._cine && !this._cineAdmire)) && this.city && charPos) {
       const ux = ddx / dl, uz = ddz / dl;
       const blocked = (pol, rad) => {
         const camH  = Math.cos(pol) * rad + 1.2;

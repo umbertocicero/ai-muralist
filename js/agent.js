@@ -104,7 +104,9 @@ export class Agent {
         ...entry,
         thumb: svg ? 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) : null,
       });
-      // Stand back and admire it for a few seconds (camera zooms onto the mural).
+      // Step aside + back so KAI isn't standing in front of his own mural while
+      // the camera frames it head-on; the side is chosen open (see helper below).
+      this.admirePos   = this._admireStandPoint(slot);
       this.admireTimer = 0;
       this.ui.onAdmire?.(slot);
       this._setState(STATE.ADMIRING);
@@ -118,6 +120,23 @@ export class Agent {
   _releaseSlot() {
     if (this.currentSlot) this.currentSlot.used = false;
     this._returnToWander();
+  }
+
+  // Where KAI stands to admire a finished mural: a step BACK from the wall and
+  // to one side, so he's clear of the camera's head-on framing. Prefer whichever
+  // side of the wall is open; fall back to the plain approach point if both are
+  // blocked (a tight alley).
+  _admireStandPoint(slot) {
+    const ap = this.city.approachPoint(slot);    // 1.5 m out, square in front of the wall
+    const tx = -slot.nz, tz = slot.nx;           // unit tangent along the wall
+    const back = 0.8, side = 1.9;
+    const cand = sgn => ({
+      x: ap.x + slot.nx * back + tx * side * sgn,
+      z: ap.z + slot.nz * back + tz * side * sgn,
+    });
+    const a = cand(1);  if (!this.city.isColliding(a.x, a.z)) return a;
+    const b = cand(-1); if (!this.city.isColliding(b.x, b.z)) return b;
+    return ap;
   }
 
   _returnToWander() {
@@ -204,9 +223,19 @@ export class Agent {
       }
 
       case STATE.ADMIRING: {
-        // KAI and the camera hold on the finished mural for a few seconds.
+        // KAI steps aside to the open side, turns to face the wall, and he + the
+        // camera hold on the finished mural for a few seconds.
         this.admireTimer += dt;
-        this.char.idle(t);
+        const dist = this.admirePos
+          ? Math.hypot(this.admirePos.x - this.char.pos.x, this.admirePos.z - this.char.pos.z) : 0;
+        if (dist > 0.25) {
+          const moved = this.city.steer(this.char.pos, this.admirePos, step * 0.8);
+          if (moved) this.char.faceDirection(moved);
+          this.char.walk(t, 0.8);
+        } else {
+          this.char.faceNormalInward(this.currentSlot);
+          this.char.idle(t);
+        }
         if (this.admireTimer > CONFIG.admireSeconds) this._returnToWander();
         break;
       }

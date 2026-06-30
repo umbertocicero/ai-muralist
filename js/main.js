@@ -245,6 +245,9 @@ class App {
     this._yawQ.setFromAxisAngle(this._up, this.character.yaw);
     placeOnPlanet(this.character.group, this.character.pos.x, 0, this.character.pos.z, this._yawQ);
     this.rig.update(dt, this.character.pos, this.character.yaw);
+    // Calm the sun white-out while the camera is admiring a mural, so the
+    // artwork reads instead of half the frame blowing out to light.
+    this.atmosphere.setDim(this.rig.watching ? 0.25 : 1);
     // Tick the Tokyo clock in the UI ~3×/s (frame-rate independent).
     const nowMs = performance.now();
     if (nowMs - this._lastSky >= 330) { this._lastSky = nowMs; this._updateSky(); }

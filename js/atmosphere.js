@@ -99,6 +99,8 @@ export class Atmosphere {
     this.scene = scene;
     this.sun   = new THREE.Vector3(sun.x, sun.y, sun.z);
     this._day  = 1;            // 0 = night, 1 = day (drives all visibility)
+    this._dim       = 1;       // eased glow/shaft multiplier (1 = full sun)
+    this._dimTarget = 1;       // calmed toward ~0 while admiring a mural
     this._buildGlow();
     this._buildShafts();
     this._buildMoon();
@@ -283,11 +285,17 @@ export class Atmosphere {
     this.scene.add(this.shafts);
   }
 
+  // Calm the sun glow + shafts toward `target` (0..1). Used to stop the white-out
+  // washing half the frame while the camera admires a mural; eased in update().
+  setDim(target) { this._dimTarget = target; }
+
   update(dt, t, camera) {
     // Face the shaft fan toward the camera (rays splay across screen).
     if (camera) this.shafts.lookAt(camera.position);
 
-    const day = this._day;
+    // ease the glow multiplier toward its target (calmed during admire shots)
+    this._dim += (this._dimTarget - this._dim) * (1 - Math.exp(-dt * 3));
+    const day = this._day * this._dim;
     // Gentle breathing on each beam's opacity (faded out at night).
     for (const b of this._beams) {
       b.material.opacity = b._baseOp * (0.7 + 0.3 * Math.sin(t * 0.7 + b._phase)) * day;
