@@ -55,7 +55,7 @@ export const CONFIG = {
   // ── Manga look — ULTRA ENHANCED: ombre drammatiche, contrasto estremo ─
   visual: {
     celShade: [16, 96, 255],    // OMBRE NERE più forti per un look manga estremo
-    toneScale:      2.4,        // hatching più fine e più fitta
+    toneScale:      6.0,        // tratto FITTO e FINE (linee sottili e ravvicinate)
     hatchCut:       0.50,       // hatching inizia ancora prima
     crossHatchAt:   0.64,       // cross-hatch nelle ombre profonde
     hatchStrength:  0.92,       // hatching più intensa e più nera

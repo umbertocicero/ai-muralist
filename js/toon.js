@@ -110,28 +110,33 @@ export function applyMangaTone(mat) {
         // rotate into a 45° stroke frame; .x runs across the first hatch set,
         // .y across the perpendicular (cross-hatch) set
         '    vec2 p = TROT45 * huv * uToneScale;\n' +
-        '    float ax = abs(fract(p.x) - 0.5);\n' +                    // dist to nearest stroke (set 1)
-        // stroke half-width grows with shade: thin in mid shadow, fat (→solid)
-        // in the darkest. Capped so deep shade reads as dense hatch, not a blob.
-        // Primary hatch stroke. Half-width is kept WELL under 0.5 of the period so
-        // it always reads as a line, never fattening to a 50%-duty bar (two such
-        // bars crossing = the checkerboard/basket-weave we are avoiding).
-        '    float w1 = 0.04 + clamp(coverage, 0.0, 1.0) * 0.12;\n' +    // max ~0.16 (duty ~0.32)
-        '    float e1 = max(fwidth(p.x), 0.0009) * 1.2;\n' +
+        // HAND-DRAWN feel: each stroke wavers gently along its length and its
+        // width "breathes" (pen pressure), so the dense hatch reads as inked pen
+        // lines, not a printed grid. The wobble period is a few stroke-spacings
+        // (in p-space, so it scales naturally with the fine toneScale).
+        '    float wob1 = 0.07 * sin(p.y * 3.1 + 1.3) + 0.035 * sin(p.y * 7.7 + 5.0);\n' +
+        '    float wob2 = 0.07 * sin(p.x * 3.4 + 4.1) + 0.035 * sin(p.x * 8.3 + 2.0);\n' +
+        '    float ax = abs(fract(p.x + wob1) - 0.5);\n' +              // dist to nearest stroke (set 1)
+        // Thin primary stroke (kept well under 0.5-duty so fine dense lines never
+        // merge into a bar/checkerboard), its half-width breathing along the run.
+        '    float breath1 = 0.78 + 0.34 * sin(p.y * 5.3 + 0.7);\n' +
+        '    float w1 = (0.03 + clamp(coverage, 0.0, 1.0) * 0.085) * breath1;\n' +
+        '    float e1 = max(fwidth(p.x), 0.0009) * 1.3;\n' +
         '    float ink = 1.0 - smoothstep(w1 - e1, w1 + e1, ax);\n' +
         '    if (coverage > uCrossHatchAt) {\n' +                                // deep shadow only → cross-hatch
         '      float t = (coverage - uCrossHatchAt) / max(1.0 - uCrossHatchAt, 0.001);\n' +
-        '      float ay = abs(fract(p.y) - 0.5);\n' +
-        '      float w2 = t * 0.14;\n' +                                 // thin secondary set (stays fine)
-        '      float e2 = max(fwidth(p.y), 0.0009) * 1.2;\n' +
+        '      float ay = abs(fract(p.y + wob2) - 0.5);\n' +
+        '      float breath2 = 0.78 + 0.34 * sin(p.x * 4.7 + 2.2);\n' +
+        '      float w2 = t * 0.085 * breath2;\n' +                      // thin secondary set (stays fine)
+        '      float e2 = max(fwidth(p.y), 0.0009) * 1.3;\n' +
         '      ink = max(ink, 1.0 - smoothstep(w2 - e2, w2 + e2, ay));\n' +
         // The DARKEST tones fill toward solid ink (べた塗り) instead of leaving a
         // grid of stroke-gaps — so the deeply-shadowed far side reads as solid
         // black manga shadow, not a checkerboard.
-        '      ink = max(ink, smoothstep(0.6, 1.0, t));\n' +
+        '      ink = max(ink, smoothstep(0.62, 1.0, t));\n' +
         '    }\n' +
         '    float cells = max(fwidth(p.x), fwidth(p.y));\n' +
-        '    float fade = clamp((cells - 0.5) / 0.6, 0.0, 1.0);\n' +   // sub-pixel strokes → flat tone
+        '    float fade = clamp((cells - 1.1) / 0.9, 0.0, 1.0);\n' +   // only TRULY sub-pixel strokes → flat tone (keep dense hatch alive longer)
         '    ink = mix(ink, coverage, fade);\n' +
         '    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.05), ink * uHatchStrength);\n' +
         '  }\n' +
