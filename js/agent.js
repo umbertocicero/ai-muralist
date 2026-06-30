@@ -85,7 +85,7 @@ export class Agent {
       slot.used = true;
       this.muralCount++;
       this.ui.muralCount = this.muralCount;
-      this.ui.logEntries.unshift({
+      const entry = {
         id:          index,
         styleName:   CONFIG.styleNames[index % CONFIG.styleNames.length],
         wallW:       slot.wallW,
@@ -93,8 +93,17 @@ export class Agent {
         buildingIdx: slot.buildingIdx,
         // where the mural lives, so the sidebar can fly the camera to it
         target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
-      });
+      };
+      // RECENT MURALS HUD — keep only the latest few.
+      this.ui.logEntries.unshift(entry);
       if (this.ui.logEntries.length > CONFIG.maxLogEntries) this.ui.logEntries.pop();
+      // Full gallery archive — every mural, with a thumbnail rendered straight
+      // from the SVG so the side drawer can show what each piece looks like.
+      const svg = this.pendingResult?.svg;
+      this.ui.gallery.unshift({
+        ...entry,
+        thumb: svg ? 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) : null,
+      });
       // Stand back and admire it for a few seconds (camera zooms onto the mural).
       this.admireTimer = 0;
       this.ui.onAdmire?.(slot);

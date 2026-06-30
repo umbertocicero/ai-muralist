@@ -15,6 +15,7 @@ import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 import BootScreen    from '../components/BootScreen.js';
 import TitlePanel    from '../components/TitlePanel.js';
 import MuralLog      from '../components/MuralLog.js';
+import MuralGallery  from '../components/MuralGallery.js';
 import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
@@ -35,7 +36,8 @@ const ui = reactive({
   bootError:       null,
   status:          'booting…',
   muralCount:      0,
-  logEntries:      [],   // [{ id, styleName, wallW, wallH, buildingIdx }]
+  logEntries:      [],   // [{ id, styleName, wallW, wallH, buildingIdx }] — recent HUD
+  gallery:         [],   // full archive of every mural (+ thumb) for the side drawer
   thought:         '',
   thoughtVisible:  false,
   flashActive:     false,
@@ -58,7 +60,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay, TimeBar },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay, TimeBar },
   setup() {
     return { ui };
   },
@@ -79,6 +81,7 @@ const VueRoot = {
     <TitlePanel />
     <TimeBar       :clock="ui.clock" :phase="ui.phase" />
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
+    <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />

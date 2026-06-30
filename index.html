@@ -51,6 +51,63 @@
   #log .entry .meta { color: #666655; font-size: 10px; }
   #log .empty { font-size: 11px; color: #999; font-style: italic; }
 
+  /* ── Mural gallery: a slide-out right drawer with EVERY mural ─────────────
+     Opened by a handle pinned to the right edge; flies the camera to a piece
+     on click. The recent-log panel above stays as a quick live HUD. */
+  :root { --gw: 320px; }
+  #gallery-tab {
+    z-index: 12; pointer-events: auto;
+    top: 50%; right: 0; transform: translateY(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 12px 7px;
+    background: rgba(245, 240, 230, 0.92);
+    border: 1px solid rgba(0, 0, 0, 0.14); border-right: none;
+    border-radius: 7px 0 0 7px;
+    cursor: pointer; color: #1a1a1a;
+    transition: right 0.34s cubic-bezier(.4,0,.2,1), background 0.2s, color 0.2s;
+  }
+  #gallery-tab:hover { background: #ff6b35; color: #fff; }
+  #gallery-tab .ico { font-size: 14px; line-height: 1; }
+  #gallery-tab .lbl { font-size: 9px; letter-spacing: 2px; writing-mode: vertical-rl; text-orientation: mixed; }
+  #gallery-tab .cnt { font-size: 10px; font-weight: bold; color: #ff6b35; background: #fff; border-radius: 9px; padding: 1px 5px; }
+  #gallery-tab.open { right: var(--gw); background: #ff6b35; color: #fff; }
+  #gallery-tab.open .cnt { color: #ff6b35; }
+
+  #gallery {
+    z-index: 11; pointer-events: auto;
+    top: 18px; bottom: 18px; right: 0; width: var(--gw);
+    display: flex; flex-direction: column; padding: 0; overflow: hidden;
+    transform: translateX(105%);
+    transition: transform 0.34s cubic-bezier(.4,0,.2,1);
+  }
+  #gallery.open { transform: translateX(0); }
+  #gallery .g-hdr {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; font-size: 10px; letter-spacing: 2px; color: #666655;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  #gallery .g-hdr .g-count { color: #ff6b35; font-weight: bold; font-size: 12px; }
+  #gallery .g-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 10px 12px; }
+  #gallery .g-item {
+    display: flex; gap: 10px; align-items: center;
+    padding: 7px 4px; border-top: 1px solid rgba(0, 0, 0, 0.07);
+    transition: color 0.15s;
+  }
+  #gallery .g-item:first-child { border-top: none; }
+  #gallery .g-item.clickable { cursor: pointer; }
+  #gallery .g-item.clickable:hover { color: #ff6b35; }
+  #gallery .g-item.clickable:hover .g-meta { color: #ff6b35; }
+  #gallery .g-thumb {
+    width: 56px; height: 56px; flex: 0 0 56px; background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 2px; overflow: hidden;
+  }
+  #gallery .g-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #gallery .g-info { min-width: 0; }
+  #gallery .g-title { font-size: 12px; line-height: 1.4; }
+  #gallery .g-title .n { color: #ff6b35; font-weight: bold; }
+  #gallery .g-meta { font-size: 10px; color: #666655; }
+  #gallery .g-empty { font-size: 11px; color: #999; font-style: italic; padding: 14px 16px; }
+
   #status { bottom: 18px; left: 18px; display: flex; align-items: center; gap: 10px; }
   #status .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff6b35; animation: pulse 1.4s ease-in-out infinite; }
   #status .label { font-size: 12px; letter-spacing: 1px; }
@@ -159,6 +216,13 @@
        narrow the phone is. The thought bubble keeps the free centre above them. */
     #follow-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: auto; right: 10px; transform: none; padding: 9px 16px; font-size: 11px; }
     #reset-btn  { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: 10px; right: auto; padding: 7px 12px; font-size: 10px; }
+
+    /* The full gallery IS the mobile mural list (the recent-log HUD is hidden):
+       a near-full-width drawer, safe-area aware, reachable from the edge handle. */
+    :root { --gw: 86vw; }
+    #gallery { top: calc(env(safe-area-inset-top, 0px) + 8px); bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+    #gallery-tab { padding: 10px 6px; }
+    #gallery .g-thumb { width: 52px; height: 52px; flex: 0 0 52px; }
   }
 </style>
 </head>
