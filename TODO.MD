@@ -18,6 +18,7 @@
 
 # TODO secondari
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
+- [ ] se non confugurato non salvare,aaggiungi flag in un yaml di onfigurazione se salvare o meno
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
 - [ ] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno.
 
