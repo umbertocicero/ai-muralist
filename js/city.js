@@ -1028,15 +1028,34 @@ export class City {
     return { x: slot.px + slot.nx * CONFIG.approachOffset, z: slot.pz + slot.nz * CONFIG.approachOffset };
   }
   isApproachFree(slot) { const p = this.approachPoint(slot); return !this.isColliding(p.x, p.z); }
-  // Pick a free wall to paint. Prefer ones NEAR `from` (the town is big — a
-  // random wall is often minutes away), with a little variety among the nearest.
+  // Is the space in FRONT of this wall clear enough to frame a mural cleanly?
+  // Probe a small fan out along the outward normal (and ±~17°); a neighbouring
+  // building in that cone means the admire camera can't get a clean head-on shot
+  // of the finished piece. (The admire cam uses the same test to decide whether
+  // to stay head-on or swing past a neighbour.)
+  frontageOpen(slot) {
+    for (const a of [0, 0.3, -0.3]) {
+      const nx = slot.nx * Math.cos(a) - slot.nz * Math.sin(a);
+      const nz = slot.nx * Math.sin(a) + slot.nz * Math.cos(a);
+      for (let d = 2.0; d <= 6.0; d += 1.0) {
+        if (this.hitsBuilding(slot.px + nx * d, slot.pz + nz * d) > 0) return false;
+      }
+    }
+    return true;
+  }
+  // Pick a free wall to paint. Prefer ones with clear frontage (the mural frames
+  // cleanly when admired) and NEAR `from` (the town is big — a random wall is
+  // often minutes away), with a little variety among the nearest. Falls back to
+  // any free wall so KAI never runs out of things to paint.
   pickFreeSlot(from) {
     const free = this.wallSlots.filter(s => !s.used && this.isApproachFree(s));
     if (!free.length) return null;
-    if (!from) return free[(Math.random() * free.length) | 0];
-    free.sort((a, b) =>
+    const open = free.filter(s => this.frontageOpen(s));
+    const pool = open.length ? open : free;
+    if (!from) return pool[(Math.random() * pool.length) | 0];
+    pool.sort((a, b) =>
       ((a.px - from.x) ** 2 + (a.pz - from.z) ** 2) - ((b.px - from.x) ** 2 + (b.pz - from.z) ** 2));
-    return free[(Math.random() * Math.min(free.length, 6)) | 0];
+    return pool[(Math.random() * Math.min(pool.length, 6)) | 0];
   }
   allWallsUsed() { return this.wallSlots.every(s => s.used); }
 

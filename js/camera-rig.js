@@ -347,23 +347,12 @@ export class CameraRig {
     this.following = false;
     this.ui.cameraFollowing = true;
 
-    // Probe a small FAN out from the wall (the normal and ±~17°): is a neighbour
-    // standing in — or just beside — the head-on line of sight (a tight alley)?
-    // If so the frontal shot would bury the lens or be tipped overhead by the
-    // occlusion-lift, so swing round a shoulder to see past it. Otherwise frame
-    // the piece nearly head-on (KAI has stepped aside, so he's clear either way).
-    let frontalBlocked = false;
-    if (this.city) {
-      const ang = [0, 0.3, -0.3];
-      for (const a of ang) {
-        const nx = slot.nx * Math.cos(a) - slot.nz * Math.sin(a);
-        const nz = slot.nx * Math.sin(a) + slot.nz * Math.cos(a);
-        for (let d = 2.0; d <= 6.0; d += 1.0) {
-          if (this.city.hitsBuilding(slot.px + nx * d, slot.pz + nz * d) > 0) { frontalBlocked = true; break; }
-        }
-        if (frontalBlocked) break;
-      }
-    }
+    // Is a neighbour standing in — or just beside — the head-on line of sight (a
+    // tight alley)? If so the frontal shot would bury the lens or be tipped
+    // overhead by the occlusion-lift, so swing round a shoulder to see past it.
+    // Otherwise frame the piece nearly head-on (KAI has stepped aside, so he's
+    // clear either way). Same frontage test the wall-picker prefers.
+    const frontalBlocked = this.city ? !this.city.frontageOpen(slot) : false;
     this._cineSide    = frontalBlocked ? 0.70 : 0.22;  // swing past a neighbour, else head-on
     this._cinePolar   = frontalBlocked ? 1.28 : 1.46;  // dip a touch when swung, else level/square
     this.targetRadius = frontalBlocked ? 5.6  : 4.4;   // closer when head-on so lateral blocks fall outside frame
