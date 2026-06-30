@@ -17,6 +17,7 @@
 - [x] Aggiorna il README.MD → aggiornato
 
 # TODO secondari
+- [ ] Didegna anche su porte e finestre, facendo capire che sotto ci sono porte e finestre, una sorta di overlay trasparente
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare,aaggiungi flag in un yaml di onfigurazione se salvare o meno
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
