@@ -228,7 +228,7 @@ export class Atmosphere {
       depthWrite: false,
       depthTest: true,          // the OPAQUE planet hides it when it's behind us
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.38,
     });
     this.glow = new THREE.Sprite(mat);
     this.glow.scale.setScalar(CONFIG.atmo.glowSize);
@@ -240,7 +240,7 @@ export class Atmosphere {
     const core = new THREE.Sprite(new THREE.SpriteMaterial({
       map: whiteOutTexture(0.55), color: 0xffffff,
       blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
-      transparent: true, opacity: 0.9,
+      transparent: true, opacity: 0.65,
     }));
     core.scale.setScalar(CONFIG.atmo.glowSize * 0.4);
     core.position.copy(this.sun);
@@ -260,15 +260,15 @@ export class Atmosphere {
     const N = CONFIG.atmo.shaftCount;
     this._beams = [];
     for (let i = 0; i < N; i++) {
-      const len = CONFIG.atmo.shaftLen * (0.6 + Math.random() * 0.8);
-      const wid = CONFIG.atmo.shaftWidth * (0.5 + Math.random() * 1.1);
+      const len = CONFIG.atmo.shaftLen * (0.75 + Math.random() * 0.4);
+      const wid = CONFIG.atmo.shaftWidth * (0.7 + Math.random() * 0.5);
       const geo = new THREE.PlaneGeometry(wid, len);
       geo.translate(0, -len / 2, 0); // pivot at the sun end
       const mat = new THREE.MeshBasicMaterial({
         map: tex, color: 0xffffff,
         blending: THREE.AdditiveBlending,
         depthWrite: false, depthTest: true,   // the planet occludes shafts behind it
-        transparent: true, opacity: CONFIG.atmo.shaftOpacity * (0.7 + Math.random() * 0.7),
+        transparent: true, opacity: CONFIG.atmo.shaftOpacity * (0.85 + Math.random() * 0.3),
         side: THREE.DoubleSide,
       });
       const beam = new THREE.Mesh(geo, mat);
@@ -296,7 +296,7 @@ export class Atmosphere {
     const pulse = 1 + Math.sin(t * 0.5) * 0.04;
     this.glow.scale.setScalar(CONFIG.atmo.glowSize * pulse);
     this.core.scale.setScalar(CONFIG.atmo.glowSize * 0.4 * pulse);
-    this.glow.material.opacity = 0.55 * day;
-    this.core.material.opacity = 0.9 * day;
+    this.glow.material.opacity = 0.38 * day;
+    this.core.material.opacity = 0.65 * day;
   }
 }

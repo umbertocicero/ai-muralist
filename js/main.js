@@ -24,7 +24,7 @@ import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
 import TimeBar       from '../components/TimeBar.js';
 
-const DAY = new THREE.Color('#e7e5e0');
+const DAY = new THREE.Color(CONFIG.sky);
 const col = new THREE.Color();
 
 // ==========================================================================
@@ -112,7 +112,7 @@ class App {
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type    = THREE.PCFShadowMap;
     this.renderer.outputEncoding    = THREE.sRGBEncoding;
     // Flat output (no filmic tone mapping) keeps whites pure white and the
     // cel bands crisp — essential for the inked manga look.
@@ -173,7 +173,8 @@ class App {
     // come from spinning the planet under it (_updateSky), so the lit hemisphere
     // is "day" and the far one is "night". The cel gradient turns its clean
     // light/shade split into hard manga bands.
-    const key = new THREE.DirectionalLight('#fffdf8', 1.85);
+    const v = CONFIG.visual ?? {};
+    const key = new THREE.DirectionalLight('#fffdf8', v.keyLight ?? 2.0);
     key.position.copy(this._sunDir).multiplyScalar(130);
     key.target.position.set(0, 0, 0);
     key.castShadow = true;
@@ -195,7 +196,7 @@ class App {
 
     // Ambient: lifts shaded walls just into the cel mid-band (manga tone). Its
     // level rides the day/night cycle too.
-    this.ambient = new THREE.AmbientLight('#ffffff', 0.5);
+    this.ambient = new THREE.AmbientLight('#ffffff', v.ambientLight ?? 0.52);
     this.scene.add(this.ambient);
   }
 
@@ -207,7 +208,7 @@ class App {
     this.city.worldRoot.quaternion.copy(this._worldQuat);
 
     // Full day — lights, sky and fog are fixed at their daytime values.
-    this.ambient.intensity = 0.70;
+    this.ambient.intensity = CONFIG.visual?.ambientLight ?? 0.52;
     this.moonLight.intensity = 0;
     col.copy(DAY);
     this.scene.background.copy(col);

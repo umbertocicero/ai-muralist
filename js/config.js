@@ -9,8 +9,18 @@ export const CONFIG = {
   // --- World (Japanese neighbourhood GRID — B&W manga / inked line-art) ---
   // Soft paper-grey sky (NOT pure white): gives the additive sun-glow and
   // light-shafts a surface to register against, and lets distance haze read.
-  sky: '#e7e5e0',
-  fog: { color: '#edebe6', near: 80, far: 420 },   // gentle haze; far enough to keep the whole planet visible when zoomed out
+  sky: '#f8f6f2',
+  fog: { color: '#f6f4f0', near: 110, far: 340 },
+
+  // Overhead power-line density (see city.js _buildPolesAndWires)
+  wires: {
+    neighbors:    2,          // connect each pole to N nearest (was 3)
+    maxSpan:      14,         // max pole-to-pole distance
+    heights:      [7.8],      // single cable run (was two stacked)
+    poleScatter:  28,         // random poles on open lots (was 60)
+    roadStep:     0.58,       // spacing along main roads
+    shopStep:     0.46,       // spacing on shopping street
+  },
 
   // A grid of low apartment blocks separated by narrow lanes (= the traverse
   // cross-streets). Wider world than the single alley.
@@ -33,14 +43,32 @@ export const CONFIG = {
   // --- Sun / atmosphere (manga backlight: low sun, blown-out haze, god-rays) ---
   sun: { x: 34, y: 22, z: -78 },
   atmo: {
-    glowSize:   32,    // diameter of the blown highlight at the sun (contained — must not wash the panel)
-    shaftCount: 12,    // number of radiating light-shafts
-    shaftLen:   170,   // shaft length (world units)
-    shaftWidth: 9,     // shaft base width
-    shaftOpacity: 0.20, // base beam opacity (jittered) — trimmed for a less soft, more inked mood
+    glowSize:   22,             // BIGGER sun glow (was 18)
+    shaftCount: 6,              // MORE light shafts (was 3)
+    shaftLen:   120,            // LONGER rays (was 90)
+    shaftWidth: 7,              // WIDER beams (was 5)
+    shaftOpacity: 0.12,         // STRONGER god-rays (was 0.06)
   },
-  // Concrete-grey facade palette (apartment blocks).
-  buildingColors: ['#eceae6', '#e4e2dd', '#dddbd6', '#f0eeea', '#d9d7d2'],
+  // Near-white facades: colour comes from cel shadow + ink outline, not grey paint.
+  buildingColors: ['#f5f3ef', '#f0eeea', '#eceae6', '#faf8f4', '#e8e6e2'],
+
+  // ── Manga look — ULTRA ENHANCED: ombre drammatiche, contrasto estremo ─
+  visual: {
+    celShade: [16, 96, 255],    // OMBRE NERE più forti per un look manga estremo
+    toneScale:      2.4,        // hatching più fine e più fitta
+    hatchCut:       0.50,       // hatching inizia ancora prima
+    crossHatchAt:   0.64,       // cross-hatch nelle ombre profonde
+    hatchStrength:  0.92,       // hatching più intensa e più nera
+    skipHorizHatch: false,      // hatch EVERYWHERE for true manga feel
+    edgeStrength:   0.95,       // SOBEL MASSIMO (era 0.85)
+    edgeThreshold:  [0.10, 0.28],  // edge detection ULTRA sensibile
+    grain:          0.032,      // TEXTURE CARTA MASSIMA (era 0.024)
+    vignetteDark:   0.75,       // VIGNETTE MOLTO PIÙ SCURA (era 0.82)
+    inkWeight:      0.65,       // LINEE PIÙ SOTTILI (era 0.95)
+    inkDefault:     1.022,      // INK EXPANSIONE MASSIMA (era 1.018)
+    keyLight:       2.8,        // HIGHLIGHTS BRILLANTISSIMI (era 2.45)
+    ambientLight:   0.18,       // OMBRE ancora più dense e inchiostrate
+  },
 
   // --- Commercial shopping street (商店街) ---
   // One of the winding main roads is dressed as a shōtengai: taller, narrower
@@ -56,11 +84,11 @@ export const CONFIG = {
     roofSignChance: 0.55,   // chance a shop block carries a rooftop billboard
     nightGlow: true,        // shop signs / vending machines register a night-glow lamp
     // Street-prop caps for the new reference dressing
-    vendingMax: 14,
-    mirrorMax:  8,
-    coneMax:    18,
-    carMax:     8,
-    scooterMax: 8,
+    vendingMax: 8,
+    mirrorMax:  4,
+    coneMax:    10,
+    carMax:     5,
+    scooterMax: 5,
   },
 
   // --- Agent / physics ---
@@ -79,15 +107,15 @@ export const CONFIG = {
 
   // --- Camera (Apple-style: damped orbit with inertia, smooth zoom-to-cursor,
   //     two-finger / shift-drag pan). Open-world free orbit. ---
-  camFov: 52,
-  camRadius: 20,
-  camPolar: 0.8,    // a pleasant looking-down-at-the-town 3/4 (planet orbit)
-  camPolarMin: 0.32,
-  camPolarMax: 1.52,
+  camFov: 48,
+  camRadius: 22,
+  camPolar: 0.58,   // street-level 3/4 — less bird's-eye chaos
+  camPolarMin: 0.28,
+  camPolarMax: 1.35,
   camRadiusMin: 6,
-  camRadiusMax: 160,   // pull right out to see the whole little planet
-  camAzimuth: Math.PI * 0.25,   // pleasant 3/4 view to start
-  camLookY: 2.0,                // height the camera aims at (centred on KAI)
+  camRadiusMax: 160,
+  camAzimuth: Math.PI * 0.22,
+  camLookY: 1.55,   // eye-level on KAI, not rooftops
 
   camDragSensitivity: 0.005,    // rad per pixel of drag
   camInertiaTau: 0.13,          // orbit momentum decay time-constant (s)

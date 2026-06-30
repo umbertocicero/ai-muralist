@@ -28,16 +28,14 @@ function mulberry32(a) {
   };
 }
 
-const ASPHALT  = toonMat('#d4d2ce');
-const ASPHALT2 = toonMat('#cbc9c5');   // main-road ribbon (slightly darker)
-// The planet ground itself: a warm taupe/brown-grey, a touch darker than the
-// pale building walls so the earth reads apart from the facades — still low
-// saturation so it stays inside the B&W manga look (screentone + ink survive).
-const GROUND   = toonMat('#c1b8a8');
-const CURB     = toonMat('#e6e4e0');
+const ASPHALT  = toonMat('#dcdad6');
+const ASPHALT2 = toonMat('#d2d0cc');   // main-road ribbon (slightly darker)
+// Warm paper-grey ground — lighter than before so cel bands read as clean manga tones.
+const GROUND   = toonMat('#d4cec4');
+const CURB     = toonMat('#eceae6');
 // GLASS / SHUTTER panes (shared with the item factory) and the foliage geometry
 // now live in js/items/materials.js — imported above.
-const WIRE     = new THREE.LineBasicMaterial({ color: '#141210' });
+const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
 const ROOFLINE = new THREE.LineBasicMaterial({ color: '#2a2824' });   // tile / corrugation strokes
 const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
 // A dark sash FRAME drawn just behind each window pane (slightly larger), so a
@@ -808,10 +806,17 @@ export class City {
 
   // ── Poles + organic overhead wire net ─────────────────────────────────────
   _buildPolesAndWires() {
+    const W = CONFIG.wires ?? {};
+    const neighbors = W.neighbors ?? 2;
+    const maxSpan   = (W.maxSpan ?? 14) ** 2;
+    const heights   = W.heights ?? [7.8];
+    const scatter   = W.poleScatter ?? 28;
+    const roadStep  = W.roadStep ?? 0.58;
+    const shopStep  = W.shopStep ?? 0.46;
     // poles strung along the main roads + a scatter on open ground. The shopping
     // street gets a denser run of poles (finer spacing) for its tangled cable net.
     for (const r of this.mainRoads) {
-      const step = (r === this.shopRoad) ? 0.34 : 0.5;
+      const step = (r === this.shopRoad) ? shopStep : roadStep;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
         for (let t = 0; t < 1; t += step) {
@@ -823,21 +828,21 @@ export class City {
         }
       }
     }
-    for (let k = 0; k < 60; k++) {
+    for (let k = 0; k < scatter; k++) {
       const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
       if (Math.hypot(x, z) > this.CAP) continue;
       if (!this.isColliding(x, z) && this._distToMainRoad(x, z) > 2) { this._pole(x, z, 8.4, this.rng() < 0.2); this.poles.push({ x, z }); }
     }
-    // wire each pole to its 3 nearest neighbours → a denser tangled net
+    // wire each pole to its nearest neighbours — kept sparse so cables don't dominate the panel
     for (let i = 0; i < this.poles.length; i++) {
       const a = this.poles[i];
       const near = this.poles
         .map((p, j) => ({ j, d: (p.x - a.x) ** 2 + (p.z - a.z) ** 2 }))
-        .filter(o => o.j !== i && o.d < 18 * 18).sort((u, v) => u.d - v.d).slice(0, 3);
+        .filter(o => o.j !== i && o.d < maxSpan).sort((u, v) => u.d - v.d).slice(0, neighbors);
       for (const o of near) {
         if (o.j < i) continue;
         const b = this.poles[o.j];
-        [8.0, 7.5].forEach(h => this._wire(a.x, h, a.z, b.x, h, b.z, 0.5));
+        for (const h of heights) this._wire(a.x, h, a.z, b.x, h, b.z, 0.45);
       }
     }
     // street lamps set just outside the houses (against them, by the curb —

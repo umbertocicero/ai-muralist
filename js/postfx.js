@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CONFIG } from './config.js';
 
 // ===========================================================================
 //  MangaPost — hand-rolled full-screen post-processing pass (no addons, no
@@ -33,6 +34,10 @@ const FRAG = /* glsl */`
   uniform vec2  uResolution;
   uniform float uToneScale;   // halftone dot frequency
   uniform float uEdge;        // ink-edge strength (0 disables)
+  uniform float uEdgeLow;     // Sobel threshold low
+  uniform float uEdgeHigh;    // Sobel threshold high
+  uniform float uGrain;       // paper grain strength
+  uniform float uVigDark;     // vignette floor (1 = none)
   varying vec2 vUv;
 
   const mat2 ROT45 = mat2(0.7071, -0.7071, 0.7071, 0.7071);
@@ -71,7 +76,7 @@ const FRAG = /* glsl */`
     float gx = (l02 + 2.0 * l12 + l22) - (l00 + 2.0 * l10 + l20);
     float gy = (l20 + 2.0 * l21 + l22) - (l00 + 2.0 * l01 + l02);
     float edge = sqrt(gx * gx + gy * gy);
-    edge = smoothstep(0.10, 0.32, edge) * grey * uEdge;   // lower threshold → more decisive ink lines
+    edge = smoothstep(uEdgeLow, uEdgeHigh, edge) * grey * uEdge;
     c = mix(c, vec3(0.02), edge);
 
     // NOTE: screentone is no longer applied here. It now lives ON the surfaces
@@ -81,9 +86,9 @@ const FRAG = /* glsl */`
     // --- paper tint + vignette + grain ---
     c *= vec3(0.996, 0.994, 0.99);                     // near-white paper (barely warm)
     float vig = 1.0 - smoothstep(0.48, 0.95, length(uv - 0.5));
-    c *= mix(0.80, 1.0, vig);
+    c *= mix(uVigDark, 1.0, vig);
     float grain = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5);
-    c += grain * 0.05 * grey;
+    c += grain * uGrain * grey;
 
     // back to linear; the renderer's sRGB output encoding finishes the job
     gl_FragColor = vec4(pow(clamp(c, 0.0, 1.0), vec3(2.2)), 1.0);
@@ -106,12 +111,18 @@ export class MangaPost {
     });
     if (this.rt.samples !== undefined) this.rt.samples = 4;
 
+    const v = CONFIG.visual ?? {};
+    const [edgeLow, edgeHigh] = v.edgeThreshold ?? [0.16, 0.40];
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse:    { value: this.rt.texture },
         uResolution: { value: new THREE.Vector2(x, y) },
         uToneScale:  { value: opts.toneScale ?? 0.26 },
-        uEdge:       { value: opts.edgeStrength ?? 1.45 },
+        uEdge:       { value: opts.edgeStrength ?? v.edgeStrength ?? 0.72 },
+        uEdgeLow:    { value: edgeLow },
+        uEdgeHigh:   { value: edgeHigh },
+        uGrain:      { value: opts.grain ?? v.grain ?? 0.016 },
+        uVigDark:    { value: opts.vignetteDark ?? v.vignetteDark ?? 0.88 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,

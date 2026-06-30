@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { CONFIG } from './config.js';
+
+const vis = () => CONFIG.visual ?? {};
 
 // ===========================================================================
 //  Manga / anime non-photorealistic rendering helpers.
@@ -19,10 +22,11 @@ let _grad = null;
 // 3-band grayscale ramp. Nearest filtering = hard steps (the cel look).
 export function gradientMap() {
   if (_grad) return _grad;
+  const [deep, mid, lit] = vis().celShade ?? [48, 175, 255];
   const data = new Uint8Array([
-     58,  58,  58, 255,   // deep shade (darker → punchier manga banding)
-    156, 156, 156, 255,   // mid tone
-    255, 255, 255, 255,   // lit (pure paper white)
+    deep, deep, deep, 255,
+    mid,  mid,  mid,  255,
+    lit,  lit,  lit,  255,
   ]);
   const tex = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
   tex.minFilter = THREE.NearestFilter;
@@ -66,10 +70,14 @@ export function toonMat(color, { transparent = false, opacity = 1, side = THREE.
 //   • ANTI-ALIASED & DISTANCE-FADED via surface derivatives (fwidth): stroke
 //     edges stay crisp up close and dissolve smoothly into flat grey far away,
 //     so the hatching never shimmers or moirés.
-const TONE_SCALE = 7.0;   // ink strokes per world metre (hand-drawn hatch pitch)
 export function applyMangaTone(mat) {
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uToneScale = { value: TONE_SCALE };
+    const v = vis();
+    shader.uniforms.uToneScale     = { value: v.toneScale      ?? 4.2 };
+    shader.uniforms.uHatchCut      = { value: v.hatchCut       ?? 0.58 };
+    shader.uniforms.uCrossHatchAt  = { value: v.crossHatchAt   ?? 0.72 };
+    shader.uniforms.uHatchStrength = { value: v.hatchStrength  ?? 0.28 };
+    shader.uniforms.uSkipHoriz     = { value: (v.skipHorizHatch ?? true) ? 1.0 : 0.0 };
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vTWorldPos;\nvarying vec3 vTWorldNrm;')
@@ -80,39 +88,44 @@ export function applyMangaTone(mat) {
       .replace('#include <common>',
         '#include <common>\n' +
         'uniform float uToneScale;\n' +
+        'uniform float uHatchCut;\n' +
+        'uniform float uCrossHatchAt;\n' +
+        'uniform float uHatchStrength;\n' +
+        'uniform float uSkipHoriz;\n' +
         'varying vec3 vTWorldPos;\n' +
         'varying vec3 vTWorldNrm;\n' +
         'const mat2 TROT45 = mat2(0.7071, -0.7071, 0.7071, 0.7071);')
       .replace('#include <tonemapping_fragment>',
         '{\n' +
         '  vec3 wn = abs(normalize(vTWorldNrm));\n' +
-        '  vec2 huv;\n' +
-        '  if (wn.y >= wn.x && wn.y >= wn.z) huv = vTWorldPos.xz;\n' +   // floors / roofs
-        '  else if (wn.x >= wn.z) huv = vTWorldPos.zy;\n' +             // x-facing walls
-        '  else huv = vTWorldPos.xy;\n' +                              // z-facing walls
         '  float lum = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));\n' +
-        '  float cut = 0.66;\n' +
+        '  float cut = uHatchCut;\n' +
         '  float coverage = clamp((cut - lum) / cut, 0.0, 1.0);\n' +
-        '  if (coverage > 0.002) {\n' +
+        '  bool horiz = wn.y >= wn.x && wn.y >= wn.z;\n' +
+        '  if (coverage > 0.004 && !(uSkipHoriz > 0.5 && horiz)) {\n' +
+        '  vec2 huv;\n' +
+        '  if (horiz) huv = vTWorldPos.xz;\n' +
+        '  else if (wn.x >= wn.z) huv = vTWorldPos.zy;\n' +
+        '  else huv = vTWorldPos.xy;\n' +
         // rotate into a 45° stroke frame; .x runs across the first hatch set,
         // .y across the perpendicular (cross-hatch) set
         '    vec2 p = TROT45 * huv * uToneScale;\n' +
         '    float ax = abs(fract(p.x) - 0.5);\n' +                    // dist to nearest stroke (set 1)
         // stroke half-width grows with shade: thin in mid shadow, fat (→solid)
         // in the darkest. Capped so deep shade reads as dense hatch, not a blob.
-        '    float w1 = clamp(coverage, 0.0, 1.0) * 0.34;\n' +
+        '    float w1 = clamp(coverage, 0.0, 1.0) * 0.26;\n' +
         '    float e1 = max(fwidth(p.x), 0.0009) * 1.2;\n' +
         '    float ink = 1.0 - smoothstep(w1 - e1, w1 + e1, ax);\n' +
-        '    if (coverage > 0.5) {\n' +                                // deep shadow → cross-hatch
+        '    if (coverage > uCrossHatchAt) {\n' +                                // deep shadow only → cross-hatch
         '      float ay = abs(fract(p.y) - 0.5);\n' +
-        '      float w2 = (coverage - 0.5) * 0.68;\n' +
+        '      float w2 = (coverage - uCrossHatchAt) / max(1.0 - uCrossHatchAt, 0.001) * 0.55;\n' +
         '      float e2 = max(fwidth(p.y), 0.0009) * 1.2;\n' +
         '      ink = max(ink, 1.0 - smoothstep(w2 - e2, w2 + e2, ay));\n' +
         '    }\n' +
         '    float cells = max(fwidth(p.x), fwidth(p.y));\n' +
         '    float fade = clamp((cells - 0.5) / 0.6, 0.0, 1.0);\n' +   // sub-pixel strokes → flat tone
         '    ink = mix(ink, coverage, fade);\n' +
-        '    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.05), ink * 0.85);\n' +
+        '    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.05), ink * uHatchStrength);\n' +
         '  }\n' +
         '}\n' +
         '#include <tonemapping_fragment>');
@@ -127,12 +140,19 @@ function inkMat(color) {
   return m;
 }
 
+function inkScale(k) {
+  const v = vis();
+  const base = k ?? v.inkDefault ?? 1.012;
+  const w = v.inkWeight ?? 0.58;
+  return 1 + (base - 1) * w;
+}
+
 // Add a black ink outline to a mesh (inverted-hull). `k` is the expansion
 // factor — larger geometry gets a proportionally heavier line, which reads as
 // natural manga line-weight variation. Returns the outline mesh.
-export function addInk(mesh, k = 1.03, color = 0x141414) {
+export function addInk(mesh, k, color = 0x141414) {
   const ink = new THREE.Mesh(mesh.geometry, inkMat(color));
-  ink.scale.setScalar(k);
+  ink.scale.setScalar(inkScale(k));
   ink.castShadow = false;
   ink.receiveShadow = false;
   mesh.add(ink); // child → inherits parent transform, expands around geometry centre
@@ -140,7 +160,7 @@ export function addInk(mesh, k = 1.03, color = 0x141414) {
 }
 
 // Convenience: build a toon mesh + ink outline in one call.
-export function inkedMesh(geometry, color, { k = 1.03, cast = true, receive = false } = {}) {
+export function inkedMesh(geometry, color, { k, cast = true, receive = false } = {}) {
   const mesh = new THREE.Mesh(geometry, toonMat(color));
   mesh.castShadow = cast;
   mesh.receiveShadow = receive;
