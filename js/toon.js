@@ -113,14 +113,22 @@ export function applyMangaTone(mat) {
         '    float ax = abs(fract(p.x) - 0.5);\n' +                    // dist to nearest stroke (set 1)
         // stroke half-width grows with shade: thin in mid shadow, fat (→solid)
         // in the darkest. Capped so deep shade reads as dense hatch, not a blob.
-        '    float w1 = clamp(coverage, 0.0, 1.0) * 0.26;\n' +
+        // Primary hatch stroke. Half-width is kept WELL under 0.5 of the period so
+        // it always reads as a line, never fattening to a 50%-duty bar (two such
+        // bars crossing = the checkerboard/basket-weave we are avoiding).
+        '    float w1 = 0.04 + clamp(coverage, 0.0, 1.0) * 0.12;\n' +    // max ~0.16 (duty ~0.32)
         '    float e1 = max(fwidth(p.x), 0.0009) * 1.2;\n' +
         '    float ink = 1.0 - smoothstep(w1 - e1, w1 + e1, ax);\n' +
         '    if (coverage > uCrossHatchAt) {\n' +                                // deep shadow only → cross-hatch
+        '      float t = (coverage - uCrossHatchAt) / max(1.0 - uCrossHatchAt, 0.001);\n' +
         '      float ay = abs(fract(p.y) - 0.5);\n' +
-        '      float w2 = (coverage - uCrossHatchAt) / max(1.0 - uCrossHatchAt, 0.001) * 0.55;\n' +
+        '      float w2 = t * 0.14;\n' +                                 // thin secondary set (stays fine)
         '      float e2 = max(fwidth(p.y), 0.0009) * 1.2;\n' +
         '      ink = max(ink, 1.0 - smoothstep(w2 - e2, w2 + e2, ay));\n' +
+        // The DARKEST tones fill toward solid ink (べた塗り) instead of leaving a
+        // grid of stroke-gaps — so the deeply-shadowed far side reads as solid
+        // black manga shadow, not a checkerboard.
+        '      ink = max(ink, smoothstep(0.6, 1.0, t));\n' +
         '    }\n' +
         '    float cells = max(fwidth(p.x), fwidth(p.y));\n' +
         '    float fade = clamp((cells - 0.5) / 0.6, 0.0, 1.0);\n' +   // sub-pixel strokes → flat tone
