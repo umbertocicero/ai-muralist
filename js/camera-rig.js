@@ -42,6 +42,12 @@ export class CameraRig {
     this.pivot       = planetPoint(CONFIG.charStart.x, CONFIG.camLookY, CONFIG.charStart.z, new THREE.Vector3(), this.R);
     this.pivotTarget = this.pivot.clone();
     this.following   = true;
+    // Navigation guard: the town is a cap around the north pole; flat coords run
+    // to ±world.half, so its far corners sit this many radians from the pole.
+    // Free-roam (drag/travel/zoom-to-cursor) is clamped to here + a small margin
+    // so you can sweep the whole town but never drift onto the empty far side and
+    // end up looking at it "upside down". Murals all live inside this cap.
+    this._maxPivotTheta = Math.hypot(CONFIG.world.half, CONFIG.world.half) / this.R + 0.12;
     this._cine       = null;     // mural slot the camera is "watching" while KAI paints
     this._cineAz     = 0;
     this._cinePolar  = CONFIG.camPolar;
@@ -188,6 +194,21 @@ export class CameraRig {
     this._offAxis = true;   // the user has taken the camera off the follow axis → show "Follow KAI"
   }
 
+  // Keep a look-point (in the rig's un-spun frame) from straying past the town
+  // cap: if it sits more than _maxPivotTheta radians from the north pole, slide
+  // it back onto that rim circle at the same azimuth, preserving its radius.
+  _clampPivot(v) {
+    const len = v.length();
+    if (len < 1e-6) return v;
+    const theta = Math.acos(clamp(v.y / len, -1, 1));   // arc distance from the pole
+    if (theta <= this._maxPivotTheta) return v;
+    const horiz = Math.hypot(v.x, v.z) || 1e-6;
+    const f = (len * Math.sin(this._maxPivotTheta)) / horiz;
+    v.x *= f; v.z *= f;
+    v.y = len * Math.cos(this._maxPivotTheta);
+    return v;
+  }
+
   // world point on the little planet under a screen position (null if it misses)
   _planetAt(clientX, clientY) {
     if (!this.city?.planet) return null;
@@ -214,6 +235,7 @@ export class CameraRig {
       if (g) {
         const f = Math.max(0, (1 - this.targetRadius / old) * CONFIG.camZoomToCursor);
         this.pivotTarget.lerp(g, Math.min(f, 0.6)).setLength(this.R + CONFIG.camLookY);
+        this._clampPivot(this.pivotTarget);
       }
     }
   }
@@ -236,6 +258,7 @@ export class CameraRig {
       .addScaledVector(right, -dmx * k)
       .addScaledVector(up,     dmy * k)
       .setLength(this.R + CONFIG.camLookY);
+    this._clampPivot(this.pivotTarget);   // stay over the town, never onto the far side
   }
 
   // double-tap the globe to glide the look-point there (Google-Earth style)
@@ -243,6 +266,7 @@ export class CameraRig {
     const g = this._planetAt(clientX, clientY);
     if (!g) return;
     this.pivotTarget.copy(g).setLength(this.R + CONFIG.camLookY);
+    this._clampPivot(this.pivotTarget);
     this._detach();
   }
 
@@ -275,14 +299,25 @@ export class CameraRig {
     this._offAxis = false;   // back on the follow axis → hide the Follow button
   }
 
-  // Right the world: snap pitch/zoom back to the default 3/4 look-down (ground at
-  // the bottom of frame) and re-lock behind KAI — the escape hatch after you've
-  // spun the little planet around and lost which way is up.
+  // Right the world: snap pitch/zoom back to the default 3/4 look-down so the
+  // rooftops face up again — the escape hatch after you've spun the little planet
+  // around and lost which way is up. While you're navigating the map this levels
+  // the view IN PLACE (keeps the spot you're exploring); it does NOT fly back to
+  // KAI — that's the Follow button's job, so the two controls stay distinct.
   resetView(charPos) {
     this.polar = this._renderPolar = CONFIG.camPolar;
     this.targetRadius = this.radius = this._renderEff = CONFIG.camRadius;
     this.velAz = this.velPolar = 0;
-    this.reattach(charPos);
+    this._cine = null;
+    if (this.following) {
+      this.reattach(charPos);            // already on KAI → just re-lock behind him
+    } else {
+      // The camera's up is the local surface normal at the pivot, so re-levelling
+      // the pitch and pulling the look-point back over the town cap is all it
+      // takes to set the rooftops upright again, right where you are.
+      this._clampPivot(this.pivot);
+      this._clampPivot(this.pivotTarget);
+    }
   }
 
   // ── Cinematic: watch over KAI's shoulder while he paints ──────────────────
