@@ -10,18 +10,20 @@ import { GLASS, SHUTTER } from './materials.js';
 // ===========================================================================
 
 // A parked bicycle, seen side-on (its face turned toward the street). Same
-// compromise as the car: SMOOTH, rounded geometry (tube-shaped frame, round
-// rims with spokes) shaded with MeshStandardMaterial — but kept tied to the
-// manga scene with a LIGHT inverted-hull ink contour on every part.
+// recipe as the car: SMOOTH, rounded geometry (tube-shaped frame, round rims
+// with spokes) but shaded in the MANGA style — cel banding + surface hatching
+// (toonMat) plus an inverted-hull ink contour — so it reads as inked, not
+// realistic, like the rest of the town.
 export function makeBicycle(ctx, { x, z, ang = 0 }) {
   ctx.colliders.push({ x, z, r: 0.45 });
   const g = new THREE.Group();
   g.position.set(x, 0, z); g.rotation.y = ang;
-  const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.25, ...o });
-  const TIRE  = std('#1c1a17', { roughness: 0.9, metalness: 0.0 });
-  const FRAME = std('#3a352e', { roughness: 0.4, metalness: 0.45 });
-  const RIM   = std('#a6a29a', { roughness: 0.35, metalness: 0.6 });
-  const SEAT  = std('#262320', { roughness: 0.6 });
+  // manga cel + hatching materials on smooth rounded geometry (same look as the
+  // rest of the inked town, not realistic smooth shading)
+  const TIRE  = toonMat('#1c1a17');
+  const FRAME = toonMat('#3a352e');
+  const RIM   = toonMat('#a6a29a');
+  const SEAT  = toonMat('#262320');
 
   // ── round wheels: a tyre torus + a thin bright rim + a few spokes + hub ─────
   const wr = 0.3;
@@ -58,7 +60,7 @@ export function makeBicycle(ctx, { x, z, ang = 0 }) {
   const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.34, 10), FRAME);
   grip.rotation.x = Math.PI / 2; grip.position.set(hx, hy + 0.04, 0); addInk(grip, 1.08); g.add(grip);
   if (ctx.rng() < 0.6) {     // the ubiquitous front basket
-    const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.1, 0.18, 12), std('#bcae90', { roughness: 0.7, metalness: 0.0 }));
+    const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.1, 0.18, 12), toonMat('#bcae90'));
     basket.position.set(0.54, 0.66, 0); addInk(basket, 1.05); g.add(basket);
   }
   ctx.scene.add(g);

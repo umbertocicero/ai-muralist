@@ -1357,23 +1357,24 @@ export class City {
   }
 
   // A parked kei-car (軽自動車) along the kerb, modelled on the tall, square
-  // "kei box" body (e.g. the BYD RACCO). Unlike the boxy props around it, this
-  // is built REALISTIC and SMOOTH: the whole shell is one rounded volume — a
-  // side-profile Shape extruded across the width with a generous bevel so every
-  // edge is filleted (no facets) — finished with smoothly-shaded MeshStandard
-  // materials (no manga hatching / ink hull) and high-segment round wheels.
-  // Length runs along local X (front at +X), width along Z.
+  // "kei box" body (e.g. the BYD RACCO). The SHAPE is smooth and rounded — the
+  // whole shell is one volume, a side-profile Shape extruded across the width
+  // with a generous bevel so every edge is filleted (no facets), with
+  // high-segment round wheels — but it is SHADED in the manga style of the rest
+  // of the town: cel banding + surface hatching (toonMat) and an inverted-hull
+  // ink contour. Length runs along local X (front at +X), width along Z.
   _keiCar(x, z, ang) {
     this.barriers.push({ cx: x, cz: z, hw: 1.0, hd: 0.48, rot: ang });
     const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
-    const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.0, ...o });
-    const BODY  = std('#edebe6', { roughness: 0.45 });
-    const GLASSM = std('#222428', { roughness: 0.12 });
-    const BLACK = std('#1b1916', { roughness: 0.75 });
-    const TIRE  = std('#161410', { roughness: 0.95 });
-    const ALLOY = std('#b4b0a8', { roughness: 0.35, metalness: 0.55 });
-    const LAMP  = std('#f5f2ec', { roughness: 0.25 });
-    const TRIM  = std('#2e2a25', { roughness: 0.5 });
+    // manga cel + surface-hatching materials (smooth ROUNDED geometry, manga
+    // SHADING) — the rounded shape kept, but shaded like the rest of the inked town
+    const BODY  = toonMat('#eceae0');
+    const GLASSM = GLASS;                  // shared flat-dark manga window pane
+    const BLACK = toonMat('#1f1c18');
+    const TIRE  = toonMat('#1a1814');
+    const ALLOY = toonMat('#bdb9b1');
+    const LAMP  = toonMat('#f4f1eb');
+    const TRIM  = toonMat('#2e2a25');
     const W = 0.82;
 
     // rounded smooth panel (no ink, no toon) — flat detail pieces (glass, trim…)
