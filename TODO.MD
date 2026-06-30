@@ -20,6 +20,7 @@
 - [ ] Didegna anche su porte e finestre, facendo capire che sotto ci sono porte e finestre, una sorta di overlay trasparente
 - [ ] nella daskside del pianeta, essendo al buio, ci devono esere i lampioni accesi che illuminano le strade
 - [ ] le scale sono montate al contrario erronemante
+- [ ]  tutti gli oggetti creati in city.js andreabbero postati in prop.js e eliminati da city.js
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare,aaggiungi flag in un yaml di onfigurazione se salvare o meno
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
