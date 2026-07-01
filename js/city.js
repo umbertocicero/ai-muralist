@@ -63,8 +63,10 @@ function crossGeometry(w, h, t) {
   g.computeVertexNormals();
   return g;
 }
-const MUNTIN_GEO = crossGeometry(1.0, 1.2, 0.05);
-const MUNTIN_MAT = new THREE.MeshBasicMaterial({ color: '#2a2620', side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+const MUNTIN_GEO = crossGeometry(1.0, 1.2, 0.06);
+// LIGHT glazing bars (white-ish sash), so the panes read clearly against the
+// dark glass — dark bars on dark glass were invisible.
+const MUNTIN_MAT = new THREE.MeshBasicMaterial({ color: '#e7e4dd', side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 // a protruding concrete sill just under the sash (geometry baked below + outward)
 const SILL_GEO = new THREE.BoxGeometry(1.24, 0.08, 0.16);
 SILL_GEO.translate(0, -0.78, 0.07);
@@ -732,13 +734,17 @@ export class City {
     box(W, H, 0.07, WOOD, 0, H / 2, 0);
     // centre reveal → reads as two sliding leaves
     box(0.035, H - 0.06, 0.02, PANEL, 0, H / 2, 0.045);
-    // two recessed panels per leaf (proud rectangles whose ink reads as panels)
-    for (const lx of [-W * 0.25, W * 0.25])
-      for (const py of [H * 0.30, H * 0.62])
-        box(W * 0.34, H * 0.20, 0.02, PANEL, lx, py, 0.045, 1.06);
-    // frosted glass light near the top
-    const glass = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.7, 0.2), GLASS);
-    glass.position.set(0, H * 0.9, 0.05); g.add(glass);
+    // per leaf: an upper GLAZED light, split into four panes by LIGHT glazing
+    // bars (so it reads clearly against the dark glass), plus a recessed lower
+    // panel — like a real genkan door.
+    const lightGeo = new THREE.PlaneGeometry(W * 0.32, 0.44);
+    for (const lx of [-W * 0.26, W * 0.26]) {
+      const gl = new THREE.Mesh(lightGeo, GLASS);
+      gl.position.set(lx, H * 0.66, 0.05); g.add(gl);
+      box(0.03, 0.44, 0.02, FR, lx, H * 0.66, 0.055, 1.25);          // vertical glazing bar
+      box(W * 0.32, 0.03, 0.02, FR, lx, H * 0.66, 0.055, 1.25);      // horizontal glazing bar
+      box(W * 0.32, H * 0.24, 0.02, PANEL, lx, H * 0.26, 0.045, 1.06); // recessed lower panel
+    }
     // handle + a low threshold step
     box(0.05, 0.18, 0.05, '#8c877d', W * 0.30, H * 0.46, 0.07, 1.12);
     box(W + 0.26, 0.09, 0.3, STEP, 0, 0.045, 0.13);
