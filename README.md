@@ -38,7 +38,7 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   ├── items/           ← parametric item factory (the MESH of each prop)
 │   │   ├── materials.js   shared glass/shutter panes + foliage geometry
 │   │   ├── nature.js      makeTree / makeBush / makePottedPlant / makeVine / makeLeaf
-│   │   ├── props.js       makeBicycle / makeVendingMachine / makeTrafficCone / makeBench
+│   │   ├── props.js       street furniture: bicycle/vending/cone/bench, lamppost, antenna, waterTower, plankFence, acUnit, nobori, planterBox, roadSign, curveMirror, aFrameBarrier, scooter, stairs, keiCar
 │   │   └── index.js       createItem(ctx, type, opts) factory registry
 │   ├── character.js     Character — KAI (schoolkid) mesh + animation states
 │   ├── mural-factory.js MuralFactory — prompt, fetch, sanitize, rasterize

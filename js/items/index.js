@@ -19,10 +19,23 @@ const BUILDERS = {
   plant:   nature.makePottedPlant,
   vine:    nature.makeVine,
   // street furniture (props.js)
-  bicycle: props.makeBicycle,
-  vending: props.makeVendingMachine,
-  cone:    props.makeTrafficCone,
-  bench:   props.makeBench,
+  bicycle:       props.makeBicycle,
+  vending:       props.makeVendingMachine,
+  cone:          props.makeTrafficCone,
+  bench:         props.makeBench,
+  lamppost:      props.makeLamppost,
+  antenna:       props.makeAntenna,
+  waterTower:    props.makeWaterTower,
+  plankFence:    props.makePlankFence,
+  acUnit:        props.makeAcUnit,
+  nobori:        props.makeNobori,
+  planterBox:    props.makePlanterBox,
+  roadSign:      props.makeRoadSign,
+  curveMirror:   props.makeCurveMirror,
+  aFrameBarrier: props.makeAFrameBarrier,
+  scooter:       props.makeScooter,
+  stairs:        props.makeStairs,
+  keiCar:        props.makeKeiCar,
 };
 
 export function createItem(ctx, type, opts = {}) {
