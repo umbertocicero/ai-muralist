@@ -339,6 +339,19 @@ export class CameraRig {
     planetPoint(slot.px, slot.py + 0.2, slot.pz, this.pivotTarget, this.R);
   }
 
+  // Distance (m) from the mural out along the wall normal ROTATED by `side` (rad)
+  // to the nearest building — i.e. how far the admire lens can sit that way before
+  // a neighbour blocks the view of the piece. Capped at `maxD`.
+  _clearDist(slot, side, maxD = 7) {
+    if (!this.city) return maxD;
+    const nx = slot.nx * Math.cos(side) - slot.nz * Math.sin(side);
+    const nz = slot.nx * Math.sin(side) + slot.nz * Math.cos(side);
+    for (let t = 0.6; t <= maxD; t += 0.4) {
+      if (this.city.hitsBuilding(slot.px + nx * t, slot.pz + nz * t) > 0) return t;
+    }
+    return maxD;
+  }
+
   admireMural(slot) {
     if (!slot || !this._cine) return;
     this._cine  = slot;
@@ -347,15 +360,27 @@ export class CameraRig {
     this.following = false;
     this.ui.cameraFollowing = true;
 
-    // Is a neighbour standing in — or just beside — the head-on line of sight (a
-    // tight alley)? If so the frontal shot would bury the lens or be tipped
-    // overhead by the occlusion-lift, so swing round a shoulder to see past it.
-    // Otherwise frame the piece nearly head-on (KAI has stepped aside, so he's
-    // clear either way). Same frontage test the wall-picker prefers.
-    const frontalBlocked = this.city ? !this.city.frontageOpen(slot) : false;
-    this._cineSide    = frontalBlocked ? 0.70 : 0.22;  // swing past a neighbour, else head-on
-    this._cinePolar   = frontalBlocked ? 1.28 : 1.46;  // dip a touch when swung, else level/square
-    this.targetRadius = frontalBlocked ? 5.6  : 4.4;   // closer when head-on so lateral blocks fall outside frame
+    // Choose the framing so the lens actually SEES the piece, never into a wall.
+    // Head-on when the frontage is open (that line is always clear — verified).
+    // Otherwise swing round a shoulder to see past the neighbour — but pick the
+    // shoulder that is itself CLEAR (blindly swinging one way was occluded on ~8%
+    // of walls, the "blank frame" case). If boxed in on every side, stay head-on
+    // and pull in just short of the obstruction so the camera sits in the near gap.
+    const open = this.city ? this.city.frontageOpen(slot) : true;
+    if (open) {
+      this._cineSide = 0.22; this._cinePolar = 1.46; this.targetRadius = 4.4;
+    } else {
+      const cR = this._clearDist(slot,  0.70);
+      const cL = this._clearDist(slot, -0.70);
+      if (Math.max(cR, cL) >= 5.6) {
+        this._cineSide = cR >= cL ? 0.70 : -0.70;   // swing toward the open shoulder
+        this._cinePolar = 1.28; this.targetRadius = 5.6;
+      } else {
+        const cN = this._clearDist(slot, 0);         // boxed in → head-on, pulled into the gap
+        this._cineSide = 0.22; this._cinePolar = 1.42;
+        this.targetRadius = Math.max(3.0, Math.min(4.4, cN - 0.6));
+      }
+    }
 
     planetPoint(slot.px, slot.py + 0.20, slot.pz, this.pivotTarget, this.R);
   }
