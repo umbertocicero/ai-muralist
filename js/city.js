@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { rotateY2D } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
-import { planetPoint, planetQuat, placeOnPlanet, PLANET_R } from './planet.js';
+import { planetPoint, planetQuat, PLANET_R } from './planet.js';
 import { GLASS, SHUTTER } from './items/materials.js';
 import { createItem } from './items/index.js';
 
@@ -502,13 +502,8 @@ export class City {
   }
 
   // A round manhole cover lying tangent on the planet (built post-spherify).
-  _manhole(x, z) {
-    const baseQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-    const rim = new THREE.Mesh(new THREE.CircleGeometry(0.46, 18), toonMat('#3a3833'));
-    placeOnPlanet(rim, x, 0.08, z, baseQ, this.R); rim.receiveShadow = true; this.scene.add(rim);
-    const inner = new THREE.Mesh(new THREE.CircleGeometry(0.36, 18), toonMat('#86837e'));
-    placeOnPlanet(inner, x, 0.09, z, baseQ, this.R); this.scene.add(inner);
-  }
+  // A round manhole cover on the road — item factory (furniture.js).
+  _manhole(x, z) { createItem(this, 'manhole', { x, z }); }
 
   // ── Generate plots → buildings + open lots ────────────────────────────────
   _generate() {
@@ -732,37 +727,8 @@ export class City {
   // dark timber slab split into two leaves with recessed panels, a frosted glass
   // light near the top, a handle and a low threshold step. Built as a small group
   // (doors are few) and spherified onto the planet like any prop.
-  _door(x, z, rotY) {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY;
-    const W = 0.98, H = 1.98, WOOD = '#39342c', PANEL = '#2c2822', FR = '#d0cdc6', STEP = '#c7c4bd';
-    const box = (w, h, d, col, px, py, pz, k = 1.03) => {
-      const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast: false });
-      m.position.set(px, py, pz); g.add(m); return m;
-    };
-    // concrete surround (two jambs + a lintel)
-    box(0.09, H + 0.08, 0.14, FR, -W / 2 - 0.02, H / 2, 0.03);
-    box(0.09, H + 0.08, 0.14, FR,  W / 2 + 0.02, H / 2, 0.03);
-    box(W + 0.22, 0.11, 0.14, FR, 0, H + 0.04, 0.03);
-    // the timber slab
-    box(W, H, 0.07, WOOD, 0, H / 2, 0);
-    // centre reveal → reads as two sliding leaves
-    box(0.035, H - 0.06, 0.02, PANEL, 0, H / 2, 0.045);
-    // per leaf: an upper GLAZED light, split into four panes by LIGHT glazing
-    // bars (so it reads clearly against the dark glass), plus a recessed lower
-    // panel — like a real genkan door.
-    const lightGeo = new THREE.PlaneGeometry(W * 0.32, 0.44);
-    for (const lx of [-W * 0.26, W * 0.26]) {
-      const gl = new THREE.Mesh(lightGeo, GLASS);
-      gl.position.set(lx, H * 0.66, 0.05); g.add(gl);
-      box(0.03, 0.44, 0.02, FR, lx, H * 0.66, 0.055, 1.25);          // vertical glazing bar
-      box(W * 0.32, 0.03, 0.02, FR, lx, H * 0.66, 0.055, 1.25);      // horizontal glazing bar
-      box(W * 0.32, H * 0.24, 0.02, PANEL, lx, H * 0.26, 0.045, 1.06); // recessed lower panel
-    }
-    // handle + a low threshold step
-    box(0.05, 0.18, 0.05, '#8c877d', W * 0.30, H * 0.46, 0.07, 1.12);
-    box(W + 0.26, 0.09, 0.3, STEP, 0, 0.045, 0.13);
-    this.scene.add(g);
-  }
+  // Detailed street door (玄関) — item factory (fixtures.js).
+  _door(x, z, rotY) { createItem(this, 'door', { x, z, rotY }); }
 
   // An air-conditioner outdoor unit (室外機), modelled on a Mitsubishi Electric
   // split-system condenser: a wide, low cream box whose FRONT face is dominated
@@ -1188,26 +1154,10 @@ export class City {
   // Elevated spherical water tank on a lattice tower — a Shōwa rooftop landmark.
   // Elevated water tank on a lattice tower (landmark) — item factory.
   _waterTower(x, z) { createItem(this, 'waterTower', { x, z }); }
-  _pole(x, z, h, transformer = false) {
-    this.colliders.push({ x, z, r: 0.25 });
-    const shaft = inkedMesh(new THREE.CylinderGeometry(0.08, 0.11, h, 6), '#2a2620', { k: 1.05 });
-    shaft.position.set(x, h / 2, z); this.scene.add(shaft);
-    [[h - 0.6, 1.9], [h - 1.5, 1.3]].forEach(([ay, aw]) => {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.07, 0.07), toonMat('#2a2620'));
-      arm.position.set(x, ay, z); this.scene.add(arm);
-    });
-    if (transformer) {
-      const tf = inkedMesh(new THREE.CylinderGeometry(0.18, 0.18, 0.6, 8), '#34302a', { k: 1.06, cast: false });
-      tf.position.set(x + 0.26, h - 2.4, z); this.scene.add(tf);
-    }
-  }
-  _wire(x0, y0, z0, x1, y1, z1, sag) {
-    const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 - sag, (z0 + z1) / 2);
-    const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(x0, y0, z0), mid, new THREE.Vector3(x1, y1, z1));
-    const pts = curve.getPoints(10);
-    for (let i = 0; i < pts.length - 1; i++)
-      this._wireSeg.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
-  }
+  // Utility pole + cross-arms (+ transformer) — item factory (infrastructure.js).
+  _pole(x, z, h, transformer = false) { createItem(this, 'pole', { x, z, h, transformer }); }
+  // A sagging overhead cable (batched into _wireSeg) — item factory.
+  _wire(x0, y0, z0, x1, y1, z1, sag) { createItem(this, 'wire', { x0, y0, z0, x1, y1, z1, sag }); }
 
   // Merge every batched stroke into a single LineSegments per material — turns
   // hundreds of one-segment Line draw calls into two.
