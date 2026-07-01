@@ -44,6 +44,32 @@ const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
 const FRAME_GEO = new THREE.PlaneGeometry(1.22, 1.46);
 const FRAME_MAT = new THREE.MeshBasicMaterial({ color: '#3a3631', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 
+// A window GRID (格子): thin muntin bars that split the pane into four lights —
+// one vertical + one horizontal bar as a single flat cross, drawn just in front
+// of the glass. Plus a light sill ledge under the sash. Both are instanced with
+// the same per-window transforms, so the whole town's window detail is still
+// only a couple of extra draw calls.
+function crossGeometry(w, h, t) {
+  const hw = w / 2, hh = h / 2, ht = t / 2;
+  const quad = (x0, y0, x1, y1) => [x0, y0, 0, x1, y0, 0, x1, y1, 0, x0, y0, 0, x1, y1, 0, x0, y1, 0];
+  const pos = [
+    ...quad(-ht, -hh, ht, hh),                 // vertical muntin
+    ...quad(-hw, -0.06, hw, 0.06),             // horizontal muntin (a touch above centre)
+    ...quad(-hw, hh - 0.05, hw, hh + 0.02),    // top rail
+    ...quad(-hw, -hh - 0.02, hw, -hh + 0.05),  // bottom rail
+  ];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+const MUNTIN_GEO = crossGeometry(1.0, 1.2, 0.05);
+const MUNTIN_MAT = new THREE.MeshBasicMaterial({ color: '#2a2620', side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+// a protruding concrete sill just under the sash (geometry baked below + outward)
+const SILL_GEO = new THREE.BoxGeometry(1.24, 0.08, 0.16);
+SILL_GEO.translate(0, -0.78, 0.07);
+const SILL_MAT = new THREE.MeshBasicMaterial({ color: '#d7d3cb' });
+
 // Triangular-prism (gable) roof geometry, flat-shaded. Base width = 2*halfSpan
 // across X, ridge of height `rh` along +Y, extruded `len` along Z.
 function gableGeometry(halfSpan, rh, len) {
@@ -120,8 +146,6 @@ function drapedClothGeometry(w, h, {
 }
 
 const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
-const DOOR_GEO = new THREE.PlaneGeometry(0.95, 1.9);
-const DOOR     = new THREE.MeshBasicMaterial({ color: '#322e28', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
 export class City {
   constructor(scene) {
@@ -607,10 +631,7 @@ export class City {
     if (door) {
       const f = this._toWorld(cx, cz, rot, door * hw, hd * 0.3);
       const n = this._dir(rot, door, 0);
-      const d = new THREE.Mesh(DOOR_GEO, DOOR);
-      d.position.set(f.x + n.x * 0.05, 0.96, f.z + n.z * 0.05);
-      d.rotation.y = Math.atan2(n.x, n.z);
-      this.scene.add(d);
+      this._door(f.x + n.x * 0.05, f.z + n.z * 0.05, Math.atan2(n.x, n.z));
     }
 
     // Shop dressing on the street-facing face: an awning + signboard at the
@@ -690,6 +711,38 @@ export class City {
       if (this.rng() < 0.6) this._vine(e.x + n.x * 0.16, e.z + n.z * 0.16, 2.8 + this.rng() * 2.4);
       if (this.rng() < 0.3) this._bush(pb.x, pb.z, 0.6 + this.rng() * 0.35);
     }
+  }
+
+  // A detailed street door (玄関): a light concrete surround (jambs + lintel), a
+  // dark timber slab split into two leaves with recessed panels, a frosted glass
+  // light near the top, a handle and a low threshold step. Built as a small group
+  // (doors are few) and spherified onto the planet like any prop.
+  _door(x, z, rotY) {
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY;
+    const W = 0.98, H = 1.98, WOOD = '#39342c', PANEL = '#2c2822', FR = '#d0cdc6', STEP = '#c7c4bd';
+    const box = (w, h, d, col, px, py, pz, k = 1.03) => {
+      const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast: false });
+      m.position.set(px, py, pz); g.add(m); return m;
+    };
+    // concrete surround (two jambs + a lintel)
+    box(0.09, H + 0.08, 0.14, FR, -W / 2 - 0.02, H / 2, 0.03);
+    box(0.09, H + 0.08, 0.14, FR,  W / 2 + 0.02, H / 2, 0.03);
+    box(W + 0.22, 0.11, 0.14, FR, 0, H + 0.04, 0.03);
+    // the timber slab
+    box(W, H, 0.07, WOOD, 0, H / 2, 0);
+    // centre reveal → reads as two sliding leaves
+    box(0.035, H - 0.06, 0.02, PANEL, 0, H / 2, 0.045);
+    // two recessed panels per leaf (proud rectangles whose ink reads as panels)
+    for (const lx of [-W * 0.25, W * 0.25])
+      for (const py of [H * 0.30, H * 0.62])
+        box(W * 0.34, H * 0.20, 0.02, PANEL, lx, py, 0.045, 1.06);
+    // frosted glass light near the top
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.7, 0.2), GLASS);
+    glass.position.set(0, H * 0.9, 0.05); g.add(glass);
+    // handle + a low threshold step
+    box(0.05, 0.18, 0.05, '#8c877d', W * 0.30, H * 0.46, 0.07, 1.12);
+    box(W + 0.26, 0.09, 0.3, STEP, 0, 0.045, 0.13);
+    this.scene.add(g);
   }
 
   // An air-conditioner outdoor unit (室外機), modelled on a Mitsubishi Electric
@@ -1160,8 +1213,10 @@ export class City {
       im.instanceMatrix.needsUpdate = true;
       this.scene.add(im);
     };
+    make(SILL_GEO, SILL_MAT, this._winXf);     // concrete sill ledge under the sash
     make(FRAME_GEO, FRAME_MAT, this._winXf);   // sash frame behind each pane
     make(WIN_GEO, GLASS, this._winXf);
+    make(MUNTIN_GEO, MUNTIN_MAT, this._winXf); // muntin cross → four panes of glass
     make(SHU_GEO, SHUTTER, this._shutXf);
   }
   // ── Greenery: delegated to the parametric item factory (js/items/nature.js) ─
