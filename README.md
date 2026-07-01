@@ -42,8 +42,9 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   │   ├── infrastructure.js lamppost / pole / wire / antenna / waterTower
 │   │   ├── furniture.js      bench / planterBox / cone / aFrameBarrier / plankFence / stairs / vending / manhole
 │   │   ├── signs.js          nobori / roadSign / curveMirror
-│   │   ├── fixtures.js       acUnit / door (facade-mounted objects)
+│   │   ├── house.js          the house itself: window/shutter instancing geometry (incl. slats), roofs, balcony (+porta-finestra +futon), shopfront, roof sign, siding, genkan door, AC unit
 │   │   └── index.js          createItem(ctx, type, opts) factory registry
+│   ├── map.js           drawCityMap — inked 2D map of the generated town (debug: window.__map())
 │   ├── character.js     Character — KAI (schoolkid) mesh + animation states
 │   ├── mural-factory.js MuralFactory — prompt, fetch, sanitize, rasterize
 │   ├── agent.js         Agent — 5-state machine, writes to Vue reactive state

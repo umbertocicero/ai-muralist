@@ -58,9 +58,11 @@ export function makeTree(ctx, { x, z, trunkH = 3.2, crown } = {}) {
 
   if (ctx.animators) {
     const ph = ctx.rng() * 6.283, fr = 0.45 + ctx.rng() * 0.3, amp = 0.05 + ctx.rng() * 0.04;
-    ctx.animators.push((t) => {
-      sway.rotation.z = Math.sin(t * fr + ph) * amp;
-      sway.rotation.x = Math.cos(t * fr * 0.8 + ph) * amp * 0.6;
+    // `wind` is the shared gust envelope from city.update — every crown leans
+    // into the same gusts (with its own phase), so the town breathes together.
+    ctx.animators.push((t, dt, wind = 1) => {
+      sway.rotation.z = Math.sin(t * fr + ph) * amp * wind;
+      sway.rotation.x = Math.cos(t * fr * 0.8 + ph) * amp * 0.6 * wind;
     });
   }
 }

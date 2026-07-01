@@ -20,17 +20,17 @@
 - [x] le scale sono montate al contrario erronemante → city `_stairs`: la rampa ora sale verso l'ingresso (gradino alto contro il muro), non verso la strada
 - [x] tutti gli oggetti creati in city.js andreabbero postati in prop.js e eliminati da city.js → spostati in js/items/props.js i 13 builder discreti (lamppost, antenna, waterTower, plankFence, acUnit, nobori, planterBox, roadSign, curveMirror, aFrameBarrier, scooter, stairs, keiCar) + registrati in items/index.js; city.js ora delega via createItem (thin wrapper) e tiene solo la generazione strutturale (blocchi/tetti/facciate/strade)
 - [x] elimina orario e bordo della pagina → rimossi TimeBar (#clock) e la cornice inchiostrata (#paper .frame)
-- [ ] aggiungi molti più lampioni sia nella zona diurna che notturan, nella zona notturan devono essere tutti accesi
-- [ ] I graffiti su pareti sottoesposte o sovraesposse da lla luce si devono vedere sempre, non devono essere influenzate da esse.
-- [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
-- [ ] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno.
-- [ ] crea house.js con dentro tutti gli oggetti che la richuardano, come balconi, finestre, etc.
-- [ ] panni sul balcone quando si muovono entrano erronemante nel balcone
-- [ ] sistema la bomboletta impugnata male
-- [ ] Migliora i cordili di strada rendendoli più realistici di pietra e tridimensionali
-- [ ] Stampa una mappa della città costruita
-- [ ] il balcone deve essere coerente con le finestre dietro. se è un balcone la finestra deve arrivare fino a toccarlo a terra, non una finestrella
-- [ ] aggiungi dettagli a tutte le tipologie di porte in stile manga.
+- [x] aggiungi molti più lampioni sia nella zona diurna che notturan, nella zona notturan devono essere tutti accesi → città: doppio passaggio sui palazzi + fila lungo le strade principali (86→150 teste); atmosphere: rampa notte ripida (ogni lampione oltre il terminatore è a piena luce)
+- [x] I graffiti su pareti sottoesposte o sovraesposse da lla luce si devono vedere sempre, non devono essere influenzate da esse. → mural material fog:false (già unlit): colore pieno costante a ogni distanza/luce
+- [~] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante. → raffica condivisa in city.update (alberi + futon respirano insieme); RIMANE: fili e fronde singole (i fili sono LineSegments batched, animarli costa)
+- [x] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno. → yaw easing più morbido (0.15→0.09) + steering predittivo (probe 4 step avanti → curva anticipata, niente jink sul muro)
+- [x] crea house.js con dentro tutti gli oggetti che la richuardano, come balconi, finestre, etc. → js/items/house.js: geometrie finestre/serrande instanced, tetti (gable/hip/tiles/corrugated), siding, balcone, shopfront, insegna da tetto, porta genkan, AC (fixtures.js fuso dentro)
+- [x] panni sul balcone quando si muovono entrano erronemante nel balcone → oscillazione clampata verso l'ESTERNO (rotation.x ∈ [0.1amp, amp], mai negativa)
+- [x] sistema la bomboletta impugnata male → bomboletta dentro il pugno, inclinata verso il muro, cap solidale alla bomboletta
+- [x] Migliora i cordili di strada rendendoli più realistici di pietra e tridimensionali → cordolo più alto (0.16) con labbro chiaro + giunti di pietra inchiostrati sui 4 lati
+- [x] Stampa una mappa della città costruita → js/map.js drawCityMap (strade/edifici tratteggiati/slot murales/pali/KAI, stile manga); debug: window.__map()
+- [x] il balcone deve essere coerente con le finestre dietro. se è un balcone la finestra deve arrivare fino a toccarlo a terra, non una finestrella → il balcone porta la sua PORTA-FINESTRA a tutta altezza (vetro fino alla soletta, 2 ante sui balconi larghi); le finestrelle instanced su quel piano vengono saltate
+- [x] aggiungi dettagli a tutte le tipologie di porte in stile manga. → serrande con DOGHE orizzontali instanced (leggono subito come シャッター); porta genkan già dettagliata (ante scorrevoli, vetri, pannelli)
 
 
 # TODO secondari

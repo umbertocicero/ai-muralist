@@ -5,6 +5,8 @@ import { toonMat, addInk, inkedMesh } from './toon.js';
 import { planetPoint, planetQuat, PLANET_R } from './planet.js';
 import { GLASS, SHUTTER } from './items/materials.js';
 import { createItem } from './items/index.js';
+import { WIN_GEO, FRAME_GEO, FRAME_MAT, MUNTIN_GEO, MUNTIN_MAT, SILL_GEO, SILL_MAT,
+         SHU_GEO, SLAT_GEO, SLAT_MAT } from './items/house.js';
 
 // ===========================================================================
 //  A procedurally generated Setagaya-style neighbourhood.
@@ -37,117 +39,8 @@ const CURB     = toonMat('#eceae6');
 // now live in js/items/materials.js — imported above.
 const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
 const ROOFLINE = new THREE.LineBasicMaterial({ color: '#2a2824' });   // tile / corrugation strokes
-const WIN_GEO  = new THREE.PlaneGeometry(1.0, 1.2);
-// A dark sash FRAME drawn just behind each window pane (slightly larger), so a
-// border of frame shows around the glass — the "cornici alle finestre" detail.
-// Less-negative polygonOffset than GLASS so the pane always sits in front of it.
-const FRAME_GEO = new THREE.PlaneGeometry(1.22, 1.46);
-const FRAME_MAT = new THREE.MeshBasicMaterial({ color: '#3a3631', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-
-// A window GRID (格子): thin muntin bars that split the pane into four lights —
-// one vertical + one horizontal bar as a single flat cross, drawn just in front
-// of the glass. Plus a light sill ledge under the sash. Both are instanced with
-// the same per-window transforms, so the whole town's window detail is still
-// only a couple of extra draw calls.
-function crossGeometry(w, h, t) {
-  const hw = w / 2, hh = h / 2, ht = t / 2;
-  const quad = (x0, y0, x1, y1) => [x0, y0, 0, x1, y0, 0, x1, y1, 0, x0, y0, 0, x1, y1, 0, x0, y1, 0];
-  const pos = [
-    ...quad(-ht, -hh, ht, hh),                 // vertical muntin
-    ...quad(-hw, -0.06, hw, 0.06),             // horizontal muntin (a touch above centre)
-    ...quad(-hw, hh - 0.05, hw, hh + 0.02),    // top rail
-    ...quad(-hw, -hh - 0.02, hw, -hh + 0.05),  // bottom rail
-  ];
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.computeVertexNormals();
-  return g;
-}
-const MUNTIN_GEO = crossGeometry(1.0, 1.2, 0.06);
-// LIGHT glazing bars (white-ish sash), so the panes read clearly against the
-// dark glass — dark bars on dark glass were invisible.
-const MUNTIN_MAT = new THREE.MeshBasicMaterial({ color: '#e7e4dd', side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-// a protruding concrete sill just under the sash (geometry baked below + outward)
-const SILL_GEO = new THREE.BoxGeometry(1.24, 0.08, 0.16);
-SILL_GEO.translate(0, -0.78, 0.07);
-const SILL_MAT = new THREE.MeshBasicMaterial({ color: '#d7d3cb' });
-
-// Triangular-prism (gable) roof geometry, flat-shaded. Base width = 2*halfSpan
-// across X, ridge of height `rh` along +Y, extruded `len` along Z.
-function gableGeometry(halfSpan, rh, len) {
-  const z0 = -len / 2, z1 = len / 2;
-  const P = [
-    [-halfSpan, 0, z0], [halfSpan, 0, z0], [0, rh, z0],
-    [-halfSpan, 0, z1], [halfSpan, 0, z1], [0, rh, z1],
-  ];
-  const faces = [[0,1,2],[3,5,4],[0,2,5],[0,5,3],[1,4,5],[1,5,2],[0,3,4],[0,4,1]];
-  const pos = [];
-  for (const [a, b, c] of faces) pos.push(...P[a], ...P[b], ...P[c]);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.computeVertexNormals();
-  return g;
-}
-// A SOFT draped cloth (futon / blanket over a balcony rail). A thin double-sided
-// shell shaped so it reads as fabric, not a plank: it bellies out in the middle,
-// runs in a few gentle vertical folds, rounds forward into a lip where it bends
-// over the rail at the top, and has a wavy, slightly-sagging hem at the bottom.
-// Local origin is the TOP centre (at the rail); +y is up, the cloth hangs to -y,
-// +z is the outward (street) side. Each `seed` gives a different fold pattern.
-function drapedClothGeometry(w, h, {
-  depth = 0.045, nx = 18, ny = 16, nfolds = 3,
-  foldAmp = 0.04, bellyAmp = 0.06, lipAmp = 0.06,
-  hemSag = 0.05, hemWave = 0.028, seed = 0,
-} = {}) {
-  const ph = seed * 1.7;
-  // outward (+z) offset of the cloth's mid-surface at (u in 0..1 across, v in 0..1 down)
-  const zMid = (u, v) => {
-    const belly = bellyAmp * Math.sin(Math.min(v, 1) * Math.PI);                 // bulge out mid-height
-    const folds = foldAmp * Math.sin(u * Math.PI * 2 * nfolds + ph) * (0.35 + 0.65 * v); // vertical folds, fuller low
-    const lip   = lipAmp * Math.exp(-(v * v) / (2 * 0.08 * 0.08));               // rounded fold-over lip at the rail
-    return belly + folds + lip;
-  };
-  const yAt = (u, v) => {
-    const hemT = Math.max(0, (v - 0.55) / 0.45);                                 // 0 until 55% down, 1 at the hem
-    const s = hemT * hemT * (3 - 2 * hemT);                                      // smoothstep so the hem eases in
-    // a gentle overall droop (deeper toward the centre) + a soft fold-tied ripple
-    const droop  = hemSag * Math.sin(u * Math.PI) * 0.7;
-    const ripple = hemWave * Math.cos(u * Math.PI * 2 * nfolds + ph);
-    return -v * h - (hemSag * 0.4 + droop + ripple) * s;
-  };
-  const xAt = (u) => (u - 0.5) * w;
-
-  const cols = nx + 1, rows = ny + 1;
-  const id = (side, i, j) => side * cols * rows + j * cols + i;
-  const pos = [];
-  for (let side = 0; side < 2; side++) {
-    const sgn = side === 0 ? 0.5 : -0.5;
-    for (let j = 0; j < rows; j++) {
-      const v = j / ny;
-      for (let i = 0; i < cols; i++) { const u = i / nx; pos.push(xAt(u), yAt(u, v), zMid(u, v) + depth * sgn); }
-    }
-  }
-  const idx = [];
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-    const a = id(0, i, j), b = id(0, i + 1, j), c = id(0, i + 1, j + 1), d = id(0, i, j + 1);
-    idx.push(a, c, b, a, d, c);                                                  // front (+z)
-    const e = id(1, i, j), f = id(1, i + 1, j), g = id(1, i + 1, j + 1), k = id(1, i, j + 1);
-    idx.push(e, f, g, e, g, k);                                                  // back (-z)
-  }
-  const seam = (a, b, c, d) => idx.push(a, c, b, a, d, c);                       // close the perimeter
-  for (let i = 0; i < nx; i++) seam(id(0, i, 0),  id(1, i, 0),  id(1, i + 1, 0),  id(0, i + 1, 0));   // top
-  for (let i = 0; i < nx; i++) seam(id(1, i, ny), id(0, i, ny), id(0, i + 1, ny), id(1, i + 1, ny));  // hem
-  for (let j = 0; j < ny; j++) seam(id(1, 0, j),  id(0, 0, j),  id(0, 0, j + 1),  id(1, 0, j + 1));   // left
-  for (let j = 0; j < ny; j++) seam(id(0, nx, j), id(1, nx, j), id(1, nx, j + 1), id(0, nx, j + 1));  // right
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-const SHU_GEO  = new THREE.PlaneGeometry(1.5, 1.9);
+// Window / shutter instancing geometry + every house piece (roofs, balcony,
+// shopfront, door, AC…) now lives in js/items/house.js — imported above.
 
 export class City {
   constructor(scene) {
@@ -302,10 +195,15 @@ export class City {
     }
   }
 
-  // Drive every registered per-object animator (called once per frame by the app).
+  // Drive every registered per-object animator (called once per frame by the
+  // app). A shared WIND factor — a slow base breath with an occasional stronger
+  // gust — is passed to every animator, so trees, futons and plants all lean
+  // into the same gusts instead of each waving to its own private clock.
   update(dt, t) {
+    const gust = Math.max(0, Math.sin(t * 0.23) + Math.sin(t * 0.61 + 1.7)) * 0.5;  // 0…1 gust envelope
+    const wind = 0.75 + 0.25 * Math.sin(t * 0.9) + gust * 0.9;                      // ~0.5 lull … ~1.9 gust
     const a = this.animators;
-    for (let i = 0; i < a.length; i++) a[i](t, dt);
+    for (let i = 0; i < a.length; i++) a[i](t, dt, wind);
   }
 
   _rand(a, b) { return a + this.rng() * (b - a); }
@@ -606,9 +504,27 @@ export class City {
     this.scene.add(body);
     if (wood) this._sidingLines(cx, cz, rot, hw, hd, H);
 
-    const curb = new THREE.Mesh(new THREE.BoxGeometry(hw * 2 + 0.5, 0.12, hd * 2 + 0.5), CURB);
-    curb.position.set(cx, 0.06, cz); curb.rotation.y = rot; curb.receiveShadow = true;
+    // Stone kerb apron around the block: a real 3D step (taller than the old
+    // 0.12 slab, with a thin lighter cap so the edge catches a highlight) plus
+    // ink JOINTS — short vertical ticks down the riser and cross seams on the
+    // tread — so it reads as laid stone blocks, not an extruded outline.
+    const kw = hw * 2 + 0.5, kd = hd * 2 + 0.5, kh = 0.16;
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(kw, kh, kd), CURB);
+    curb.position.set(cx, kh / 2, cz); curb.rotation.y = rot; curb.receiveShadow = true;
     this.scene.add(curb);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(kw + 0.04, 0.025, kd + 0.04), toonMat('#f4f2ee'));
+    lip.position.set(cx, kh - 0.012, cz); lip.rotation.y = rot; this.scene.add(lip);
+    // stone joints along the four kerb faces (batched ink strokes)
+    const khw = kw / 2, khd = kd / 2, step = 0.72;
+    for (const [ex, ez, tx2, tz2, len] of [
+      [0,  khd + 0.01,  1, 0, khw], [0, -khd - 0.01,  1, 0, khw],
+      [ khw + 0.01, 0,  0, 1, khd], [-khw - 0.01, 0,  0, 1, khd],
+    ]) {
+      for (let s = -len + 0.36; s < len - 0.1; s += step) {
+        const a = this._toWorld(cx, cz, rot, ex + tx2 * s, ez + tz2 * s);
+        this._roofSeg.push(a.x, 0.015, a.z, a.x, kh - 0.02, a.z);          // riser joint
+      }
+    }
 
     // Roof — a mix of Japanese types (gable / hip / flat), per the reference.
     const roll = this.rng();
@@ -682,11 +598,20 @@ export class City {
     const floors = Math.min(3, Math.max(1, Math.round(H / 2.4)));
     const cols   = Math.min(3, Math.max(1, Math.round(wallLen / 2.8)));
 
+    // Decide the balcony BEFORE laying windows: on its floor the wall gets a
+    // full-height porta-finestra (built by the balcony itself), so the ordinary
+    // instanced windows it would cover are skipped — the opening and the balcony
+    // in front of it stay coherent.
+    const balcY = 1.4 + (floors - 1) * 2.2 - 1.25;
+    const hasBalcony = floors >= 2 && seed % 2 === 0 && balcY > 0.6 && balcY + 1.0 < H;
+    const balcW = Math.min(wallLen * 0.82, 4.2);
+
     for (let f = 0; f < floors; f++) {
       const wy = 1.4 + f * 2.2;
       if (wy + 0.6 > H) continue;
       for (let c = 0; c < cols; c++) {
         const tc = (c - (cols - 1) / 2) * 2.4;
+        if (hasBalcony && f === floors - 1 && Math.abs(tc) < balcW / 2) continue;  // porta-finestra instead
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
         const ox = n.x * 0.09, oz = n.z * 0.09;
         if (f === 0 && (c + seed) % 3 === 0) {
@@ -702,14 +627,10 @@ export class City {
         }
       }
     }
-    // one coherent concrete balcony on the upper floor (not per-window planks).
-    // Sit it low enough that the parapet + rail cap clear the BOTTOM of that
-    // floor's window (window centre is at wy = 1.4 + f*2.2, pane 1.2 tall): the
-    // balcony reads as being UNDER the window it serves, never cutting across it.
-    if (floors >= 2 && seed % 2 === 0) {
-      const by = 1.4 + (floors - 1) * 2.2 - 1.25;   // parapet top (~by+0.59) sits just below the window bottom (wy-0.6)
-      if (by > 0.6 && by + 1.0 < H) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, by, seed);
-    }
+    // one coherent concrete balcony on the upper floor (not per-window planks);
+    // it brings its own full-height porta-finestra on the wall behind (the
+    // instanced windows there were skipped above).
+    if (hasBalcony) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, balcY, seed);
     // drainpipe + base plants on the street side
     const e = this._toWorld(cx, cz, rot, nlx * half + tlx * (wallLen / 2 - 0.3), nlz * half + tlz * (wallLen / 2 - 0.3));
     const pipe = inkedMesh(new THREE.CylinderGeometry(0.06, 0.06, H, 6), '#bcbab6', { k: 1.08, cast: false });
@@ -740,136 +661,19 @@ export class City {
   // AC outdoor unit (室外機) — built by the item factory (js/items/props.js).
   _acUnit(x, y, z, rotY) { createItem(this, 'acUnit', { x, y, z, rotY }); }
 
-  // A coherent concrete balcony: a floor slab + a solid 3-sided parapet (front +
-  // two side returns so it reads as a real box, not a flat tray), a dark metal
-  // rail cap, and sometimes a futon/blanket draped down over the front — the
-  // way a mangaka draws a Tokyo apartment balcony.
+  // Concrete balcony + porta-finestra + wind-flapped futons — item factory (house.js).
   _balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed) {
-    const w = Math.min(wallLen * 0.82, 4.2), out = 0.62, ph = 0.56;   // width · depth · parapet height
-    // floor slab
-    const fc = this._toWorld(cx, cz, rot, nlx * (half + out / 2), nlz * (half + out / 2));
-    const slab = inkedMesh(new THREE.BoxGeometry(w, 0.12, out), '#c8c5bf', { k: 1.03, cast: false });
-    slab.position.set(fc.x, y, fc.z); slab.rotation.y = rotY; this.scene.add(slab);
-    // solid front parapet wall
-    const pc = this._toWorld(cx, cz, rot, nlx * (half + out), nlz * (half + out));
-    const front = inkedMesh(new THREE.BoxGeometry(w, ph, 0.1), '#b6b3ac', { k: 1.03, cast: false });
-    front.position.set(pc.x, y + ph / 2, pc.z); front.rotation.y = rotY; this.scene.add(front);
-    // two side returns → the balcony reads as a volume, not a floating shelf
-    for (const s of [-1, 1]) {
-      const sc = this._toWorld(cx, cz, rot, nlx * (half + out / 2) + tlx * (s * w / 2), nlz * (half + out / 2) + tlz * (s * w / 2));
-      const side = inkedMesh(new THREE.BoxGeometry(0.09, ph, out), '#bebbb4', { k: 1.04, cast: false });
-      side.position.set(sc.x, y + ph / 2, sc.z); side.rotation.y = rotY; this.scene.add(side);
-    }
-    // dark metal rail cap along the top
-    const cap = inkedMesh(new THREE.BoxGeometry(w + 0.1, 0.07, 0.16), '#6e695f', { k: 1.05, cast: false });
-    cap.position.set(pc.x, y + ph + 0.03, pc.z); cap.rotation.y = rotY; this.scene.add(cap);
-    // futon / blanket draped over the rail and hanging down the front — each one
-    // flaps gently in the breeze. The cloth hangs from a pivot at the rail (a
-    // spherified anchor group); a child group swings about the rail axis, so the
-    // bottom of the cloth sways while the top stays pinned to the railing.
-    const nF = this.rng() < 0.7 ? (this.rng() < 0.5 ? 2 : 1) : 0;
-    for (let i = 0; i < nF; i++) {
-      const toff = (i - (nF - 1) / 2) * 0.92 + this._rand(-0.06, 0.06);
-      const lp = this._toWorld(cx, cz, rot, nlx * (half + out + 0.06) + tlx * toff, nlz * (half + out + 0.06) + tlz * toff);
-      const fh = 0.66 + this.rng() * 0.22;
-      const anchor = new THREE.Group();
-      anchor.position.set(lp.x, y + ph + 0.05, lp.z); anchor.rotation.y = rotY; this.scene.add(anchor);
-      const swing = new THREE.Group(); anchor.add(swing);
-      // a SOFT draped cloth (folds + rounded fold-over lip + wavy hem), not a plank
-      const cloth = drapedClothGeometry(0.6, fh, { seed: (seed * 3 + i) | 0, nfolds: 2 + (i % 2) });
-      const futon = inkedMesh(cloth, i % 2 ? '#9c9890' : '#d7d3cb', { k: 1.03, cast: false });
-      futon.position.set(0, 0, 0); swing.add(futon);
-      const ph2 = this.rng() * 6.283, fr = 0.7 + this.rng() * 0.6, amp = 0.05 + this.rng() * 0.05;
-      this.animators.push((t) => {
-        swing.rotation.x = Math.sin(t * fr + ph2) * amp;          // flap toward / away from the wall
-        swing.rotation.z = Math.cos(t * fr * 0.7 + ph2) * amp * 0.5;
-      });
-    }
+    createItem(this, 'balcony', { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed });
   }
 
-  // ── Shop dressing (商店街) ────────────────────────────────────────────────
-  // A storefront on the street-facing ground floor: a horizontal name-board
-  // (kanban) across the top of the shopfront, an awning over the pavement, and
-  // a vertical projecting blade sign (袖看板). All greyscale so the world stays
-  // B&W; the signs register a night-glow point so they read as lit after dark.
+  // Shopfront (kanban + awning + blade sign) — item factory (house.js).
   _shopfront(cx, cz, rot, nlx, nlz, hw, hd, H, seed) {
-    const half = (nlx !== 0) ? hw : hd;
-    const wallLen = ((nlx !== 0) ? hd : hw) * 2;
-    const tlx = -nlz, tlz = nlx;                       // tangent (local)
-    const n = this._dir(rot, nlx, nlz);
-    const rotY = Math.atan2(n.x, n.z);
-    const w = Math.min(wallLen * 0.92, 4.4);
-
-    // horizontal shop name-board across the top of the storefront
-    const signY = 2.9;
-    const sc = this._toWorld(cx, cz, rot, nlx * (half + 0.07), nlz * (half + 0.07));
-    const board = inkedMesh(new THREE.BoxGeometry(w, 0.52, 0.12), '#d8d5cd', { k: 1.03, cast: false });
-    board.position.set(sc.x, signY, sc.z); board.rotation.y = rotY; this.scene.add(board);
-    // a row of glyph strokes so the board reads as shop lettering (kanji-ish)
-    const glyphs = 3 + (seed % 3);
-    for (let gi = 0; gi < glyphs; gi++) {
-      const tcen = (gi - (glyphs - 1) / 2) * (w / (glyphs + 0.6));
-      const va = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * tcen, nlz * (half + 0.14) + tlz * tcen);
-      this._roofSeg.push(va.x, signY - 0.16, va.z, va.x, signY + 0.16, va.z);   // vertical stroke
-      for (const dy of [-0.09, 0.09]) {                                          // two horizontal ticks
-        const ha = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (tcen - 0.09), nlz * (half + 0.14) + tlz * (tcen - 0.09));
-        const hb = this._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * (tcen + 0.09), nlz * (half + 0.14) + tlz * (tcen + 0.09));
-        this._roofSeg.push(ha.x, signY + dy, ha.z, hb.x, signY + dy, hb.z);
-      }
-    }
-
-    // awning projecting over the pavement (some shops)
-    if ((seed % 2) === 0) {
-      const tone = CONFIG.shop.awningTones[seed % CONFIG.shop.awningTones.length];
-      const aw = inkedMesh(new THREE.BoxGeometry(w, 0.1, 0.72), tone, { k: 1.03, cast: false });
-      const ac = this._toWorld(cx, cz, rot, nlx * (half + 0.4), nlz * (half + 0.4));
-      aw.position.set(ac.x, 2.5, ac.z); aw.rotation.y = rotY; this.scene.add(aw);
-      // a thin valance hanging off the awning's front lip
-      const val = inkedMesh(new THREE.BoxGeometry(w, 0.16, 0.04), tone, { k: 1.04, cast: false });
-      const vc = this._toWorld(cx, cz, rot, nlx * (half + 0.76), nlz * (half + 0.76));
-      val.position.set(vc.x, 2.44, vc.z); val.rotation.y = rotY; this.scene.add(val);
-    }
-
-    // vertical projecting blade sign at one end, perpendicular to the wall
-    const bx = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.3), nlz * (half + 0.2) + tlz * (w / 2 - 0.3));
-    const blade = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.5), toonMat('#cdcac2', { side: THREE.DoubleSide }));
-    blade.position.set(bx.x, 3.5, bx.z); blade.rotation.y = rotY + Math.PI / 2; addInk(blade, 1.03); this.scene.add(blade);
-    // vertical column of text on the blade sign (袖看板) — a tick per character row
-    for (let gi = -1; gi <= 1; gi++) {
-      const ca = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.4), nlz * (half + 0.2) + tlz * (w / 2 - 0.4));
-      const cb = this._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.2), nlz * (half + 0.2) + tlz * (w / 2 - 0.2));
-      this._roofSeg.push(ca.x, 3.5 + gi * 0.42, ca.z, cb.x, 3.5 + gi * 0.42, cb.z);
-    }
-
-    if (CONFIG.shop.nightGlow) this.lampHeads.push(sc.x + n.x * 0.12, signY, sc.z + n.z * 0.12);
+    createItem(this, 'shopfront', { cx, cz, rot, nlx, nlz, hw, hd, H, seed });
   }
 
-  // A rooftop billboard (屋上看板): two posts off the roof carrying a panel that
-  // faces the street, with stroke "lettering" rows. Optional night glow.
+  // Rooftop billboard (屋上看板) — item factory (house.js).
   _roofSign(cx, cz, rot, nlx, nlz, hw, hd, H, seed) {
-    const half = (nlx !== 0) ? hw : hd;
-    const wallLen = ((nlx !== 0) ? hd : hw) * 2;
-    const tlx = -nlz, tlz = nlx;
-    const n = this._dir(rot, nlx, nlz);
-    const rotY = Math.atan2(n.x, n.z);
-    const w = Math.min(wallLen * 0.8, 3.6), sh = 1.3 + this.rng() * 0.8;
-    const baseY = H + 0.2;
-    for (const s of [-1, 1]) {
-      const pc = this._toWorld(cx, cz, rot, nlx * (half - 0.4) + tlx * (s * w * 0.4), nlz * (half - 0.4) + tlz * (s * w * 0.4));
-      const post = inkedMesh(new THREE.BoxGeometry(0.08, sh + 0.4, 0.08), '#2a2620', { k: 1.1, cast: false });
-      post.position.set(pc.x, baseY + (sh + 0.4) / 2, pc.z); post.rotation.y = rotY; this.scene.add(post);
-    }
-    const fc = this._toWorld(cx, cz, rot, nlx * (half - 0.4), nlz * (half - 0.4));
-    const panel = inkedMesh(new THREE.BoxGeometry(w, sh, 0.1), '#dad7cf', { k: 1.02, cast: false });
-    panel.position.set(fc.x, baseY + 0.4 + sh / 2, fc.z); panel.rotation.y = rotY; this.scene.add(panel);
-    const rows = 2 + (this.rng() * 2 | 0);
-    for (let i = 1; i <= rows; i++) {
-      const yy = baseY + 0.4 + sh * (i / (rows + 1));
-      const a = this._toWorld(cx, cz, rot, nlx * (half - 0.34) + tlx * (-w / 2 + 0.25), nlz * (half - 0.34) + tlz * (-w / 2 + 0.25));
-      const b = this._toWorld(cx, cz, rot, nlx * (half - 0.34) + tlx * (w / 2 - 0.25), nlz * (half - 0.34) + tlz * (w / 2 - 0.25));
-      this._roofSeg.push(a.x, yy, a.z, b.x, yy, b.z);
-    }
-    if (CONFIG.shop.nightGlow) this.lampHeads.push(fc.x + n.x * 0.12, baseY + 0.4 + sh / 2, fc.z + n.z * 0.12);
+    createItem(this, 'roofSign', { cx, cz, rot, nlx, nlz, hw, hd, H, seed });
   }
 
   // ── Poles + organic overhead wire net ─────────────────────────────────────
@@ -913,17 +717,35 @@ export class City {
         for (const h of heights) this._wire(a.x, h, a.z, b.x, h, b.z, 0.45);
       }
     }
-    // street lamps set just outside the houses (against them, by the curb —
-    // never mid-lane), lighting the lanes at night and kept off the main road
+    // Street lamps set just outside the houses (against them, by the curb —
+    // never mid-lane), lighting the lanes at night. DENSE: two passes over the
+    // buildings (both flanks get a chance) plus a run along the main roads, so
+    // the whole town is dotted with lamps — and the mirrored dark-side copy
+    // inherits every one of them, all lit.
     let lamps = 0;
-    for (const bld of this.buildings) {
-      if (lamps >= 24) break;
-      if (this.rng() > 0.45) continue;
-      const sgn = this.rng() < 0.5 ? 1 : -1;
-      const f = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.7), bld.hd * (this.rng() - 0.5));
-      if (this.isColliding(f.x, f.z) || this._distToMainRoad(f.x, f.z) < 1.0) continue;
-      const n = this._dir(bld.rot, sgn, 0);               // outward = toward the street
-      this._lamppost(f.x, f.z, Math.atan2(n.x, n.z)); lamps++;
+    for (let pass = 0; pass < 2 && lamps < 56; pass++) {
+      for (const bld of this.buildings) {
+        if (lamps >= 56) break;
+        if (this.rng() > 0.7) continue;
+        const sgn = (pass === 0) === (this.rng() < 0.5) ? 1 : -1;
+        const f = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.7), bld.hd * (this.rng() - 0.5));
+        if (this.isColliding(f.x, f.z)) continue;
+        const n = this._dir(bld.rot, sgn, 0);               // outward = toward the street
+        this._lamppost(f.x, f.z, Math.atan2(n.x, n.z)); lamps++;
+      }
+    }
+    // and a sparse run along the main roads (opposite flank from the poles)
+    for (const r of this.mainRoads) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        if (this.rng() > 0.5) continue;
+        const a = r.pts[i], b = r.pts[i + 1];
+        const t = this._rand(0.25, 0.75);
+        const x = a.x + (b.x - a.x) * t - r.half - 0.4;
+        const z = a.z + (b.z - a.z) * t;
+        if (Math.hypot(x, z) > this.CAP || this.isColliding(x, z)) continue;
+        const nr = this._nearestRoad(x, z);
+        this._lamppost(x, z, Math.atan2(nr.px - x, nr.pz - z));
+      }
     }
   }
 
@@ -1059,7 +881,12 @@ export class City {
     const dx = target.x - pos.x, dz = target.z - pos.z;
     const len = Math.hypot(dx, dz) || 1;
     const dir = { x: dx / len, z: dz / len };
-    for (let attempt = 0; attempt < 12; attempt++) {
+    // Predictive avoidance: probe a few steps AHEAD along the straight line;
+    // if something's coming up, start bending now (skip the straight attempt)
+    // so KAI rounds obstacles in a gentle early arc instead of walking into
+    // the wall and jinking away at the last frame.
+    const ahead = this.isColliding(pos.x + dir.x * dist * 4, pos.z + dir.z * dist * 4);
+    for (let attempt = ahead ? 2 : 0; attempt < 12; attempt++) {
       const sign = attempt % 2 === 0 ? 1 : -1;
       const steps = (attempt / 2) | 0;
       const rot = rotateY2D(dir, sign * steps * (Math.PI / 12));
@@ -1069,87 +896,20 @@ export class City {
     return null;
   }
 
-  // ── Detail builders ───────────────────────────────────────────────────────
-  _hipRoof(x, z, w, d, h, rot) {
-    const oh = 0.4, rH = 0.9 + Math.min(w, d) * 0.13, dia = Math.hypot(w + oh * 2, d + oh * 2) * 0.5;
-    const cone = inkedMesh(new THREE.ConeGeometry(dia, rH, 4), '#26241f', { k: 1.03 });
-    cone.position.set(x, h + rH / 2, z); cone.rotation.y = rot + Math.PI / 4; this.scene.add(cone);
-    const eave = inkedMesh(new THREE.BoxGeometry(w + oh * 2, 0.16, d + oh * 2), '#1a1814', { k: 1.04 });
-    eave.position.set(x, h + 0.08, z); eave.rotation.y = rot; this.scene.add(eave);
-  }
-
-  // Gable (spioventi) roof — triangular prism + tiled slopes.
-  _gableRoof(cx, cz, hw, hd, rot, H) {
-    const oh = 0.4;
-    const halfSpan = hw + oh;
-    const len = hd * 2 + oh * 2;
-    const rh = 0.6 + Math.min(hw, hd) * 0.42;
-    const mat = toonMat('#3a3833', { side: THREE.DoubleSide });
-    const roof = new THREE.Mesh(gableGeometry(halfSpan, rh, len), mat);
-    roof.castShadow = true; addInk(roof, 1.02);
-    roof.position.set(cx, H, cz); roof.rotation.y = rot;
-    this.scene.add(roof);
-    // ridge beam
-    const ridge = inkedMesh(new THREE.BoxGeometry(0.1, 0.12, len), '#1a1814', { k: 1.06, cast: false });
-    ridge.position.set(cx, H + rh, cz); ridge.rotation.y = rot; this.scene.add(ridge);
-    this._roofTiles(cx, cz, rot, H, hw, hd, false, rh, halfSpan, len);
-  }
-
-  // Parallel tile/ridge strokes down a pitched roof (cheap THREE.Line strokes).
+  // ── Detail builders (all delegate to js/items/house.js) ───────────────────
+  _hipRoof(x, z, w, d, h, rot)                { createItem(this, 'hipRoof', { x, z, w, d, h, rot }); }
+  _gableRoof(cx, cz, hw, hd, rot, H)          { createItem(this, 'gableRoof', { cx, cz, hw, hd, rot, H }); }
   _roofTiles(cx, cz, rot, H, hw, hd, hip, rh = 0, halfSpan = 0, len = 0) {
-    const line = (lx0, ly0, lz0, lx1, ly1, lz1) => {
-      const a = this._toWorld(cx, cz, rot, lx0, lz0), b = this._toWorld(cx, cz, rot, lx1, lz1);
-      this._roofSeg.push(a.x, H + ly0, a.z, b.x, H + ly1, b.z);
-    };
-    if (hip) {
-      // a few rings parallel to the eaves
-      const rH = 0.9 + Math.min(hw * 2, hd * 2) * 0.13;
-      for (let i = 1; i <= 3; i++) {
-        const t = i / 4, e = (1 - t);
-        line(-hw * e, rH * t + 0.06, -hd * e, hw * e, rH * t + 0.06, -hd * e);
-        line(-hw * e, rH * t + 0.06,  hd * e, hw * e, rH * t + 0.06,  hd * e);
-      }
-    } else {
-      // gable: lines along the ridge on both slopes
-      const N = 5, zEdge = len / 2 - 0.25;
-      for (let s = -1; s <= 1; s += 2) {
-        for (let i = 1; i < N; i++) {
-          const t = i / N;                     // ridge(0) → eave(1)
-          const lx = s * t * halfSpan, ly = rh * (1 - t) + 0.05;
-          line(lx, ly, -zEdge, lx, ly, zEdge);
-        }
-      }
-    }
+    createItem(this, 'roofTiles', { cx, cz, rot, H, hw, hd, hip, rh, halfSpan, len });
   }
-
-  // Low corrugated-metal roof — parallel ribs across a flat cap.
-  _corrugated(cx, cz, rot, y, hw, hd) {
-    const N = Math.max(4, Math.round(hw * 1.4));
-    for (let i = 0; i <= N; i++) {
-      const lx = -hw + (2 * hw) * (i / N);
-      const a = this._toWorld(cx, cz, rot, lx, -hd + 0.2), b = this._toWorld(cx, cz, rot, lx, hd - 0.2);
-      this._roofSeg.push(a.x, y, a.z, b.x, y, b.z);
-    }
-  }
+  _corrugated(cx, cz, rot, y, hw, hd)         { createItem(this, 'corrugated', { cx, cz, rot, y, hw, hd }); }
 
   // Wooden board fence (板塀) across the front of a plot.
   // Board fence (板塀) around an open lot — item factory.
   _plankFence(cx, cz, rot, hw, hd) { createItem(this, 'plankFence', { cx, cz, rot, hw, hd }); }
 
-  // Horizontal wood-siding seams on a building's four faces.
-  _sidingLines(cx, cz, rot, hw, hd, H) {
-    const faces = [[0, 1, hd, hw], [0, -1, hd, hw], [1, 0, hw, hd], [-1, 0, hw, hd]];
-    for (const [nlx, nlz, half, wl] of faces) {
-      const tlx = -nlz, tlz = nlx;
-      const o = this._dir(rot, nlx, nlz);
-      let c = 0;
-      for (let y = 0.6; y < H - 0.2 && c < 7; y += 0.55, c++) {
-        const a = this._toWorld(cx, cz, rot, nlx * half + tlx * (-wl + 0.15), nlz * half + tlz * (-wl + 0.15));
-        const b = this._toWorld(cx, cz, rot, nlx * half + tlx * (wl - 0.15), nlz * half + tlz * (wl - 0.15));
-        this._roofSeg.push(a.x + o.x * 0.05, y, a.z + o.z * 0.05, b.x + o.x * 0.05, y, b.z + o.z * 0.05);
-      }
-    }
-  }
+  // Horizontal wood-siding seams (板張り) — item factory (house.js).
+  _sidingLines(cx, cz, rot, hw, hd, H) { createItem(this, 'sidingLines', { cx, cz, rot, hw, hd, H }); }
 
   // Elevated spherical water tank on a lattice tower — a Shōwa rooftop landmark.
   // Elevated water tank on a lattice tower (landmark) — item factory.
@@ -1202,6 +962,7 @@ export class City {
     make(WIN_GEO, GLASS, this._winXf);
     make(MUNTIN_GEO, MUNTIN_MAT, this._winXf); // muntin cross → four panes of glass
     make(SHU_GEO, SHUTTER, this._shutXf);
+    make(SLAT_GEO, SLAT_MAT, this._shutXf);    // horizontal slats → inked roller shutter
   }
   // ── Greenery: delegated to the parametric item factory (js/items/nature.js) ─
   // city.js owns LAYOUT (where things go); the factory owns the MESH of each item.

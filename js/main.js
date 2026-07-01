@@ -146,7 +146,14 @@ class App {
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
     ui.onAdmire        = (slot) => this.rig.admireMural(slot);
     ui.onPaintEnd      = () => this.rig.releaseWatch();
-    if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
+    if (location.search.includes('debugcam')) {
+      window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui;
+      // window.__map() → draw the generated town as an inked 2D map (js/map.js)
+      window.__map = async (opts) => {
+        const { drawCityMap } = await import('./map.js');
+        return drawCityMap(this.city, { agent: this.agent, ...opts });
+      };
+    }
 
     // Fix the planet orientation (always day) and initialise sky/lights once.
     this._lastSky = -1e9;

@@ -3,7 +3,7 @@ import * as vehicles from './vehicles.js';
 import * as infrastructure from './infrastructure.js';
 import * as furniture from './furniture.js';
 import * as signs from './signs.js';
-import * as fixtures from './fixtures.js';
+import * as house from './house.js';
 
 // ===========================================================================
 //  Item factory. The city no longer hand-builds these props inline; it calls
@@ -47,9 +47,18 @@ const BUILDERS = {
   nobori:        signs.makeNobori,
   roadSign:      signs.makeRoadSign,
   curveMirror:   signs.makeCurveMirror,
-  // building fixtures (fixtures.js)
-  acUnit:        fixtures.makeAcUnit,
-  door:          fixtures.makeDoor,
+  // the house itself (house.js): roofs, balcony (+porta-finestra +futon), shop
+  // dressing, siding seams and the facade-mounted fixtures
+  gableRoof:     house.makeGableRoof,
+  hipRoof:       house.makeHipRoof,
+  roofTiles:     house.makeRoofTiles,
+  corrugated:    house.makeCorrugated,
+  sidingLines:   house.makeSidingLines,
+  balcony:       house.makeBalcony,
+  shopfront:     house.makeShopfront,
+  roofSign:      house.makeRoofSign,
+  acUnit:        house.makeAcUnit,
+  door:          house.makeDoor,
 };
 
 export function createItem(ctx, type, opts = {}) {
@@ -58,4 +67,4 @@ export function createItem(ctx, type, opts = {}) {
   return fn(ctx, opts);
 }
 
-export { nature, vehicles, infrastructure, furniture, signs, fixtures };
+export { nature, vehicles, infrastructure, furniture, signs, house };

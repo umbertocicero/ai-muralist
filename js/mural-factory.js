@@ -182,6 +182,11 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             new THREE.PlaneGeometry(slot.wallW * CONFIG.muralCoverW, slot.wallH * CONFIG.muralCoverH),
             new THREE.MeshBasicMaterial({
               map: tex, transparent: true, opacity: CONFIG.muralOpacity ?? 0.85,
+              // fog:false — the scene fog would grey the paint out at distance,
+              // and the mural must stay the one vivid thing in the world no
+              // matter how under- or over-lit its wall is. Unlit + fogless =
+              // constant full colour from every angle and range.
+              fog: false,
               polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
             })
           );
