@@ -189,11 +189,21 @@ export class City {
     this._buildPolesAndWires();
     this._buildStreetProps();   // bicycles, banners, planters, road signs
 
-    // a couple of water towers as landmarks (kept off the main road)
+    // A couple of water towers as landmarks. The tank is wide (r≈0.95) and sits
+    // high (~5m) with cross-braces spanning ±0.75, so a building right next to it
+    // pokes into the tank/lattice. Don't just grab the first non-colliding point
+    // (that can hug a wall) — sample the town and keep the spot with the MOST
+    // clearance from every building, off the main road, so the tank sits free.
     for (let k = 0; k < 2; k++) {
-      let p;
-      for (let t = 0; t < 30; t++) { p = this._findOpen(this._rand(-30, 30), this._rand(-30, 30)); if (this._distToMainRoad(p.x, p.z) > 3) break; }
-      this._waterTower(p.x, p.z);
+      let chosen = null, bestClr = -Infinity;
+      for (let t = 0; t < 200; t++) {
+        const x = this._rand(-34, 34), z = this._rand(-34, 34);
+        if (this.isColliding(x, z) || this._distToMainRoad(x, z) < 3) continue;
+        const clr = this._distToNearestBuilding(x, z);
+        if (clr > bestClr) { bestClr = clr; chosen = { x, z }; }
+        if (clr > 1.8) break;   // comfortably clear of the tank radius + braces
+      }
+      if (chosen) this._waterTower(chosen.x, chosen.z);
     }
 
     // Wrap the flat town onto the little planet: transform every individual mesh
@@ -1000,6 +1010,21 @@ export class City {
       }
     }
     return { x: 0, z: 0 };
+  }
+
+  // Edge distance from (x,z) to the nearest building OBB (negative if inside).
+  // Used to place bulky landmarks (the water tower) well clear of every building.
+  _distToNearestBuilding(x, z) {
+    let best = Infinity;
+    for (const b of this.buildings) {
+      const dx = x - b.cx, dz = z - b.cz;
+      const c = Math.cos(b.rot), s = Math.sin(b.rot);
+      const lx = Math.abs(dx * c - dz * s) - b.hw;
+      const lz = Math.abs(dx * s + dz * c) - b.hd;
+      const d = (lx > 0 && lz > 0) ? Math.hypot(lx, lz) : Math.max(lx, lz);
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   randomReachablePoint() {
