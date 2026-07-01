@@ -20,6 +20,8 @@
 - [x] le scale sono montate al contrario erronemante → city `_stairs`: la rampa ora sale verso l'ingresso (gradino alto contro il muro), non verso la strada
 - [x] tutti gli oggetti creati in city.js andreabbero postati in prop.js e eliminati da city.js → spostati in js/items/props.js i 13 builder discreti (lamppost, antenna, waterTower, plankFence, acUnit, nobori, planterBox, roadSign, curveMirror, aFrameBarrier, scooter, stairs, keiCar) + registrati in items/index.js; city.js ora delega via createItem (thin wrapper) e tiene solo la generazione strutturale (blocchi/tetti/facciate/strade)
 - [x] elimina orario e bordo della pagina → rimossi TimeBar (#clock) e la cornice inchiostrata (#paper .frame)
+- [ ] aggiungi molti più lampioni sia nella zona diurna che notturan, nella zona notturan devono essere tutti accesi
+- [ ] I graffiti su pareti sottoesposte o sovraesposse da lla luce si devono vedere sempre, non devono essere influenzate da esse.
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
 - [ ] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno.
 - [ ] crea house.js con dentro tutti gli oggetti che la richuardano, come balconi, finestre, etc.
@@ -28,6 +30,7 @@
 - [ ] Migliora i cordili di strada rendendoli più realistici di pietra e tridimensionali
 - [ ] Stampa una mappa della città costruita
 - [ ] il balcone deve essere coerente con le finestre dietro. se è un balcone la finestra deve arrivare fino a toccarlo a terra, non una finestrella
+- [ ] aggiungi dettagli a tutte le tipologie di porte in stile manga.
 
 
 # TODO secondari
