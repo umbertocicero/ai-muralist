@@ -186,14 +186,20 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             })
           );
 
-          // Place on the little planet: anchor at the wall point (offset a hair
-          // outward along the normal to avoid z-fighting), oriented so the
-          // plane's +z faces the wall's outward normal, then carried onto the
-          // sphere by the same transport used for the buildings.
+          // Place on the little planet: anchor at the wall point, pushed OUT
+          // along the normal so the paint sits in FRONT of the wall's flush
+          // fittings — window panes stand ~0.09 proud and doors ~0.05, so a small
+          // 0.02 offset left them physically poking through the mural and
+          // occluding its middle (a dark window-shaped hole that only "healed"
+          // when you zoomed out and the hole shrank to a speck). At 0.14 the paint
+          // clears them and, being a translucent overlay, still lets the door /
+          // window read through it. Oriented so the plane's +z faces the wall's
+          // outward normal, then carried onto the sphere like the buildings.
+          const OUT = 0.14;
           const yaw = Math.atan2(slot.nx, slot.nz);
           _yawQ.setFromAxisAngle(_UP, yaw);
           placeOnPlanet(plane,
-            slot.px + slot.nx * 0.02, slot.py, slot.pz + slot.nz * 0.02, _yawQ);
+            slot.px + slot.nx * OUT, slot.py, slot.pz + slot.nz * OUT, _yawQ);
 
           // Murals must live under city.north (inside worldRoot) so they rotate
           // with the planet — adding to scene would leave them fixed in world
@@ -221,7 +227,7 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           );
           shadowMesh.receiveShadow = true;
           placeOnPlanet(shadowMesh,
-            slot.px + slot.nx * 0.03, slot.py, slot.pz + slot.nz * 0.03, _yawQ);
+            slot.px + slot.nx * (OUT + 0.01), slot.py, slot.pz + slot.nz * (OUT + 0.01), _yawQ);
           parent.add(shadowMesh);
           slot.shadowMesh = shadowMesh;
           resolve();
