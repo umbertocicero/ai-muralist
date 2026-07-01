@@ -104,7 +104,7 @@ export const CONFIG = {
   reachTimeout: 9.0,   // give up on a wall KAI can't reach (then it's released)
   muralCoverW: 0.88,
   muralCoverH: 0.85,
-  muralOpacity: 0.85,   // murals are a translucent overlay so doors/windows read through them
+  muralOpacity: 0.93,   // mostly opaque so a near-black shaded wall barely bleeds through (murals stay readable); still a faint hint of the door/window beneath
 
   // --- Camera (Apple-style: damped orbit with inertia, smooth zoom-to-cursor,
   //     two-finger / shift-drag pan). Open-world free orbit. ---

@@ -206,13 +206,16 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           // The mural itself is unlit (always vivid), so building shadows that
           // fall across the wall would otherwise skip it — leaving a bright
           // "sticker" floating on a shaded wall. This transparent ShadowMaterial
-          // plane catches those same cast shadows and lays them over the mural as
-          // a semi-transparent veil, so a shaded mural reads as shaded yet stays
-          // clearly visible.
+          // plane lays those cast shadows over the mural as a LIGHT veil — just a
+          // hint of shade. It is deliberately weak: the scene's raking key light
+          // now throws deep, near-black wall shadows, and a heavy veil there
+          // sank the mural into the wall so you couldn't see it. Kept faint, the
+          // mural stays the vivid focal point (the only colour in the world) even
+          // on the shaded side of the street.
           const shadowMesh = new THREE.Mesh(
             plane.geometry,
             new THREE.ShadowMaterial({
-              opacity: 0.45, transparent: true, depthWrite: false,
+              opacity: 0.16, transparent: true, depthWrite: false,
               polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
             })
           );
