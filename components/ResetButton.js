@@ -11,11 +11,11 @@ export default {
     <button
       id="reset-btn"
       :class="{ visible }"
-      aria-label="Right the world"
-      title="Raddrizza il mondo"
+      aria-label="Align the camera vertically"
+      title="Align the camera vertically"
       @click="$emit('reset')"
     >
-      <span class="icon">⟲</span> RADDRIZZA
+      <span class="icon">⟲</span> ALIGN
     </button>
   `,
 };

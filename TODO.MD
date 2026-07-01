@@ -23,6 +23,11 @@
 - [ ] aggiungi movimento del mondo circostatne dovuto a vento: alberi, lensuoli, fili, folgie delle piante.
 - [ ] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno.
 - [ ] crea house.js con dentro tutti gli oggetti che la richuardano, come balconi, finestre, etc.
+- [ ] panni sul balcone quando si muovono entrano erronemante nel balcone
+- [ ] sistema la bomboletta impugnata male
+- [ ] Migliora i cordili di strada rendendoli più realistici di pietra e tridimensionali
+- [ ] Stampa una mappa della città costruita
+- [ ] il balcone deve essere coerente con le finestre dietro. se è un balcone la finestra deve arrivare fino a toccarlo a terra, non una finestrella
 
 
 # TODO secondari

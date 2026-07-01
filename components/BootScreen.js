@@ -6,7 +6,7 @@ export default {
   },
   template: `
     <div id="boot" :class="{ hide: hidden, error: !!error }">
-      <div class="b-name">AI MURALIST</div>
+      <div class="b-name">GraffitAI</div>
       <div class="b-sub">{{ error ?? 'loading the city…' }}</div>
     </div>
   `,
