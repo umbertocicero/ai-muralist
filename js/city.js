@@ -707,10 +707,13 @@ export class City {
         }
       }
     }
-    // one coherent concrete balcony on the upper floor (not per-window planks)
+    // one coherent concrete balcony on the upper floor (not per-window planks).
+    // Sit it low enough that the parapet + rail cap clear the BOTTOM of that
+    // floor's window (window centre is at wy = 1.4 + f*2.2, pane 1.2 tall): the
+    // balcony reads as being UNDER the window it serves, never cutting across it.
     if (floors >= 2 && seed % 2 === 0) {
-      const by = 1.4 + (floors - 1) * 2.2 - 0.55;
-      if (by + 1.0 < H) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, by, seed);
+      const by = 1.4 + (floors - 1) * 2.2 - 1.25;   // parapet top (~by+0.59) sits just below the window bottom (wy-0.6)
+      if (by > 0.6 && by + 1.0 < H) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, by, seed);
     }
     // drainpipe + base plants on the street side
     const e = this._toWorld(cx, cz, rot, nlx * half + tlx * (wallLen / 2 - 0.3), nlz * half + tlz * (wallLen / 2 - 0.3));
