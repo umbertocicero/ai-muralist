@@ -42,12 +42,19 @@ export function makePole(ctx, { x, z, h, transformer = false }) {
 
 // A sagging overhead cable between two poles — appended to the batched wire
 // buffer (ctx._wireSeg) as short segments, merged into one LineSegments later.
+// Each vertex also gets a GPU-wind pair in ctx._wireWind: a sway weight that is
+// 0 at the poles and 1 mid-span (sinπ — so the ends stay pinned while the belly
+// bobs) plus a per-span phase, consumed by wind.js applyWireWind in the shader.
 export function makeWire(ctx, { x0, y0, z0, x1, y1, z1, sag }) {
   const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 - sag, (z0 + z1) / 2);
   const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(x0, y0, z0), mid, new THREE.Vector3(x1, y1, z1));
   const pts = curve.getPoints(10);
-  for (let i = 0; i < pts.length - 1; i++)
+  const phase = (Math.abs(x0 * 12.9898 + z1 * 78.233)) % 6.283;   // deterministic per span
+  const N = pts.length - 1;
+  for (let i = 0; i < N; i++) {
     ctx._wireSeg.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
+    ctx._wireWind?.push(Math.sin(Math.PI * i / N), phase, Math.sin(Math.PI * (i + 1) / N), phase);
+  }
 }
 
 // An over-the-roof TV antenna mast with a couple of cross-elements.

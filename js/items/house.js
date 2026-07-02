@@ -219,7 +219,8 @@ export function makeSidingLines(ctx, { cx, cz, rot, hw, hd, H }) {
     for (let y = 0.6; y < H - 0.2 && c < 7; y += 0.55, c++) {
       const a = ctx._toWorld(cx, cz, rot, nlx * half + tlx * (-wl + 0.15), nlz * half + tlz * (-wl + 0.15));
       const b = ctx._toWorld(cx, cz, rot, nlx * half + tlx * (wl - 0.15), nlz * half + tlz * (wl - 0.15));
-      ctx._roofSeg.push(a.x + o.x * 0.05, y, a.z + o.z * 0.05, b.x + o.x * 0.05, y, b.z + o.z * 0.05);
+      const la = ctx._datumLift(cx, cz, a.x, a.z), lb = ctx._datumLift(cx, cz, b.x, b.z);
+      ctx._roofSeg.push(a.x + o.x * 0.05, y + la, a.z + o.z * 0.05, b.x + o.x * 0.05, y + lb, b.z + o.z * 0.05);
     }
   }
 }
@@ -232,8 +233,11 @@ export function makeSidingLines(ctx, { cx, cz, rot, hw, hd, H }) {
 // the wind but only OUTWARD, so the cloth never swings back through the parapet.
 export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed }) {
   const w = Math.min(wallLen * 0.82, 4.2), out = 0.62, ph = 0.56;   // width · depth · parapet height
-  // floor slab
+  // floor slab — the whole balcony rides the building's floor datum (see
+  // city._datumLift), not the local sphere surface, so it lines up with the
+  // porta-finestra and the facade however far from the block's centre it sits.
   const fc = ctx._toWorld(cx, cz, rot, nlx * (half + out / 2), nlz * (half + out / 2));
+  y += ctx._datumLift(cx, cz, fc.x, fc.z);
   const slab = inkedMesh(new THREE.BoxGeometry(w, 0.12, out), '#c8c5bf', { k: 1.03, cast: false });
   slab.position.set(fc.x, y, fc.z); slab.rotation.y = rotY; ctx.scene.add(slab);
   // solid front parapet wall
@@ -308,9 +312,11 @@ export function makeShopfront(ctx, { cx, cz, rot, nlx, nlz, hw, hd, H, seed }) {
   const rotY = Math.atan2(n.x, n.z);
   const w = Math.min(wallLen * 0.92, 4.4);
 
-  // horizontal shop name-board across the top of the storefront
-  const signY = 2.9;
+  // horizontal shop name-board across the top of the storefront (all heights
+  // ride the building's floor datum — see city._datumLift)
   const sc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.07), nlz * (half + 0.07));
+  const lift = ctx._datumLift(cx, cz, sc.x, sc.z);
+  const signY = 2.9 + lift;
   const board = inkedMesh(new THREE.BoxGeometry(w, 0.52, 0.12), '#d8d5cd', { k: 1.03, cast: false });
   board.position.set(sc.x, signY, sc.z); board.rotation.y = rotY; ctx.scene.add(board);
   // a row of glyph strokes so the board reads as shop lettering (kanji-ish)
@@ -331,22 +337,22 @@ export function makeShopfront(ctx, { cx, cz, rot, nlx, nlz, hw, hd, H, seed }) {
     const tone = CONFIG.shop.awningTones[seed % CONFIG.shop.awningTones.length];
     const aw = inkedMesh(new THREE.BoxGeometry(w, 0.1, 0.72), tone, { k: 1.03, cast: false });
     const ac = ctx._toWorld(cx, cz, rot, nlx * (half + 0.4), nlz * (half + 0.4));
-    aw.position.set(ac.x, 2.5, ac.z); aw.rotation.y = rotY; ctx.scene.add(aw);
+    aw.position.set(ac.x, 2.5 + lift, ac.z); aw.rotation.y = rotY; ctx.scene.add(aw);
     // a thin valance hanging off the awning's front lip
     const val = inkedMesh(new THREE.BoxGeometry(w, 0.16, 0.04), tone, { k: 1.04, cast: false });
     const vc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.76), nlz * (half + 0.76));
-    val.position.set(vc.x, 2.44, vc.z); val.rotation.y = rotY; ctx.scene.add(val);
+    val.position.set(vc.x, 2.44 + lift, vc.z); val.rotation.y = rotY; ctx.scene.add(val);
   }
 
   // vertical projecting blade sign at one end, perpendicular to the wall
   const bx = ctx._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.3), nlz * (half + 0.2) + tlz * (w / 2 - 0.3));
   const blade = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.5), toonMat('#cdcac2', { side: THREE.DoubleSide }));
-  blade.position.set(bx.x, 3.5, bx.z); blade.rotation.y = rotY + Math.PI / 2; addInk(blade, 1.03); ctx.scene.add(blade);
+  blade.position.set(bx.x, 3.5 + lift, bx.z); blade.rotation.y = rotY + Math.PI / 2; addInk(blade, 1.03); ctx.scene.add(blade);
   // vertical column of text on the blade sign (袖看板) — a tick per character row
   for (let gi = -1; gi <= 1; gi++) {
     const ca = ctx._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.4), nlz * (half + 0.2) + tlz * (w / 2 - 0.4));
     const cb = ctx._toWorld(cx, cz, rot, nlx * (half + 0.2) + tlx * (w / 2 - 0.2), nlz * (half + 0.2) + tlz * (w / 2 - 0.2));
-    ctx._roofSeg.push(ca.x, 3.5 + gi * 0.42, ca.z, cb.x, 3.5 + gi * 0.42, cb.z);
+    ctx._roofSeg.push(ca.x, 3.5 + lift + gi * 0.42, ca.z, cb.x, 3.5 + lift + gi * 0.42, cb.z);
   }
 
   if (CONFIG.shop.nightGlow) ctx.lampHeads.push(sc.x + n.x * 0.12, signY, sc.z + n.z * 0.12);
@@ -361,7 +367,10 @@ export function makeRoofSign(ctx, { cx, cz, rot, nlx, nlz, hw, hd, H, seed }) {
   const n = ctx._dir(rot, nlx, nlz);
   const rotY = Math.atan2(n.x, n.z);
   const w = Math.min(wallLen * 0.8, 3.6), sh = 1.3 + ctx.rng() * 0.8;
-  const baseY = H + 0.2;
+  // the roof deck is the building datum + H, so the sign must ride the datum
+  // too or its posts sink into the roof near the block's edge
+  const fc0 = ctx._toWorld(cx, cz, rot, nlx * (half - 0.4), nlz * (half - 0.4));
+  const baseY = H + 0.2 + ctx._datumLift(cx, cz, fc0.x, fc0.z);
   for (const s of [-1, 1]) {
     const pc = ctx._toWorld(cx, cz, rot, nlx * (half - 0.4) + tlx * (s * w * 0.4), nlz * (half - 0.4) + tlz * (s * w * 0.4));
     const post = inkedMesh(new THREE.BoxGeometry(0.08, sh + 0.4, 0.08), '#2a2620', { k: 1.1, cast: false });
@@ -432,8 +441,12 @@ export function makeAcUnit(ctx, { x, y, z, rotY }) {
 // dark timber slab split into two leaves with recessed panels, a frosted glass
 // light near the top, a handle and a low threshold step. Built as a small group
 // (doors are few) and spherified onto the planet like any prop.
-export function makeDoor(ctx, { x, z, rotY }) {
-  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY;
+export function makeDoor(ctx, { x, z, rotY, lift = 0 }) {
+  // `lift` re-seats the door on the building's ground-floor datum (see
+  // city._datumLift): without it the door sits on the LOCAL surface, a sagitta
+  // below the sunk building's floor, and reads squashed behind the plinth.
+  const g = new THREE.Group(); g.position.set(x, lift, z); g.rotation.y = rotY;
+  g.userData.kind = 'door';
   const W = 0.98, H = 1.98, WOOD = '#39342c', PANEL = '#2c2822', FR = '#d0cdc6', STEP = '#c7c4bd';
   const box = (w, h, d, col, px, py, pz, k = 1.03) => {
     const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast: false });

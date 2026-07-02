@@ -7,6 +7,7 @@ import { GLASS, SHUTTER } from './items/materials.js';
 import { createItem } from './items/index.js';
 import { WIN_GEO, FRAME_GEO, FRAME_MAT, MUNTIN_GEO, MUNTIN_MAT, SILL_GEO, SILL_MAT,
          SHU_GEO, SLAT_GEO, SLAT_MAT } from './items/house.js';
+import { applyWireWind, tickWind } from './wind.js';
 
 // ===========================================================================
 //  A procedurally generated Setagaya-style neighbourhood.
@@ -38,6 +39,7 @@ const CURB     = toonMat('#eceae6');
 // GLASS / SHUTTER panes (shared with the item factory) and the foliage geometry
 // now live in js/items/materials.js — imported above.
 const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
+applyWireWind(WIRE);   // cables bob in the GPU wind (vertex shader — no CPU cost)
 const ROOFLINE = new THREE.LineBasicMaterial({ color: '#2a2824' });   // tile / corrugation strokes
 // Window / shutter instancing geometry + every house piece (roofs, balcony,
 // shopfront, door, AC…) now lives in js/items/house.js — imported above.
@@ -52,6 +54,7 @@ export class City {
     this.barriers  = [];   // thin fence/wall colliders {cx,cz,hw,hd,rot}
     this._roofSeg  = [];   // batched line segments (roof tiles / siding / seams)
     this._wireSeg  = [];   // batched overhead-wire segments
+    this._wireWind = [];   // per-vertex (sway weight, phase) for the GPU wire wind
     this._winXf    = [];   // window transforms [x,y,z,rotY,…] → one InstancedMesh
     this._shutXf   = [];   // shutter transforms
     this.lampHeads = [];   // lamp lens positions [x,y,z,…] → night glow points
@@ -204,6 +207,7 @@ export class City {
     const wind = 0.75 + 0.25 * Math.sin(t * 0.9) + gust * 0.9;                      // ~0.5 lull … ~1.9 gust
     const a = this.animators;
     for (let i = 0; i < a.length; i++) a[i](t, dt, wind);
+    tickWind(t, wind);   // same gusts drive the GPU wind (wires + leaves)
   }
 
   _rand(a, b) { return a + this.rng() * (b - a); }
@@ -550,11 +554,13 @@ export class City {
     this._facade(cx, cz, rot, hw, hd, H,  1,  0, idx + 2);  // +local x
     this._facade(cx, cz, rot, hw, hd, H, -1,  0, idx + 3);  // -local x
 
-    // road-facing door on houses that line the main road
+    // road-facing door on houses that line the main road, seated on the
+    // building's floor datum so the full door height stays visible
     if (door) {
       const f = this._toWorld(cx, cz, rot, door * hw, hd * 0.3);
       const n = this._dir(rot, door, 0);
-      this._door(f.x + n.x * 0.05, f.z + n.z * 0.05, Math.atan2(n.x, n.z));
+      this._door(f.x + n.x * 0.05, f.z + n.z * 0.05, Math.atan2(n.x, n.z),
+                 this._datumLift(cx, cz, f.x, f.z));
     }
 
     // Shop dressing on the street-facing face: an awning + signboard at the
@@ -614,16 +620,17 @@ export class City {
         if (hasBalcony && f === floors - 1 && Math.abs(tc) < balcW / 2) continue;  // porta-finestra instead
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
         const ox = n.x * 0.09, oz = n.z * 0.09;
+        const lift = this._datumLift(cx, cz, w.x, w.z);   // back onto the building's floor datum
         if (f === 0 && (c + seed) % 3 === 0) {
-          this._shutXf.push(w.x + ox, 1.05, w.z + oz, rotY); continue;   // instanced
+          this._shutXf.push(w.x + ox, 1.05 + lift, w.z + oz, rotY); continue;   // instanced
         }
-        this._winXf.push(w.x + ox, wy, w.z + oz, rotY);                  // instanced
+        this._winXf.push(w.x + ox, wy + lift, w.z + oz, rotY);                  // instanced
 
         // occasional AC outdoor unit, sitting flush against the wall — with the
         // grille ring + spinning fan blades drawn on its street-facing face
         if (f >= 1 && (c + seed) % 4 === 1) {
           const a = this._toWorld(cx, cz, rot, nlx * (half + 0.17) + tlx * (tc + 0.7), nlz * (half + 0.17) + tlz * (tc + 0.7));
-          this._acUnit(a.x, wy - 0.55, a.z, rotY);
+          this._acUnit(a.x, wy - 0.55 + lift, a.z, rotY);
         }
       }
     }
@@ -631,10 +638,11 @@ export class City {
     // it brings its own full-height porta-finestra on the wall behind (the
     // instanced windows there were skipped above).
     if (hasBalcony) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, balcY, seed);
-    // drainpipe + base plants on the street side
+    // drainpipe + base plants on the street side (pipe rides the floor datum so
+    // its top meets the eaves like the rest of the facade)
     const e = this._toWorld(cx, cz, rot, nlx * half + tlx * (wallLen / 2 - 0.3), nlz * half + tlz * (wallLen / 2 - 0.3));
     const pipe = inkedMesh(new THREE.CylinderGeometry(0.06, 0.06, H, 6), '#bcbab6', { k: 1.08, cast: false });
-    pipe.position.set(e.x + n.x * 0.08, H / 2, e.z + n.z * 0.08); this.scene.add(pipe);
+    pipe.position.set(e.x + n.x * 0.08, H / 2 + this._datumLift(cx, cz, e.x, e.z), e.z + n.z * 0.08); this.scene.add(pipe);
     if ((seed % 2) === 0) {
       const pb = this._toWorld(cx, cz, rot, nlx * (half + 0.5), nlz * (half + 0.5));
       this._pottedPlant(pb.x, pb.z, 0.7 + (seed % 3) * 0.16);
@@ -648,8 +656,9 @@ export class City {
   // dark timber slab split into two leaves with recessed panels, a frosted glass
   // light near the top, a handle and a low threshold step. Built as a small group
   // (doors are few) and spherified onto the planet like any prop.
-  // Detailed street door (玄関) — item factory (fixtures.js).
-  _door(x, z, rotY) { createItem(this, 'door', { x, z, rotY }); }
+  // Detailed street door (玄関) — item factory (house.js). `lift` re-seats it
+  // on the building's floor datum (see _datumLift).
+  _door(x, z, rotY, lift = 0) { createItem(this, 'door', { x, z, rotY, lift }); }
 
   // An air-conditioner outdoor unit (室外機), modelled on a Mitsubishi Electric
   // split-system condenser: a wide, low cream box whose FRONT face is dominated
@@ -803,6 +812,22 @@ export class City {
     return { x: 0, z: 0 };
   }
 
+  // Ground-floor datum lift. A building is a RIGID box tangent to the planet at
+  // its own centre (cx,cz); with the marked curvature the surface falls away
+  // under its edges by the sagitta, so the base is extended downward to meet it
+  // (_spherifyIndividuals). But facade fittings (doors, windows, shutters,
+  // balconies, signs) are placed at heights measured from the LOCAL surface at
+  // their own (x,z) — which near a wall sits that same sagitta BELOW the
+  // building's ground-floor datum. Result: the whole ground floor looked
+  // squashed, half-swallowed by the plinth. This returns the elevation of the
+  // building's tangent datum above the local surface at (x,z): add it to any
+  // facade element's flat height and it lands back on the floor it was
+  // designed on.
+  _datumLift(cx, cz, x, z) {
+    const d = Math.min(Math.hypot(x - cx, z - cz), this.R * 0.6);
+    return this.R * (1 / Math.cos(d / this.R) - 1);
+  }
+
   // Edge distance from (x,z) to the nearest building OBB (negative if inside).
   // Used to place bulky landmarks (the water tower) well clear of every building.
   _distToNearestBuilding(x, z) {
@@ -923,7 +948,7 @@ export class City {
   // hundreds of one-segment Line draw calls into two.
   _finalizeLines() {
     const v = new THREE.Vector3();
-    const build = (arr, mat) => {
+    const build = (arr, mat, wind) => {
       if (!arr.length) return;
       // map every endpoint onto the planet (segments become short chords)
       for (let i = 0; i < arr.length; i += 3) {
@@ -932,10 +957,11 @@ export class City {
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      if (wind?.length) g.setAttribute('aWind', new THREE.Float32BufferAttribute(wind, 2));
       this.scene.add(new THREE.LineSegments(g, mat));
     };
     build(this._roofSeg, ROOFLINE);
-    build(this._wireSeg, WIRE);
+    build(this._wireSeg, WIRE, this._wireWind);   // cables sway in the GPU wind
   }
 
   // All windows (and all shutters) share one geometry + material, so each set
