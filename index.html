@@ -184,6 +184,46 @@
   #map-btn .ico { color: #ff6b35; }
   #map-btn.open .ico { color: #ffd0bd; }
 
+  /* ── Settings: ⚙ button + paper card ─────────────────────────────────────── */
+  #settings-btn {
+    position: fixed; z-index: 12; pointer-events: auto;
+    top: 160px; left: 18px;
+    padding: 7px 12px;
+    background: rgba(245, 240, 230, 0.92);
+    border: 1.5px solid #4a5a66; border-radius: 2px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px; line-height: 1;
+    color: #4a5a66; cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  #settings-btn:hover { background: #4a5a66; color: #fff; }
+  #settings-panel {
+    position: fixed; z-index: 27; pointer-events: auto;
+    top: 160px; left: 66px;
+    width: min(320px, 86vw);
+    font-family: 'Courier New', monospace; color: #1a1a1a;
+  }
+  #settings-panel .s-hdr { font-size: 11px; letter-spacing: 3px; color: #ff6b35; margin-bottom: 8px; }
+  #settings-panel .s-lab { display: block; font-size: 10px; letter-spacing: 1.5px; color: #666655; margin: 9px 0 3px; }
+  #settings-panel .s-note { letter-spacing: 0; text-transform: none; color: #999; }
+  #settings-panel .s-in {
+    width: 100%; padding: 6px 8px;
+    font-family: inherit; font-size: 12px;
+    background: #fffdf8; color: #1a1a1a;
+    border: 1px solid rgba(0,0,0,0.25); border-radius: 2px;
+  }
+  #settings-panel .s-row { display: flex; gap: 12px; font-size: 11px; align-items: center; }
+  #settings-panel .s-row label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+  #settings-panel .s-save { margin-top: 12px; font-size: 11px; gap: 6px; cursor: pointer; }
+  #settings-panel .s-actions { margin-top: 12px; }
+  #settings-panel .s-btn {
+    padding: 7px 12px; cursor: pointer;
+    font-family: inherit; font-size: 10px; letter-spacing: 2px;
+    background: #ff6b35; color: #fff;
+    border: 1.5px solid #ff6b35; border-radius: 2px;
+  }
+  #settings-panel .s-btn.ghost { background: transparent; color: #4a5a66; border-color: #4a5a66; }
+
   #map-overlay {
     position: fixed; inset: 0; z-index: 28; pointer-events: auto;
     display: flex; align-items: center; justify-content: center;

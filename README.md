@@ -327,6 +327,23 @@ workerUrl: '/api/claude',
 
 ## Configuration
 
+Settings resolve in three layers, later wins:
+
+1. **`js/config.js`** — code defaults (all tunables below).
+2. **`config.yaml`** (repo root) — the site owner's no-code switches:
+   `save_murals: true|false`, and optional `worker_url`, `model`, `mode: demo|ai`.
+3. **In-app Settings panel (⚙)** — each visitor's own choices, stored in
+   *their* browser (`localStorage`) only: mode (demo / AI), their own
+   **Anthropic API key**, model, worker URL override, and the *save murals*
+   toggle. A visitor key is sent as `x-user-api-key` to the Worker (which uses
+   it instead of the site secret — generation bills the visitor), or, when no
+   Worker is configured at all, straight to the Anthropic API from the browser
+   (`anthropic-dangerous-direct-browser-access`) — so anyone can run the app
+   with nothing but a key.
+
+On boot, murals saved in D1 are **always restored first** (even in demo mode)
+and take precedence: KAI doesn't claim any wall until the saved world is back.
+
 All tunables are in **`js/config.js`**:
 
 | Key | Default | Meaning |

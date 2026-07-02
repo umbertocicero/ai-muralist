@@ -1,0 +1,17 @@
+# AI Muralist — site configuration (optional; every key may be omitted).
+# These are the SITE OWNER's switches; visitors can override mode/model/api key
+# for themselves from the in-app Settings panel (stored in their browser only).
+
+# Persist painted murals to the Worker's D1 database (needs worker_url and the
+# [[d1_databases]] binding in wrangler.toml). false = never save.
+save_murals: true
+
+# Worker endpoint for AI generation + persistence. Leave commented for the
+# offline demo (procedural murals, nothing saved).
+# worker_url: https://ai-muralist-proxy.<your-account>.workers.dev
+
+# Claude model used for generation.
+# model: claude-sonnet-4-6
+
+# Force a mode: demo | ai. Default: auto (ai when a worker/api key is set).
+# mode: demo

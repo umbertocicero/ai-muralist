@@ -7,7 +7,7 @@
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, x-user-api-key',
 };
 
 const RATE_LIMIT_MS = 8_000;      // max 1 request / 8s per IP
@@ -38,8 +38,13 @@ export default {
     if (request.method !== 'POST') {
       return json({ error: { type: 'invalid_request_error', message: 'Method not allowed' } }, 405);
     }
-    if (!env.ANTHROPIC_API_KEY) {
-      return json({ error: { type: 'config_error', message: 'Server missing ANTHROPIC_API_KEY' } }, 500);
+    // The visitor may bring their OWN Anthropic key (Settings panel → sent as
+    // x-user-api-key): it is used for this request instead of the site secret,
+    // so generation bills them. Shape-checked, never stored.
+    const userKey = request.headers.get('x-user-api-key');
+    const apiKey  = (userKey && /^sk-ant-[A-Za-z0-9_-]{10,200}$/.test(userKey)) ? userKey : env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return json({ error: { type: 'config_error', message: 'Server missing ANTHROPIC_API_KEY (or send x-user-api-key)' } }, 500);
     }
 
     // Reject oversized bodies before reading them.
@@ -97,7 +102,7 @@ export default {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
+          'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(payload),

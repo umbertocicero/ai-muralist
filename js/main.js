@@ -10,6 +10,7 @@ import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
 import { Persistence }   from './persistence.js';
+import { applySettings } from './settings.js';
 import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
 import BootScreen    from '../components/BootScreen.js';
@@ -17,6 +18,7 @@ import TitlePanel    from '../components/TitlePanel.js';
 import MuralLog      from '../components/MuralLog.js';
 import MuralGallery  from '../components/MuralGallery.js';
 import MapOverlay    from '../components/MapOverlay.js';
+import SettingsPanel from '../components/SettingsPanel.js';
 import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
@@ -59,7 +61,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay },
   setup() {
     return { ui };
   },
@@ -81,6 +83,7 @@ const VueRoot = {
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
     <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" />
     <MapOverlay    :render="ui.onMapRender" />
+    <SettingsPanel />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />
@@ -150,15 +153,21 @@ class App {
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
     ui.onAdmire        = (slot) => this.rig.admireMural(slot);
     ui.onPaintEnd      = () => this.rig.releaseWatch();
-    // Persistent world: with a Worker configured, every painted mural is saved
-    // to D1 and the saved set is restored onto the same (seeded) town at boot —
-    // so a refresh continues the world instead of blanking it. Restore runs in
-    // the background; failures just mean a non-persistent session.
+    // Persistent world (see js/settings.js for how the flags resolve):
+    //  · RESTORE always runs when a Worker is known — even in demo mode — so a
+    //    refresh always brings the saved murals back onto the seeded town, and
+    //    they take PRECEDENCE: the agent holds off claiming walls until every
+    //    saved mural has re-taken its slot.
+    //  · SAVE is wired only when the saveMurals flag is on (Settings / yaml).
     if (CONFIG.workerUrl) {
       this.persistence = new Persistence(CONFIG.workerUrl, CONFIG.worldSeed);
-      this.agent.onPainted = (slot, result, style) => this.persistence.save(slot, result, style);
+      if (CONFIG.saveMurals !== false) {
+        this.agent.onPainted = (slot, result, style) => this.persistence.save(slot, result, style);
+      }
+      this.agent.holdPainting = true;
       this.persistence.restore(this.city, this.factory, this.agent, ui)
-        .catch(e => console.warn('[persist] restore failed:', e.message));
+        .catch(e => console.warn('[persist] restore failed:', e.message))
+        .finally(() => { this.agent.holdPainting = false; });
     }
     // Live map page: the overlay canvas is composited from js/map.js — static
     // base cached once, KAI dot + fading trail + mural markers on top.
@@ -285,13 +294,18 @@ class App {
 }
 
 // ==========================================================================
-//  Bootstrap — mount Vue first, then start Three.js
+//  Bootstrap — resolve settings (defaults < config.yaml < the visitor's own
+//  Settings panel), mount Vue, then start Three.js
 // ==========================================================================
 createApp(VueRoot).mount('#ui-root');
 
-try {
-  new App();
-} catch (e) {
-  console.error('[muralist] fatal:', e);
-  ui.bootError = e.message ?? 'failed to start';
-}
+applySettings(CONFIG)
+  .catch(() => {})           // settings are best-effort; defaults always work
+  .then(() => {
+    try {
+      new App();
+    } catch (e) {
+      console.error('[muralist] fatal:', e);
+      ui.bootError = e.message ?? 'failed to start';
+    }
+  });

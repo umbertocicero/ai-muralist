@@ -46,11 +46,11 @@
 - [x] le case sono erroneamente sulle strade (viste dalla mappa) → il check di piazzamento misurava solo il CENTRO del lotto: nuovo _obbClearOfRoads campiona l'intero perimetro (angoli + metà lati) contro ogni strada, con restringimento progressivo o scarto del lotto — verificato: 0 violazioni su 45 edifici, mappa pulita anche all'incrocio
 
 # TODO secondari
-- [ ] i balconi devono avere le stessere caratteristiche delle finestre in termini di dettagli.
-- [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), dimensioni, posizione e utente che lo ha creato, e altre info necessarire.
-- [ ] se non confugurato non salvare, aggiungi flag in un yaml di onfigurazione se salvare o meno
-- [ ] aggiungi una sezione settings che permette di attivare la creazione di murales da parte di ai e la relativa form per configurarla (api key e modello da usare), nella stessa sezione se si sceglie demo mode allora usa gli svg pre configurati, altrimenti se configurato prendi le info dalla cache e si possono editare, oppure te le fa inserire.
-- [ ] aggiungi in setting se salvare su DB o no, all'avvio prende sempre le info dei murals creati da DB se disponibili, e le applica al mondo
+- [x] i balconi devono avere le stessere caratteristiche delle finestre in termini di dettagli. → house.js makeBalcony: la porta-finestra ha ora la stessa ricetta delle finestre instanced — telaio scuro dietro il vetro, griglia di traversine (montanti laterali + traversa = 4 luci), soglia in cemento sporgente sotto l'anta
+- [x] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), dimensioni, posizione e utente che lo ha creato, e altre info necessarire. → Cloudflare D1 (schema.sql): svg completo (riusabile), dimensioni muro, posizione+normale, stile, thought, user_id anonimo per browser, created_at; worker GET/POST /murals; ripristino al boot sul mondo seedato
+- [x] se non confugurato non salvare, aggiungi flag in un yaml di onfigurazione se salvare o meno → config.yaml (save_murals: true|false, + worker_url/model/mode opzionali) letto al boot da js/settings.js; senza worker o con flag off non salva nulla
+- [x] aggiungi una sezione settings che permette di attivare la creazione di murales da parte di ai e la relativa form per configurarla (api key e modello da usare), nella stessa sezione se si sceglie demo mode allora usa gli svg pre configurati, altrimenti se configurato prendi le info dalla cache e si possono editare, oppure te le fa inserire. → components/SettingsPanel.js (bottone ⚙): modo demo/AI, api key propria (cache localStorage, editabile; usata via worker come x-user-api-key o diretta ad Anthropic se non c'è worker), modello, worker url override
+- [x] aggiungi in setting se salvare su DB o no, all'avvio prende sempre le info dei murals creati da DB se disponibili, e le applica al mondo → toggle "save murals" nel pannello; il RESTORE gira sempre quando un worker è noto (anche in demo) e prevale: l'agente non sceglie muri finché i murales salvati non hanno ripreso i loro slot
 
 # TODO futuri
 - [ ] inserisci un laghetto

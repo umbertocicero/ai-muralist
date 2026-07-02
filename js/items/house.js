@@ -258,9 +258,17 @@ export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLe
   // split by light glazing bars (two leaves on wide balconies, one on narrow).
   // The facade skips its instanced window on this floor, so the porta-finestra
   // IS the window here — coherent with the balcony in front of it.
+  // Window-grade detailing (same recipe as the instanced windows: dark sash
+  // frame behind the glass, light muntin grid over it, protruding sill): the
+  // porta-finestra replaces the window on this floor, so it must not read as
+  // a bare glass sheet next to fully-dressed windows.
   const paneH = 1.75, paneW = 0.85, cy = y + 0.08 + paneH / 2;
   const offsets = w >= 2.8 ? [-0.75, 0.75] : [0];
   for (const toff of offsets) {
+    // dark sash FRAME slightly larger than the pane, just behind it
+    const fcw = ctx._toWorld(cx, cz, rot, nlx * (half + 0.09) + tlx * toff, nlz * (half + 0.09) + tlz * toff);
+    const frame = new THREE.Mesh(new THREE.PlaneGeometry(paneW + 0.16, paneH + 0.12), FRAME_MAT);
+    frame.position.set(fcw.x, cy + 0.02, fcw.z); frame.rotation.y = rotY; ctx.scene.add(frame);
     const wc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.1) + tlx * toff, nlz * (half + 0.1) + tlz * toff);
     const pane = new THREE.Mesh(new THREE.PlaneGeometry(paneW, paneH), GLASS);
     pane.position.set(wc.x, cy, wc.z); pane.rotation.y = rotY; ctx.scene.add(pane);
@@ -270,8 +278,14 @@ export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLe
       b.position.set(bc.x, cy + dy2, bc.z); b.rotation.y = rotY; ctx.scene.add(b);
     };
     bar(0.05, paneH, 0, 0);                 // central vertical bar (two sliding leaves)
-    bar(paneW, 0.05, paneH * 0.22, 0);      // transom bar
+    bar(paneW, 0.05, paneH * 0.22, 0);      // transom bar (matches the window muntin)
     bar(paneW, 0.07, -paneH / 2 + 0.03, 0); // bottom rail at the slab
+    bar(0.05, paneH, 0, -paneW / 2 + 0.02); // side jambs → four lights like a window
+    bar(0.05, paneH, 0,  paneW / 2 - 0.02);
+    // concrete threshold under the door — the balcony's "sill" (SILL_MAT tone)
+    const tc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * toff, nlz * (half + 0.14) + tlz * toff);
+    const thr = inkedMesh(new THREE.BoxGeometry(paneW + 0.22, 0.07, 0.14), '#d7d3cb', { k: 1.04, cast: false });
+    thr.position.set(tc.x, y + 0.10, tc.z); thr.rotation.y = rotY; ctx.scene.add(thr);
   }
 
   // futon / blanket draped over the rail and hanging down the front — each one

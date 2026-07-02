@@ -178,7 +178,10 @@ export class Agent {
         if (arrived) this._newWanderTarget();
         else if (!moved) this.wanderTarget = this.city.randomReachablePoint();
 
-        if (this.wanderTimer > this.wanderDeadline) {
+        // holdPainting: set while saved murals are being restored at boot, so
+        // KAI can't claim a wall that a restored mural is about to occupy —
+        // the saved world always takes precedence over new painting.
+        if (this.wanderTimer > this.wanderDeadline && !this.holdPainting) {
           const slot = this.city.pickFreeSlot(this.char.pos);
           if (slot)                       { this.currentSlot = slot; this.moveTimer = 0; this._setState(STATE.MOVING_TO_WALL); }
           else if (this.city.allWallsUsed()) this._setState(STATE.CONTEMPLATING);

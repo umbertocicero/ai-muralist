@@ -111,20 +111,38 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
   }
 
   // ---- Generation ---------------------------------------------------------
+  // Three paths, chosen by the resolved settings (js/settings.js):
+  //   demo mode (or nothing configured) → procedural offline murals;
+  //   a Worker URL → POST to the proxy, adding the visitor's own key as
+  //     x-user-api-key when they set one in the Settings panel;
+  //   a key but NO Worker → straight to the Anthropic API from the browser
+  //     (their CORS opt-in header), so anyone can run the app with just a key.
   async generate(slot, index) {
     const { PW, PH, text } = this._buildPrompt(slot, index);
 
-    if (!CONFIG.workerUrl) {
+    const demo = CONFIG.mode === 'demo' || (!CONFIG.workerUrl && !CONFIG.userApiKey);
+    if (demo) {
       await new Promise(r => setTimeout(r, rand(700, 1300)));
       return { thought: DEMO_THOUGHTS[index % DEMO_THOUGHTS.length], svg: demoSVG(PW, PH, index), PW, PH };
+    }
+
+    const direct  = !CONFIG.workerUrl;
+    const url     = direct ? 'https://api.anthropic.com/v1/messages' : CONFIG.workerUrl;
+    const headers = { 'Content-Type': 'application/json' };
+    if (direct) {
+      headers['x-api-key'] = CONFIG.userApiKey;
+      headers['anthropic-version'] = '2023-06-01';
+      headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    } else if (CONFIG.userApiKey) {
+      headers['x-user-api-key'] = CONFIG.userApiKey;   // proxy bills the visitor's key
     }
 
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), CONFIG.requestTimeoutMs);
     try {
-      const res = await fetch(CONFIG.workerUrl, {
+      const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           model: CONFIG.model,
           max_tokens: CONFIG.maxTokens,
