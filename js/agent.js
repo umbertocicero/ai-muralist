@@ -27,6 +27,10 @@ export class Agent {
     this.ui      = ui;
 
     this.muralCount  = 0;
+    // persistent navigation state for city.steer (heading + committed
+    // avoidance side) — keeping it across frames is what makes the walk a
+    // smooth continuous arc instead of per-frame re-decisions
+    this._nav        = {};
     this.apiPending  = false;
     this.pendingResult = null;
     this.currentSlot   = null;
@@ -158,7 +162,7 @@ export class Agent {
 
       case STATE.WANDERING: {
         this.wanderTimer += dt;
-        const moved   = this.city.steer(this.char.pos, this.wanderTarget, step);
+        const moved   = this.city.steer(this.char.pos, this.wanderTarget, step, this._nav);
         if (moved) this.char.faceDirection(moved);
         const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.8;
         // reached the far target → pick the next one ahead; only when truly
@@ -179,7 +183,7 @@ export class Agent {
       case STATE.MOVING_TO_WALL: {
         this.moveTimer += dt;
         const ap     = this.city.approachPoint(this.currentSlot);
-        const moved  = this.city.steer(this.char.pos, ap, step);
+        const moved  = this.city.steer(this.char.pos, ap, step, this._nav);
         if (moved) this.char.faceDirection(moved);
         const dist   = Math.hypot(ap.x - this.char.pos.x, ap.z - this.char.pos.z);
         if (dist < 0.5) {
@@ -241,7 +245,7 @@ export class Agent {
       }
 
       case STATE.CONTEMPLATING: {
-        const moved   = this.city.steer(this.char.pos, this.wanderTarget, step * 0.6);
+        const moved   = this.city.steer(this.char.pos, this.wanderTarget, step * 0.6, this._nav);
         if (moved) this.char.faceDirection(moved);
         const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.8;
         if (arrived)      this.wanderTarget = this.city.forwardPoint(this.char.pos.x, this.char.pos.z, this.char.facing);

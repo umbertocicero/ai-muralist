@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { rotateY2D } from './helpers.js';
+import { clamp } from './helpers.js';
 import { toonMat, addInk, inkedMesh } from './toon.js';
 import { planetPoint, planetQuat, PLANET_R } from './planet.js';
 import { GLASS, SHUTTER } from './items/materials.js';
@@ -902,22 +902,66 @@ export class City {
   }
   allWallsUsed() { return this.wallSlots.every(s => s.used); }
 
-  steer(pos, target, dist) {
-    const dx = target.x - pos.x, dz = target.z - pos.z;
-    const len = Math.hypot(dx, dz) || 1;
-    const dir = { x: dx / len, z: dz / len };
-    // Predictive avoidance: probe a few steps AHEAD along the straight line;
-    // if something's coming up, start bending now (skip the straight attempt)
-    // so KAI rounds obstacles in a gentle early arc instead of walking into
-    // the wall and jinking away at the last frame.
-    const ahead = this.isColliding(pos.x + dir.x * dist * 4, pos.z + dir.z * dist * 4);
-    for (let attempt = ahead ? 2 : 0; attempt < 12; attempt++) {
-      const sign = attempt % 2 === 0 ? 1 : -1;
-      const steps = (attempt / 2) | 0;
-      const rot = rotateY2D(dir, sign * steps * (Math.PI / 12));
-      const nx = pos.x + rot.x * dist, nz = pos.z + rot.z * dist;
-      if (!this.isColliding(nx, nz)) { pos.x = nx; pos.z = nz; return rot; }
+  // ── KAI's local pilot ──────────────────────────────────────────────────────
+  // He KNOWS the town (buildings / props / fences through isColliding) and
+  // senses it WELL ahead with whiskers at fixed world distances — not one
+  // frame-step (~5cm) like before, which is why he used to walk face-first
+  // into plaster and jink away at the last frame.
+  //
+  //   • WHISKERS: centre probes 0.8 and 1.7 out along the heading, plus a left
+  //     and a right feeler at ±24° — an approaching wall registers metres early.
+  //   • PERSISTENT HEADING, turned toward the target at a limited rad/s rate:
+  //     course corrections are gentle continuous arcs, never snaps.
+  //   • SIDE HYSTERESIS: the moment something shows up ahead he commits to
+  //     rounding it on ONE side (whichever feeler is free) and keeps that side
+  //     until both flanks clear — no left/right flip-flopping between frames.
+  //   • the actual step stays collision-guarded: if even the corrected heading
+  //     would clip, he arcs further to his chosen side — he can slide along a
+  //     wall but never through it.
+  //
+  // `st` is the caller's persistent nav state ({h: heading, side: -1|0|1});
+  // the Agent owns one and passes it every frame.
+  steer(pos, target, step, st = {}) {
+    const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+    const desired = Math.atan2(target.x - pos.x, target.z - pos.z);
+    const dt = Math.max(step / (CONFIG.moveSpeed || 3.2), 1e-4);   // step → seconds
+    let h = st.h ?? desired;
+
+    const freeAt = (a, d) => !this.isColliding(pos.x + Math.sin(a) * d, pos.z + Math.cos(a) * d);
+    const nearF  = freeAt(h, 0.8);
+    const farF   = freeAt(h, 1.7);
+    const leftF  = freeAt(h + 0.42, 1.15);
+    const rightF = freeAt(h - 0.42, 1.15);
+
+    // pick / release the avoidance side (hysteresis)
+    if (!nearF || !farF) {
+      if (!st.side) st.side = leftF === rightF ? (freeAt(h + 1.0, 1.3) ? 1 : -1) : (leftF ? 1 : -1);
+    } else if (st.side && leftF && rightF) {
+      st.side = 0;                       // ahead + both flanks clear → back on the goal line
     }
+
+    // steering command: gentle pull toward the target + pushes from the whiskers
+    let turn = clamp(wrap(desired - h), -2.4 * dt, 2.4 * dt);
+    if (st.side) {
+      if (!farF)  turn += st.side * 2.2 * dt;   // something coming up → start bending now
+      if (!nearF) turn += st.side * 4.5 * dt;   // close → bend hard
+    }
+    if (!leftF)  turn -= 2.6 * dt;              // a flank grazing a wall → ease off it
+    if (!rightF) turn += 2.6 * dt;
+    h = wrap(h + clamp(turn, -5.0 * dt, 5.0 * dt));
+
+    // collision-guarded step: arc further to the chosen side if the frame's
+    // move would clip (slide along the wall, never into it)
+    const side = st.side || 1;
+    for (let k = 0; k < 10; k++) {
+      const a = wrap(h + side * k * 0.22);
+      const nx = pos.x + Math.sin(a) * step, nz = pos.z + Math.cos(a) * step;
+      if (!this.isColliding(nx, nz)) {
+        pos.x = nx; pos.z = nz; st.h = a;
+        return { x: Math.sin(a), z: Math.cos(a) };
+      }
+    }
+    st.h = undefined; st.side = 0;              // boxed in — let the agent pick a new plan
     return null;
   }
 
