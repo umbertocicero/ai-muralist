@@ -47,8 +47,13 @@ export class Agent {
   }
 
   _newWanderTarget() {
-    // a far point ahead of his heading → long straight walks, fewer turns
-    this.wanderTarget   = this.city.forwardPoint(this.char.pos.x, this.char.pos.z, this.char.facing);
+    // Mostly a far point ahead of his heading (long strolls, few turns), but
+    // sometimes a completely different reachable spot — so his route stays
+    // unpredictable and he ends up exploring the whole town, never settling
+    // into the same loop. (Math.random: every session strolls differently.)
+    this.wanderTarget = Math.random() < 0.3
+      ? this.city.randomReachablePoint()
+      : this.city.forwardPoint(this.char.pos.x, this.char.pos.z, this.char.facing);
     this.wanderTimer    = 0;
     this.wanderDeadline = CONFIG.wanderMin + Math.random() * CONFIG.wanderRange;
   }

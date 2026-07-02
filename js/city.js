@@ -923,8 +923,17 @@ export class City {
   // the Agent owns one and passes it every frame.
   steer(pos, target, step, st = {}) {
     const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-    const desired = Math.atan2(target.x - pos.x, target.z - pos.z);
     const dt = Math.max(step / (CONFIG.moveSpeed || 3.2), 1e-4);   // step → seconds
+    // MEANDER: a slow random drift of the desired course (a mean-reverting
+    // random walk, Math.random so no two strolls ever repeat), faded out near
+    // the target so arrivals stay clean. The whiskers below still guard every
+    // step, so the wandering can never push him into a wall — it just makes
+    // the walk read curious instead of surveyed.
+    const distT = Math.hypot(target.x - pos.x, target.z - pos.z);
+    st.bias = clamp((st.bias ?? 0) + (Math.random() - 0.5) * 2.4 * dt, -0.6, 0.6);
+    st.bias *= Math.max(0, 1 - 0.25 * dt);
+    const desired = Math.atan2(target.x - pos.x, target.z - pos.z)
+                  + st.bias * clamp((distT - 2) / 6, 0, 1);
     let h = st.h ?? desired;
 
     const freeAt = (a, d) => !this.isColliding(pos.x + Math.sin(a) * d, pos.z + Math.cos(a) * d);
