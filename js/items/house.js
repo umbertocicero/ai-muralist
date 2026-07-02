@@ -437,42 +437,53 @@ export function makeAcUnit(ctx, { x, y, z, rotY }) {
   ctx.animators.push((t) => { fan.rotation.z = t * spd; });
 }
 
-// A detailed street door (玄関): a light concrete surround (jambs + lintel), a
-// dark timber slab split into two leaves with recessed panels, a frosted glass
-// light near the top, a handle and a low threshold step. Built as a small group
-// (doors are few) and spherified onto the planet like any prop.
+// A Japanese house entrance (玄関) that reads as a FRONT DOOR, never a
+// garage: a little pent CANOPY on brackets over the doorway, a warm timber
+// leaf with VERTICAL battens (縦格子), a tall frosted side-light with light
+// bars, a brass pull bar, a dark kickplate, a name plate on the jamb and a
+// SHALLOW threshold (max protrusion ≤0.2, safely behind the mural overlay).
+// `lift` seats it on the building's floor datum (see city._datumLift).
 export function makeDoor(ctx, { x, z, rotY, lift = 0 }) {
-  // `lift` re-seats the door on the building's ground-floor datum (see
-  // city._datumLift): without it the door sits on the LOCAL surface, a sagitta
-  // below the sunk building's floor, and reads squashed behind the plinth.
   const g = new THREE.Group(); g.position.set(x, lift, z); g.rotation.y = rotY;
   g.userData.kind = 'door';
-  const W = 0.98, H = 1.98, WOOD = '#39342c', PANEL = '#2c2822', FR = '#d0cdc6', STEP = '#c7c4bd';
-  const box = (w, h, d, col, px, py, pz, k = 1.03) => {
-    const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast: false });
-    m.position.set(px, py, pz); g.add(m); return m;
+  const W = 0.94, H = 2.02;
+  const FR = '#d0cdc6', WOOD = '#6b5844', BATTEN = '#544332', DARK = '#2c2822',
+        BRASS = '#b8a26a', STEP = '#c7c4bd', ROOF = '#3a3833';
+  const box = (w, h, d, col, px, py, pz, k = 1.05, cast = false) => {
+    const m2 = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast });
+    m2.position.set(px, py, pz); g.add(m2); return m2;
   };
-  // concrete surround (two jambs + a lintel)
-  box(0.09, H + 0.08, 0.14, FR, -W / 2 - 0.02, H / 2, 0.03);
-  box(0.09, H + 0.08, 0.14, FR,  W / 2 + 0.02, H / 2, 0.03);
-  box(W + 0.22, 0.11, 0.14, FR, 0, H + 0.04, 0.03);
-  // the timber slab
-  box(W, H, 0.07, WOOD, 0, H / 2, 0);
-  // centre reveal → reads as two sliding leaves
-  box(0.035, H - 0.06, 0.02, PANEL, 0, H / 2, 0.045);
-  // per leaf: an upper GLAZED light, split into four panes by LIGHT glazing
-  // bars (so it reads clearly against the dark glass), plus a recessed lower
-  // panel — like a real genkan door.
-  const lightGeo = new THREE.PlaneGeometry(W * 0.32, 0.44);
-  for (const lx of [-W * 0.26, W * 0.26]) {
-    const gl = new THREE.Mesh(lightGeo, GLASS);
-    gl.position.set(lx, H * 0.66, 0.05); g.add(gl);
-    box(0.03, 0.44, 0.02, FR, lx, H * 0.66, 0.055, 1.25);          // vertical glazing bar
-    box(W * 0.32, 0.03, 0.02, FR, lx, H * 0.66, 0.055, 1.25);      // horizontal glazing bar
-    box(W * 0.32, H * 0.24, 0.02, PANEL, lx, H * 0.26, 0.045, 1.06); // recessed lower panel
-  }
-  // handle + a low threshold step
-  box(0.05, 0.18, 0.05, '#8c877d', W * 0.30, H * 0.46, 0.07, 1.12);
-  box(W + 0.26, 0.09, 0.3, STEP, 0, 0.045, 0.13);
+
+  // slim concrete surround: two jambs + lintel
+  box(0.08, H + 0.06, 0.12, FR, -W / 2 - 0.02, H / 2, 0.02);
+  box(0.08, H + 0.06, 0.12, FR,  W / 2 + 0.02, H / 2, 0.02);
+  box(W + 0.2, 0.1, 0.12, FR, 0, H + 0.03, 0.02);
+
+  // pent CANOPY over the doorway on two little brackets — the silhouette that
+  // instantly says "entrance"
+  const canopy = box(W + 0.42, 0.05, 0.34, ROOF, 0, H + 0.24, 0.1, 1.05, true);
+  canopy.rotation.x = 0.18;                                     // gentle outward pitch
+  for (const sx of [-W / 2 + 0.06, W / 2 - 0.06])
+    box(0.05, 0.16, 0.16, BATTEN, sx, H + 0.12, 0.05, 1.1);     // brackets
+
+  // warm timber leaf with a hairline reveal to the jambs
+  box(W - 0.04, H - 0.04, 0.07, WOOD, 0.02, H / 2 - 0.02, 0);
+  // vertical battens (縦格子) — door grain, unmistakably a house door
+  for (const bx of [-0.09, 0.09, 0.27])
+    box(0.04, H - 0.2, 0.02, BATTEN, bx, H / 2 - 0.02, 0.045, 1.12);
+  // tall frosted side-light on the hinge side, split by light bars
+  const gl = new THREE.Mesh(new THREE.PlaneGeometry(0.2, H * 0.66), GLASS);
+  gl.position.set(-W * 0.29, H * 0.55, 0.048); g.add(gl);
+  for (let i = 0; i < 3; i++)
+    box(0.2, 0.024, 0.015, FR, -W * 0.29, H * (0.32 + i * 0.23), 0.055, 1.2);
+
+  // brass pull bar + dark kickplate
+  const pull = inkedMesh(new THREE.CylinderGeometry(0.016, 0.016, 0.36, 8), BRASS, { k: 1.15, cast: false });
+  pull.position.set(W * 0.37, H * 0.5, 0.075); g.add(pull);
+  box(W - 0.1, 0.2, 0.015, DARK, 0.02, 0.12, 0.042, 1.08);
+
+  // name plate on the lintel corner + a SHALLOW threshold step
+  box(0.2, 0.09, 0.02, '#efece6', W * 0.28, H - 0.28, 0.05, 1.15);
+  box(W + 0.2, 0.07, 0.16, STEP, 0, 0.035, 0.06);
   ctx.scene.add(g);
 }

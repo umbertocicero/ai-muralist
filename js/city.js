@@ -549,10 +549,10 @@ export class City {
     }
 
     // four facades
-    this._facade(cx, cz, rot, hw, hd, H,  0,  1, idx);      // +local z
-    this._facade(cx, cz, rot, hw, hd, H,  0, -1, idx + 1);  // -local z
-    this._facade(cx, cz, rot, hw, hd, H,  1,  0, idx + 2);  // +local x
-    this._facade(cx, cz, rot, hw, hd, H, -1,  0, idx + 3);  // -local x
+    this._facade(cx, cz, rot, hw, hd, H,  0,  1, idx,     shop);  // +local z
+    this._facade(cx, cz, rot, hw, hd, H,  0, -1, idx + 1, shop);  // -local z
+    this._facade(cx, cz, rot, hw, hd, H,  1,  0, idx + 2, shop);  // +local x
+    this._facade(cx, cz, rot, hw, hd, H, -1,  0, idx + 3, shop);  // -local x
 
     // road-facing door on houses that line the main road, seated on the
     // building's floor datum so the full door height stays visible
@@ -595,7 +595,7 @@ export class City {
     }
   }
 
-  _facade(cx, cz, rot, hw, hd, H, nlx, nlz, seed) {
+  _facade(cx, cz, rot, hw, hd, H, nlx, nlz, seed, shop = false) {
     const half = (nlx !== 0) ? hw : hd;
     const wallLen = ((nlx !== 0) ? hd : hw) * 2;
     const tlx = -nlz, tlz = nlx;                       // tangent (local)
@@ -621,7 +621,9 @@ export class City {
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
         const ox = n.x * 0.09, oz = n.z * 0.09;
         const lift = this._datumLift(cx, cz, w.x, w.z);   // back onto the building's floor datum
-        if (f === 0 && (c + seed) % 3 === 0) {
+        // Roller shutters belong to SHOPFRONTS (商店街). On a house they read
+        // as a garage door, so residential ground floors keep windows.
+        if (shop && f === 0 && (c + seed) % 3 === 0) {
           this._shutXf.push(w.x + ox, 1.05 + lift, w.z + oz, rotY); continue;   // instanced
         }
         this._winXf.push(w.x + ox, wy + lift, w.z + oz, rotY);                  // instanced
@@ -629,7 +631,7 @@ export class City {
         // occasional AC outdoor unit, sitting flush against the wall — with the
         // grille ring + spinning fan blades drawn on its street-facing face
         if (f >= 1 && (c + seed) % 4 === 1) {
-          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.17) + tlx * (tc + 0.7), nlz * (half + 0.17) + tlz * (tc + 0.7));
+          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.11) + tlx * (tc + 0.7), nlz * (half + 0.11) + tlz * (tc + 0.7));
           this._acUnit(a.x, wy - 0.55 + lift, a.z, rotY);
         }
       }
@@ -765,9 +767,14 @@ export class City {
   _lamppost(x, z, ang = 0) { createItem(this, 'lamppost', { x, z, ang }); }
 
   // ── Collision (buildings = OBB; props = circles; barriers = OBB) ──────────
-  isColliding(x, z) {
+  // `extra` widens the clearance beyond charRadius. The pilot passes ~0.14:
+  // buildings are rigid boxes tangent at their own centre, so near the ground
+  // their walls LEAN up to ~0.15 outside the flat footprint this test uses —
+  // without the margin KAI could hug a wall at charRadius and his shoulder/arm
+  // visually sank into the leaning plaster.
+  isColliding(x, z, extra = 0) {
     if (Math.abs(x) > this.HALF || Math.abs(z) > this.HALF) return true;
-    const r = CONFIG.charRadius;
+    const r = CONFIG.charRadius + extra;
     for (const b of this.buildings) {
       const dx = x - b.cx, dz = z - b.cz;
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
@@ -936,7 +943,7 @@ export class City {
                   + st.bias * clamp((distT - 2) / 6, 0, 1);
     let h = st.h ?? desired;
 
-    const freeAt = (a, d) => !this.isColliding(pos.x + Math.sin(a) * d, pos.z + Math.cos(a) * d);
+    const freeAt = (a, d) => !this.isColliding(pos.x + Math.sin(a) * d, pos.z + Math.cos(a) * d, 0.14);
     const nearF  = freeAt(h, 0.8);
     const farF   = freeAt(h, 1.7);
     const leftF  = freeAt(h + 0.42, 1.15);
@@ -965,7 +972,7 @@ export class City {
     for (let k = 0; k < 10; k++) {
       const a = wrap(h + side * k * 0.22);
       const nx = pos.x + Math.sin(a) * step, nz = pos.z + Math.cos(a) * step;
-      if (!this.isColliding(nx, nz)) {
+      if (!this.isColliding(nx, nz, 0.14)) {
         pos.x = nx; pos.z = nz; st.h = a;
         return { x: Math.sin(a), z: Math.cos(a) };
       }

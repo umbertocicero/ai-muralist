@@ -36,6 +36,11 @@
 - [x] aggiungi dettagli a tutte le tipologie di porte in stile manga. → serrande con DOGHE orizzontali instanced (leggono subito come シャッター); porta genkan già dettagliata (ante scorrevoli, vetri, pannelli)
 
 
+- [x] i murales devono coprire con una certa opacità finestre e porte (non esserne bucati) → murale spinto a 0.30 dal muro (oltre ogni sporgenza: davanzali 0.15, porta ≤0.2, AC rientrata a 0.25) con opacità 0.9: le aperture traspaiono sotto la vernice; verificato col raycast (velo→murale→porta) e a schermo (telai in filigrana nel dipinto)
+- [x] le porte sembrano garage, migliorare completamente → (a) le serrande a doghe ora SOLO sui negozi (su una casa leggevano come garage; il piano terra residenziale ha finestre); (b) porta genkan ridisegnata: tettoia su mensole, doghe verticali, vetro smerigliato laterale con traversine, maniglione ottone, zoccolo, targhetta, soglia bassa
+- [x] Kay entra nei muri quando li costeggia → i muri (rigidi, tangenti al proprio centro) pendono ~0.15 fuori dall'impronta piatta usata dalle collisioni: il pilota ora usa un margine extra 0.14 (isColliding(extra)) — misurato: distanza minima dai muri 0.57 (prima 0.4), 0 collisioni
+- [x] la camera nei vicoli stretti impazzisce → isteresi sull'anti-occlusione (aggancia subito, rilascia dopo 0.5s di via libera: niente flip bloccato/libero per frame) + risalita pitch più dolce (5→3.2) e zoom-out più calmo — misurato: 0.3 inversioni di pitch/secondo in 60s di vicoli
+
 # TODO secondari
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare, aggiungi flag in un yaml di onfigurazione se salvare o meno

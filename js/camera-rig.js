@@ -526,10 +526,27 @@ export class CameraRig {
         polTarget -= 0.12;
         if (polTarget <= CONFIG.camPolarMin) { polTarget = CONFIG.camPolarMin; break; }
       }
+
+      // HYSTERESIS — the alley fix. In a narrow lane the ray flips between
+      // blocked and clear every few frames (KAI meanders, walls graze the
+      // line), and lift/zoom would flap with it: the "camera gone crazy".
+      // Occlusion responses ENGAGE immediately, but RELEASE only after the
+      // shot has stayed clear for half a second — the camera commits to one
+      // composed answer and holds it instead of oscillating.
+      const engaged = polTarget < this.polar - 1e-3 || radTarget < this.radius - 1e-3;
+      if (engaged) {
+        this._occHold = 0.5;
+        this._occPol = polTarget; this._occRad = radTarget;
+      } else if ((this._occHold ?? 0) > 0) {
+        this._occHold -= dt;
+        polTarget = Math.min(polTarget, this._occPol);
+        radTarget = Math.min(radTarget, this._occRad);
+      }
     }
-    this._renderPolar += (polTarget - this._renderPolar) * (1 - Math.exp(-dt * 5));
+    // gentler pitch easing (was 5): alley lifts breathe instead of flicking
+    this._renderPolar += (polTarget - this._renderPolar) * (1 - Math.exp(-dt * 3.2));
     // pull IN quickly so KAI isn't lost behind a wall, but ease back OUT gently
-    const pullRate = radTarget < this._renderEff ? 7 : 3;
+    const pullRate = radTarget < this._renderEff ? 7 : 2.2;
     this._renderEff   += (radTarget - this._renderEff) * (1 - Math.exp(-dt * pullRate));
 
     const sinP = Math.sin(this._renderPolar), cosP = Math.cos(this._renderPolar);

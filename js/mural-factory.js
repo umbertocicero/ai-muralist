@@ -217,9 +217,11 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           // swallow it (murals that "disappeared" on some walls). Building the
           // transform from the building's own transport quaternion keeps the
           // plane EXACTLY parallel to the wall with a uniform OUT gap, clear of
-          // panes (~0.09) and doors (~0.05), and lands it on the same floor
-          // datum as the lifted facade fittings.
-          const OUT = 0.14;
+          // panes/sills (≤0.15) and the redesigned door (≤0.2), and lands it on
+          // the same floor datum as the lifted facade fittings. At 0.30 the
+          // translucent paint sits IN FRONT of every flush fitting, so windows
+          // and doors ghost through the mural instead of piercing it.
+          const OUT = 0.30;
           const yaw = Math.atan2(slot.nx, slot.nz);
           _yawQ.setFromAxisAngle(_UP, yaw);
           const bld = this.city?.buildings?.[slot.buildingIdx];
