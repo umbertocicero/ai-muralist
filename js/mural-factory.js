@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, SVG_FORBIDDEN } from './config.js';
 import { rand } from './helpers.js';
 import { DEMO_THOUGHTS, demoSVG } from './demo.js';
-import { placeOnPlanet } from './planet.js';
+import { placeOnPlanet, planetPoint, planetQuat } from './planet.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 const _yawQ = new THREE.Quaternion();
@@ -160,8 +160,25 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           const canvas = document.createElement('canvas');
           canvas.width  = result.PW;
           canvas.height = result.PH;
-          canvas.getContext('2d').drawImage(img, 0, 0, result.PW, result.PH);
+          const c2d = canvas.getContext('2d');
+          c2d.drawImage(img, 0, 0, result.PW, result.PH);
           URL.revokeObjectURL(url);
+
+          // Bake a PRIMER CASING into the texture: a paper-light margin ring
+          // with a dark ink line outside it — like the primed edge of a real
+          // piece. This is what keeps the mural readable in EVERY light: on a
+          // near-black shaded wall the light margin pops, in a blown-out
+          // white zone the ink line still draws the frame. Baked in the
+          // texture, so it costs nothing at render time.
+          const mSz = Math.min(result.PW, result.PH);
+          const ink = Math.max(2, Math.round(mSz * 0.018));   // outer ink line
+          const mar = Math.max(3, Math.round(mSz * 0.03));    // paper margin
+          c2d.strokeStyle = '#f4f1ea';
+          c2d.lineWidth = mar * 2;
+          c2d.strokeRect(ink + mar * 0.5, ink + mar * 0.5, result.PW - ink * 2 - mar, result.PH - ink * 2 - mar);
+          c2d.strokeStyle = '#141414';
+          c2d.lineWidth = ink;
+          c2d.strokeRect(ink * 0.5, ink * 0.5, result.PW - ink, result.PH - ink);
 
           const tex        = new THREE.CanvasTexture(canvas);
           tex.encoding     = THREE.sRGBEncoding;
@@ -182,24 +199,43 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             new THREE.PlaneGeometry(slot.wallW * CONFIG.muralCoverW, slot.wallH * CONFIG.muralCoverH),
             new THREE.MeshBasicMaterial({
               map: tex, transparent: true, opacity: CONFIG.muralOpacity ?? 0.85,
+              // fog:false — the scene fog would grey the paint out at distance,
+              // and the mural must stay the one vivid thing in the world no
+              // matter how under- or over-lit its wall is. Unlit + fogless =
+              // constant full colour from every angle and range.
+              fog: false,
               polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
             })
           );
 
-          // Place on the little planet: anchor at the wall point, pushed OUT
-          // along the normal so the paint sits in FRONT of the wall's flush
-          // fittings — window panes stand ~0.09 proud and doors ~0.05, so a small
-          // 0.02 offset left them physically poking through the mural and
-          // occluding its middle (a dark window-shaped hole that only "healed"
-          // when you zoomed out and the hole shrank to a speck). At 0.14 the paint
-          // clears them and, being a translucent overlay, still lets the door /
-          // window read through it. Oriented so the plane's +z faces the wall's
-          // outward normal, then carried onto the sphere like the buildings.
-          const OUT = 0.14;
+          // Place the mural in the BUILDING'S RIGID FRAME, not the local
+          // surface frame. The building is one rigid box tangent at its own
+          // centre; a mural spherified at its own (x,z) gets the LOCAL tangent
+          // orientation, which diverges from the wall plane by the arc angle
+          // between the two anchors (~5° here). Over a tall wall that lean
+          // reaches ±0.3–0.5 — enough for the wall to lean OVER the paint and
+          // swallow it (murals that "disappeared" on some walls). Building the
+          // transform from the building's own transport quaternion keeps the
+          // plane EXACTLY parallel to the wall with a uniform OUT gap, clear of
+          // panes/sills (≤0.15) and the redesigned door (≤0.2), and lands it on
+          // the same floor datum as the lifted facade fittings. At 0.30 the
+          // translucent paint sits IN FRONT of every flush fitting, so windows
+          // and doors ghost through the mural instead of piercing it.
+          const OUT = 0.30;
           const yaw = Math.atan2(slot.nx, slot.nz);
           _yawQ.setFromAxisAngle(_UP, yaw);
-          placeOnPlanet(plane,
-            slot.px + slot.nx * OUT, slot.py, slot.pz + slot.nz * OUT, _yawQ);
+          const bld = this.city?.buildings?.[slot.buildingIdx];
+          if (bld) {
+            const q = planetQuat(bld.cx, bld.cz, new THREE.Quaternion());
+            const anchor = planetPoint(bld.cx, 0, bld.cz, new THREE.Vector3());
+            const off = new THREE.Vector3(
+              slot.px + slot.nx * OUT - bld.cx, slot.py, slot.pz + slot.nz * OUT - bld.cz).applyQuaternion(q);
+            plane.position.copy(anchor).add(off);
+            plane.quaternion.copy(q).multiply(_yawQ);
+          } else {
+            placeOnPlanet(plane,
+              slot.px + slot.nx * OUT, slot.py, slot.pz + slot.nz * OUT, _yawQ);
+          }
 
           // Murals must live under city.north (inside worldRoot) so they rotate
           // with the planet — adding to scene would leave them fixed in world
@@ -226,8 +262,17 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             })
           );
           shadowMesh.receiveShadow = true;
-          placeOnPlanet(shadowMesh,
-            slot.px + slot.nx * (OUT + 0.01), slot.py, slot.pz + slot.nz * (OUT + 0.01), _yawQ);
+          if (bld) {
+            const q = planetQuat(bld.cx, bld.cz, new THREE.Quaternion());
+            const anchor = planetPoint(bld.cx, 0, bld.cz, new THREE.Vector3());
+            const off = new THREE.Vector3(
+              slot.px + slot.nx * (OUT + 0.01) - bld.cx, slot.py, slot.pz + slot.nz * (OUT + 0.01) - bld.cz).applyQuaternion(q);
+            shadowMesh.position.copy(anchor).add(off);
+            shadowMesh.quaternion.copy(q).multiply(_yawQ);
+          } else {
+            placeOnPlanet(shadowMesh,
+              slot.px + slot.nx * (OUT + 0.01), slot.py, slot.pz + slot.nz * (OUT + 0.01), _yawQ);
+          }
           parent.add(shadowMesh);
           slot.shadowMesh = shadowMesh;
           resolve();

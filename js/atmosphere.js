@@ -139,7 +139,10 @@ export class Atmosphere {
     const nightAt = (i) => {
       const x = heads[i * 3], y = heads[i * 3 + 1], z = heads[i * 3 + 2];
       const len = Math.hypot(x, y, z) || 1;
-      return smooth(-0.05, 0.32, -y / len);   // 0 on the lit hemisphere → 1 on the dark side
+      // Steep ramp just past the equator: a lamp barely onto the dark side is
+      // already at full brightness, so EVERY night-side lamp burns — no dim
+      // half-lit band near the terminator.
+      return smooth(0.0, 0.08, -y / len);   // 0 on the lit hemisphere → 1 on the dark side
     };
     const night = new Float32Array(n);
     for (let i = 0; i < n; i++) night[i] = nightAt(i);

@@ -15,6 +15,7 @@ import BootScreen    from '../components/BootScreen.js';
 import TitlePanel    from '../components/TitlePanel.js';
 import MuralLog      from '../components/MuralLog.js';
 import MuralGallery  from '../components/MuralGallery.js';
+import MapOverlay    from '../components/MapOverlay.js';
 import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
@@ -49,6 +50,7 @@ const ui = reactive({
   onPaintBegin:    null,   // Agent: KAI started a wall → frame the mural
   onAdmire:        null,   // Agent: mural done → zoom in to admire it
   onPaintEnd:      null,   // Agent: done admiring → resume follow
+  onMapRender:     null,   // MapOverlay → live city-map compositor (js/map.js)
 });
 
 // ==========================================================================
@@ -56,7 +58,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay },
   setup() {
     return { ui };
   },
@@ -77,6 +79,7 @@ const VueRoot = {
     <TitlePanel />
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
     <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" />
+    <MapOverlay    :render="ui.onMapRender" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />
@@ -146,7 +149,20 @@ class App {
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
     ui.onAdmire        = (slot) => this.rig.admireMural(slot);
     ui.onPaintEnd      = () => this.rig.releaseWatch();
-    if (location.search.includes('debugcam')) { window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui; }
+    // Live map page: the overlay canvas is composited from js/map.js — static
+    // base cached once, KAI dot + fading trail + mural markers on top.
+    this._trail = []; this._trailT = 0;
+    ui.onMapRender = (canvas) => {
+      import('./map.js').then(({ renderLiveMap }) => renderLiveMap(canvas, this.city, this.agent, this._trail));
+    };
+    if (location.search.includes('debugcam')) {
+      window.__rig = this.rig; window.__char = this.character; window.__app = this; window.__ui = ui;
+      // window.__map() → draw the generated town as an inked 2D map (js/map.js)
+      window.__map = async (opts) => {
+        const { drawCityMap } = await import('./map.js');
+        return drawCityMap(this.city, { agent: this.agent, trail: this._trail, ...opts });
+      };
+    }
 
     // Fix the planet orientation (always day) and initialise sky/lights once.
     this._lastSky = -1e9;
@@ -230,6 +246,13 @@ class App {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t  = this.clock.elapsedTime;
     this.agent.update(dt, t);
+    // breadcrumb trail for the live map (~7 points/s, capped at ~90s of walk)
+    this._trailT += dt;
+    if (this._trailT > 0.15) {
+      this._trailT = 0;
+      this._trail.push(this.character.pos.x, this.character.pos.z);
+      if (this._trail.length > 1200) this._trail.splice(0, 2);
+    }
     this.city.update(dt, t);     // spin AC fans, sway tree crowns + hanging laundry
     // map KAI's flat (pos, eased yaw) onto the little planet for rendering
     this._yawQ.setFromAxisAngle(this._up, this.character.yaw);

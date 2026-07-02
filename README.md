@@ -40,11 +40,16 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   ├── demo.js          offline fallback thoughts + procedural SVGs
 │   ├── planet.js        flat (x,z) → little-planet (azimuth-equidistant) mapping
 │   ├── city.js          City — procedural town LAYOUT, OBB collision, wall slots, steering, planet wrap
-│   ├── items/           ← parametric item factory (the MESH of each prop)
-│   │   ├── materials.js   shared glass/shutter panes + foliage geometry
-│   │   ├── nature.js      makeTree / makeBush / makePottedPlant / makeVine / makeLeaf
-│   │   ├── props.js       street furniture: bicycle/vending/cone/bench, lamppost, antenna, waterTower, plankFence, acUnit, nobori, planterBox, roadSign, curveMirror, aFrameBarrier, scooter, stairs, keiCar
-│   │   └── index.js       createItem(ctx, type, opts) factory registry
+│   ├── items/           ← parametric item factory (the MESH of each prop), clustered by theme
+│   │   ├── materials.js      shared glass/shutter panes + foliage tones/geometry
+│   │   ├── nature.js         tree / bush / pottedPlant / vine / leaf
+│   │   ├── vehicles.js       bicycle / scooter / keiCar
+│   │   ├── infrastructure.js lamppost / pole / wire / antenna / waterTower
+│   │   ├── furniture.js      bench / planterBox / cone / aFrameBarrier / plankFence / stairs / vending / manhole
+│   │   ├── signs.js          nobori / roadSign / curveMirror
+│   │   ├── house.js          the house itself: window/shutter instancing geometry (incl. slats), roofs, balcony (+porta-finestra +futon), shopfront, roof sign, siding, genkan door, AC unit
+│   │   └── index.js          createItem(ctx, type, opts) factory registry
+│   ├── map.js           drawCityMap — inked 2D map of the generated town (debug: window.__map())
 │   ├── character.js     Character — KAI (schoolkid) mesh + animation states
 │   ├── mural-factory.js MuralFactory — prompt, fetch, sanitize, rasterize
 │   ├── agent.js         Agent — 5-state machine, writes to Vue reactive state

@@ -102,12 +102,17 @@ export class Character {
     this.armL = aL.shoulder; this.elbowL = aL.elbow;
     this.armR = aR.shoulder; this.elbowR = aR.elbow;
 
-    // Spray can (the lone colour accent), carried on the right forearm so it
-    // tracks the elbow as the arm folds.
+    // Spray can (the lone colour accent), GRIPPED in the right fist: the can
+    // sits inside the hand ball (not floating beside it), tilted a touch
+    // forward the way a writer angles the can at the wall, with the orange cap
+    // riding the can's own top so the whole thing tilts as one piece.
     const can = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.22, 12), toonMat('#d8d4cc'));
-    can.castShadow = true; addInk(can, 1.12); can.position.set(0, -0.33, 0.11); aR.elbow.add(can);
+    can.castShadow = true; addInk(can, 1.12);
+    can.position.set(0, -0.32, 0.07); can.rotation.x = 0.30;   // in the fist, top leaning out
+    aR.elbow.add(can);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.06, 12), toonMat('#ff6b35'));
-    addInk(cap, 1.14); cap.position.set(0, -0.20, 0.11); aR.elbow.add(cap);
+    addInk(cap, 1.14); cap.position.set(0, 0.14, 0);           // on top of the can, in its local frame
+    can.add(cap);
 
     // ── Dark shorts + rigged legs (hip pivot, bending knee) + sneakers ──────
     // Same idea as the arms: a hip Group pivots the whole leg, the thigh hangs
@@ -180,6 +185,7 @@ export class Character {
   // maps it onto the little planet each frame (placeOnPlanet), so we must NOT
   // write group.position/rotation here (that mapping would be clobbered).
   sync() {
-    this.yaw = lerpAngle(this.yaw, this.facing, 0.15);
+    // Softer easing = long smooth arcs when he changes heading, no head-snaps.
+    this.yaw = lerpAngle(this.yaw, this.facing, 0.09);
   }
 }

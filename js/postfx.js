@@ -84,9 +84,13 @@ const FRAG = /* glsl */`
     // camera moves. This pass keeps the ink line, paper and vignette.
 
     // --- paper tint + vignette + grain ---
+    // The vignette and grain are PAGE effects for the B&W world; saturated
+    // pixels (murals — the only colour there is) are mostly exempted, so a
+    // mural at the frame's edge or in a dark corner keeps its full punch and
+    // is ALWAYS readable. A small residue keeps it sitting in the page mood.
     c *= vec3(0.996, 0.994, 0.99);                     // near-white paper (barely warm)
     float vig = 1.0 - smoothstep(0.48, 0.95, length(uv - 0.5));
-    c *= mix(uVigDark, 1.0, vig);
+    c *= mix(1.0, mix(uVigDark, 1.0, vig), max(grey, 0.2));
     float grain = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5);
     c += grain * uGrain * grey;
 

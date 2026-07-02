@@ -1,6 +1,19 @@
 import * as THREE from 'three';
 import { toonMat, inkedMesh } from '../toon.js';
 import { LEAF, LEAF_GEO } from './materials.js';
+import { applyLeafWind } from '../wind.js';
+
+// The four LEAF tones are used ONLY by foliage (leaf blobs, bushes, vines and
+// tree crowns), so we can enable the GPU leaf-rustle on those cached toon
+// materials once — every blob in town shivers in the shared wind for free,
+// with zero per-frame JS. If a LEAF tone is ever reused on a non-plant, give
+// that prop its own tone instead.
+const _windy = new WeakSet();
+function leafMat(tone) {
+  const m = toonMat(tone);
+  if (!_windy.has(m)) { applyLeafWind(m); _windy.add(m); }
+  return m;
+}
 
 // ===========================================================================
 //  Greenery item factory — every plant is PARAMETRIC. The city passes a context
@@ -15,7 +28,7 @@ import { LEAF, LEAF_GEO } from './materials.js';
 // A single foliage blob. Shared geometry + cached toon material, no ink hull
 // (the Sobel post-pass inks foliage), randomly tumbled so no two read alike.
 export function makeLeaf(ctx, { x, y, z, r, tone }) {
-  const m = new THREE.Mesh(LEAF_GEO, toonMat(tone));
+  const m = new THREE.Mesh(LEAF_GEO, leafMat(tone));
   m.scale.setScalar(r);
   m.position.set(x, y, z);
   m.rotation.set(ctx.rng(), ctx.rng(), ctx.rng());
@@ -49,7 +62,7 @@ export function makeTree(ctx, { x, z, trunkH = 3.2, crown } = {}) {
 
   const blobs = crown || [[0, 3.8, 0, 1.4], [0.7, 4.3, 0.3, 1.0], [-0.6, 4.2, -0.4, 1.05], [0.1, 4.9, 0, 0.9]];
   blobs.forEach(([ox, oy, oz, r], i) => {
-    const m = new THREE.Mesh(LEAF_GEO, toonMat(LEAF[i % LEAF.length]));
+    const m = new THREE.Mesh(LEAF_GEO, leafMat(LEAF[i % LEAF.length]));
     m.scale.setScalar(r);
     m.position.set(ox, oy - pivotY, oz);        // blob positions are relative to the pivot
     m.rotation.set(ctx.rng(), ctx.rng(), ctx.rng());
@@ -58,9 +71,11 @@ export function makeTree(ctx, { x, z, trunkH = 3.2, crown } = {}) {
 
   if (ctx.animators) {
     const ph = ctx.rng() * 6.283, fr = 0.45 + ctx.rng() * 0.3, amp = 0.05 + ctx.rng() * 0.04;
-    ctx.animators.push((t) => {
-      sway.rotation.z = Math.sin(t * fr + ph) * amp;
-      sway.rotation.x = Math.cos(t * fr * 0.8 + ph) * amp * 0.6;
+    // `wind` is the shared gust envelope from city.update — every crown leans
+    // into the same gusts (with its own phase), so the town breathes together.
+    ctx.animators.push((t, dt, wind = 1) => {
+      sway.rotation.z = Math.sin(t * fr + ph) * amp * wind;
+      sway.rotation.x = Math.cos(t * fr * 0.8 + ph) * amp * 0.6 * wind;
     });
   }
 }

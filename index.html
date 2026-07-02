@@ -167,6 +167,44 @@
   canvas { cursor: grab; touch-action: none; }
   canvas:active { cursor: grabbing; }
 
+  /* ── Live city map: MAP button + full-screen overlay ────────────────────── */
+  #map-btn {
+    position: fixed; z-index: 12; pointer-events: auto;
+    top: 118px; left: 18px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px;
+    background: rgba(245, 240, 230, 0.92);
+    border: 1.5px solid #4a5a66; border-radius: 2px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px; letter-spacing: 2px;
+    color: #4a5a66; cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  #map-btn:hover, #map-btn.open { background: #4a5a66; color: #fff; }
+  #map-btn .ico { color: #ff6b35; }
+  #map-btn.open .ico { color: #ffd0bd; }
+
+  #map-overlay {
+    position: fixed; inset: 0; z-index: 28; pointer-events: auto;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(24, 22, 19, 0.55);
+  }
+  #map-overlay .m-wrap { position: relative; }
+  #map-overlay canvas {
+    display: block; cursor: default; touch-action: auto;
+    width: min(88vmin, 900px); height: min(88vmin, 900px);
+    border: 3px solid #1a1814; border-radius: 3px;
+    background: #f4f1ea;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.5);
+  }
+  #map-overlay .m-close {
+    position: absolute; top: -14px; right: -14px; z-index: 1;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #ff6b35; color: #fff; border: 2px solid #1a1814;
+    font-family: 'Courier New', monospace; font-size: 15px; font-weight: bold;
+    cursor: pointer; line-height: 1;
+  }
+
   /* ── Mobile layout (phones) — tuned for one-handed, notch/home-bar safe ──── */
   @media (max-width: 640px) {
     .panel { padding: 7px 11px; }
@@ -194,6 +232,11 @@
        narrow the phone is. The thought bubble keeps the free centre above them. */
     #follow-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: auto; right: 10px; transform: none; padding: 9px 16px; font-size: 11px; }
     #reset-btn  { bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); left: 10px; right: auto; padding: 7px 12px; font-size: 10px; }
+
+    /* Map button under the compact title; overlay canvas fills the phone width */
+    #map-btn { top: calc(env(safe-area-inset-top, 0px) + 52px); left: 10px; padding: 7px 11px; font-size: 10px; }
+    #map-overlay canvas { width: 94vmin; height: 94vmin; }
+    #map-overlay .m-close { top: -10px; right: -6px; }
 
     /* The full gallery IS the mobile mural list (the recent-log HUD is hidden):
        a near-full-width drawer, safe-area aware, reachable from the edge handle. */
