@@ -138,5 +138,8 @@ export const CONFIG = {
   styleNames: ['Ukiyo-e','Sumi-e','Manga','Woodblock','Anime','Kirie','Wabi-sabi','Kanji'],
 };
 
+// url(#…) fragment references are ALLOWED — they're how fills point at the
+// <defs> gradients the murals are built on (demo and AI alike). Only external
+// url(...) targets (http:, data:, //…) stay forbidden.
 export const SVG_FORBIDDEN =
-  /<\s*(script|foreignObject|image|use|symbol|iframe)\b|xlink:href|(?<![a-z])href\s*=|url\s*\(/i;
+  /<\s*(script|foreignObject|image|use|symbol|iframe)\b|xlink:href|(?<![a-z])href\s*=|url\s*\(\s*(?!#)/i;

@@ -23,9 +23,11 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
-// Server-side copy of the client's SVG_FORBIDDEN guard (js/config.js).
+// Server-side copy of the client's SVG_FORBIDDEN guard (js/config.js):
+// url(#…) fragment refs (the murals' own gradient fills) are allowed; only
+// external url(...) targets stay forbidden.
 const SVG_FORBIDDEN =
-  /<\s*(script|foreignObject|image|use|symbol|iframe)\b|xlink:href|(?<![a-z])href\s*=|url\s*\(/i;
+  /<\s*(script|foreignObject|image|use|symbol|iframe)\b|xlink:href|(?<![a-z])href\s*=|url\s*\(\s*(?!#)/i;
 
 export default {
   async fetch(request, env) {

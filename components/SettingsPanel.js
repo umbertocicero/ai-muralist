@@ -1,4 +1,5 @@
 import { loadUserSettings, saveUserSettings } from '../js/settings.js';
+import { CONFIG } from '../js/config.js';
 
 // ===========================================================================
 //  Settings panel — a ⚙ button opening a small paper card where the VISITOR
@@ -26,6 +27,12 @@ export default {
       saveMurals: s.saveMurals !== false,
       models: ['claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-opus-4-8'],
     };
+  },
+  computed: {
+    // Worker resolved from ANY layer (panel field > yaml/site > code default).
+    // By the time the panel is opened, boot-time resolution has long finished,
+    // so CONFIG.workerUrl reflects the effective value.
+    effectiveWorker() { return this.workerUrl.trim() || CONFIG.workerUrl || ''; },
   },
   methods: {
     apply() {
@@ -64,14 +71,19 @@ export default {
           <option value="">(default)</option>
           <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
         </select>
-
-        <label class="s-lab">WORKER URL <span class="s-note">(optional override)</span></label>
-        <input class="s-in" type="text" v-model="workerUrl" placeholder="https://…workers.dev">
       </template>
+
+      <!-- The Worker also hosts persistence (D1), so it matters in EVERY mode:
+           demo murals are saved/restored through it too — keep it visible. -->
+      <label class="s-lab">WORKER URL <span class="s-note">(generation + save/restore)</span></label>
+      <input class="s-in" type="text" v-model="workerUrl" placeholder="https://…workers.dev">
 
       <label class="s-row s-save">
         <input type="checkbox" v-model="saveMurals"> save murals to the shared world (DB)
       </label>
+      <div class="s-warn" v-if="saveMurals && !effectiveWorker">
+        ⚠ saving needs a Worker URL (the database lives behind it)
+      </div>
 
       <div class="s-row s-actions">
         <button class="s-btn" @click="apply">SAVE &amp; RELOAD</button>

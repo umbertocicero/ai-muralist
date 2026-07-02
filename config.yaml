@@ -6,9 +6,9 @@
 # [[d1_databases]] binding in wrangler.toml). false = never save.
 save_murals: true
 
-# Worker endpoint for AI generation + persistence. Leave commented for the
-# offline demo (procedural murals, nothing saved).
-# worker_url: https://ai-muralist-proxy.<your-account>.workers.dev
+# Worker endpoint for AI generation + persistence. Needed for save/restore
+# even in demo mode (the D1 database lives behind the Worker).
+worker_url: https://ai-muralist-proxy.ucicero.workers.dev
 
 # Claude model used for generation.
 # model: claude-sonnet-4-6

@@ -41,7 +41,9 @@ export class Persistence {
   }
 
   // Fire-and-forget save of a freshly painted mural. A failure never disturbs
-  // the game — the piece simply won't survive the next refresh.
+  // the game — the piece simply won't survive the next refresh — but it is
+  // always LOGGED (an HTTP 4xx/5xx used to pass silently, which made "why
+  // didn't it save?" undebuggable).
   save(slot, result, styleName) {
     fetch(this.url, {
       method: 'POST',
@@ -56,6 +58,13 @@ export class Persistence {
         svg: result.svg,
         userId: this.uid,
       }),
+    }).then(async res => {
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.warn(`[persist] save rejected (HTTP ${res.status}):`, body.slice(0, 200));
+      } else {
+        console.info('[persist] mural saved');
+      }
     }).catch(e => console.warn('[persist] save failed:', e.message));
   }
 
@@ -102,7 +111,7 @@ export class Persistence {
         thumb: 'data:image/svg+xml;utf8,' + encodeURIComponent(m.svg),
       });
     }
-    if (restored) console.info(`[persist] restored ${restored} mural(s)`);
+    console.info(`[persist] restore: ${rows.length} saved, ${restored} re-applied (world ${this.world})`);
     return restored;
   }
 }
