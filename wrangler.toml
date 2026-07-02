@@ -16,10 +16,10 @@ id = "196719ebd6324e0d979b769a52dd19e1"
 # then paste the returned database_id below and `wrangler deploy`. Without this
 # binding the Worker still runs — murals just don't survive a refresh.
 #
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "ai-muralist-db"
-# database_id = "<paste the id from `wrangler d1 create`>"
+[[d1_databases]]
+binding = "DB"
+database_name = "ai-muralist-db"
+database_id = "363b925a-31c2-475a-9819-f801a4cf9b0e"
 
 # The Anthropic API key is a SECRET, never put it here. Set it with:
 #   wrangler secret put ANTHROPIC_API_KEY

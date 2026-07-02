@@ -170,10 +170,25 @@ Note the printed Worker URL (e.g. `https://ai-muralist-proxy.<account>.workers.d
 
 ### 4 · Set the API key
 
+Create an Anthropic API key in the Anthropic console, make sure your account has billing enabled and access to the model you want to use, then store it as a Wrangler secret for this Worker:
+
 ```bash
 wrangler secret put ANTHROPIC_API_KEY
 # paste your sk-ant-... key when prompted
 ```
+
+A few important details:
+
+- Use the full key string starting with `sk-ant-...`.
+- Do not hardcode the key in source files, `wrangler.toml`, or the frontend bundle.
+- If you deploy with the same-origin Pages Functions approach, add the same variable in Cloudflare Pages → Settings → Variables and Secrets as `ANTHROPIC_API_KEY`.
+- You can verify the secret is available in the Worker with:
+
+```bash
+wrangler secret list
+```
+
+If the app shows `Server missing ANTHROPIC_API_KEY`, the secret was not set correctly for the deployed Worker.
 
 ### 5 · Point the app at your Worker
 
@@ -262,6 +277,8 @@ Minimum permissions:
 | Account | Workers KV Storage | Edit |
 | Account | Cloudflare Pages | Edit |
 | Account | Account Settings | Read |
+| Account | D1 | Edit|
+
 
 ### 2 · Export credentials
 
@@ -271,6 +288,13 @@ export CLOUDFLARE_ACCOUNT_ID="your-account-id"
 ```
 
 > **Persist them:** GitHub → Settings → Codespaces → Secrets → add both, granting access to this repo.
+
+> If `wrangler d1 create ai-muralist-db` fails with `Authentication error [code: 10000]`, the API token is missing D1 permissions. Make sure the token includes at least `Account → Cloudflare D1 → Edit` (and `Workers Scripts` / `Cloudflare Pages` if you are deploying too), then retry:
+>
+> ```bash
+> wrangler whoami
+> wrangler d1 create ai-muralist-db
+> ```
 
 ### 3 · Deploy
 
