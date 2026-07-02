@@ -6,8 +6,9 @@ import { placeOnPlanet } from '../planet.js';
 
 // ===========================================================================
 //  Street furniture — the ground-level dressing of the lanes: benches, planter
-//  boxes, traffic cones, A-frame barricades, board fences, entrance stairs,
-//  vending machines and manhole covers.
+//  boxes, traffic cones, A-frame barricades, board fences, vending machines and
+//  manhole covers. (Entrance steps belong to the genkan door in house.js —
+//  free-standing stair flights leading nowhere made no sense.)
 // ===========================================================================
 
 // A slatted public bench facing the street (新規) — `length` sizes it.
@@ -91,26 +92,6 @@ export function makePlankFence(ctx, { cx, cz, rot, hw, hd }) {
     const post = inkedMesh(new THREE.BoxGeometry(0.12, h + 0.16, 0.16), '#8f897b', { k: 1.06, cast: false });
     post.position.set(p.x, (h + 0.16) / 2, p.z); post.rotation.y = rot; ctx.scene.add(post);
   });
-}
-
-// A short flight of concrete steps (with low cheek walls). The footprint is a
-// barrier so KAI walks round; the flight ASCENDS toward the building entrance
-// (tall step against the wall, low step at the lane).
-export function makeStairs(ctx, { x, z, rot, n = 5 }) {
-  const stepW = 1.2, stepH = 0.18, stepD = 0.32;
-  ctx.barriers.push({ cx: x, cz: z, hw: stepW / 2 + 0.12, hd: (n * stepD) / 2, rot });
-  for (let i = 0; i < n; i++) {
-    const p = ctx._toWorld(x, z, rot, 0, (i - (n - 1) / 2) * stepD);
-    const sh = stepH * (n - i);
-    const step = inkedMesh(new THREE.BoxGeometry(stepW, sh, stepD + 0.02), '#d2cfc8', { k: 1.02, cast: false, receive: true });
-    step.position.set(p.x, sh / 2, p.z); step.rotation.y = rot; ctx.scene.add(step);
-  }
-  const topH = stepH * n;   // low cheek walls flanking the flight
-  for (const s of [-1, 1]) {
-    const cheek = inkedMesh(new THREE.BoxGeometry(0.12, topH + 0.2, n * stepD), '#cdcac3', { k: 1.03, cast: false });
-    const p = ctx._toWorld(x, z, rot, s * (stepW / 2 + 0.06), 0);
-    cheek.position.set(p.x, (topH + 0.2) / 2, p.z); cheek.rotation.y = rot; ctx.scene.add(cheek);
-  }
 }
 
 // A vending machine (自販機): the most iconic Japanese street object. Greyscale

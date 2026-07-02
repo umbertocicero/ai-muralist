@@ -40,7 +40,6 @@ const BUILDERS = {
   cone:          furniture.makeTrafficCone,
   aFrameBarrier: furniture.makeAFrameBarrier,
   plankFence:    furniture.makePlankFence,
-  stairs:        furniture.makeStairs,
   vending:       furniture.makeVendingMachine,
   manhole:       furniture.makeManhole,
   // signage (signs.js)

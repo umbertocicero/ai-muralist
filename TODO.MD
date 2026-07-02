@@ -41,6 +41,10 @@
 - [x] Kay entra nei muri quando li costeggia → i muri (rigidi, tangenti al proprio centro) pendono ~0.15 fuori dall'impronta piatta usata dalle collisioni: il pilota ora usa un margine extra 0.14 (isColliding(extra)) — misurato: distanza minima dai muri 0.57 (prima 0.4), 0 collisioni
 - [x] la camera nei vicoli stretti impazzisce → isteresi sull'anti-occlusione (aggancia subito, rilascia dopo 0.5s di via libera: niente flip bloccato/libero per frame) + risalita pitch più dolce (5→3.2) e zoom-out più calmo — misurato: 0.3 inversioni di pitch/secondo in 60s di vicoli
 
+- [x] le scale poggiate a caso non hanno senso → rimosse le rampe libere da _buildStreetProps (e makeStairs dalla factory); i gradini d'ingresso ora sono lo STOOP a 2 alzate integrato nella porta genkan
+- [x] le porte non sembrano porte disegnate in stile manga → porta ridipinta nella tavolozza B&N del mondo (il colore è solo dei murales): anta grigio-china con doghe verticali come tratti di penna, tettoia scura come i tetti, barre chiare sul vetro smerigliato, maniglione chiaro (highlight disegnato), targhetta, stoop in cemento
+- [x] le case sono erroneamente sulle strade (viste dalla mappa) → il check di piazzamento misurava solo il CENTRO del lotto: nuovo _obbClearOfRoads campiona l'intero perimetro (angoli + metà lati) contro ogni strada, con restringimento progressivo o scarto del lotto — verificato: 0 violazioni su 45 edifici, mappa pulita anche all'incrocio
+
 # TODO secondari
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare, aggiungi flag in un yaml di onfigurazione se salvare o meno

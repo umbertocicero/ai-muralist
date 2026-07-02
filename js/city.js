@@ -266,6 +266,18 @@ export class City {
     return best;
   }
 
+  // Is an oriented plot rectangle clear of every main road? Samples the OBB
+  // outline (corners + edge midpoints): the old test only checked the plot
+  // CENTRE against the road edge, so wide plots still hung their walls over
+  // the carriageway (houses standing on the road). `margin` keeps a kerb gap.
+  _obbClearOfRoads(cx, cz, hw, hd, rot, margin = 0.4) {
+    for (const [lx, lz] of [[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd],[0,-hd],[0,hd],[-hw,0],[hw,0]]) {
+      const p = this._toWorld(cx, cz, rot, lx, lz);
+      if (this._distToMainRoad(p.x, p.z) < margin) return false;
+    }
+    return true;
+  }
+
   // Nearest main road: edge distance, direction angle, and the closest point —
   // used to keep the road clear and to line it with road-aligned houses.
   _nearestRoad(x, z) {
@@ -440,8 +452,8 @@ export class City {
         // ~15% of plots are left as open lots / pocket gardens (never on the
         // shopping street — a high street is a continuous wall of shopfronts).
         const open = !isShop && this.rng() < 0.15;
-        const hw = Math.max(2.4, (cxr.b - cxr.a) / 2 - this._rand(0.4, 1.1));
-        const hd = Math.max(2.4, (czr.b - czr.a) / 2 - this._rand(0.4, 1.1));
+        let hw = Math.max(2.4, (cxr.b - cxr.a) / 2 - this._rand(0.4, 1.1));
+        let hd = Math.max(2.4, (czr.b - czr.a) / 2 - this._rand(0.4, 1.1));
 
         // Houses lining the main road (and all shops) are squared up to it (walls
         // parallel, door/shopfront facing the road); the rest sit at little angles.
@@ -453,6 +465,12 @@ export class City {
         } else {
           rot = this._rand(-0.22, 0.22);
         }
+
+        // Keep the whole PLOT off the carriageway: shrink it toward its centre
+        // until its outline clears every road (junctions included), or drop it.
+        let shrink = 0;
+        while (!this._obbClearOfRoads(cx, cz, hw, hd, rot) && shrink < 3) { hw *= 0.8; hd *= 0.8; shrink++; }
+        if (hw < 2.2 || hd < 2.2 || !this._obbClearOfRoads(cx, cz, hw, hd, rot)) continue;
 
         if (open) { this._openLot(cx, cz, hw, hd, rot); continue; }
 
@@ -1067,7 +1085,7 @@ export class City {
   _buildStreetProps() {
     const S = CONFIG.shop || {};
     let bikes = 0, banners = 0, planters = 0, signs = 0,
-        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, stairs = 0, benches = 0;
+        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, benches = 0;
     for (const bld of this.buildings) {
       const r = this.rng();
       const sgn = this.rng() < 0.5 ? 1 : -1;
@@ -1103,13 +1121,6 @@ export class City {
       if (planters < 16 && r < 0.68) {
         const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.6), along);
         if (!this.isColliding(p.x, p.z)) { this._planterBox(p.x, p.z, outAng); planters++; continue; }
-      }
-      // a staircase up to some residential entrances (not on the high street)
-      if (!isShop && stairs < 8 && r < 0.78) {
-        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.85), along);
-        if (!this.isColliding(p.x, p.z) && this._distToMainRoad(p.x, p.z) > 1.2) {
-          this._stairs(p.x, p.z, outAng, 4 + (this.rng() * 3 | 0)); stairs++; continue;
-        }
       }
       // a public bench set against the wall, facing the lane
       if (benches < 6 && r > 0.52 && r < 0.74) {
@@ -1196,10 +1207,6 @@ export class City {
   // Parked scooter / moped — item factory.
   _scooter(x, z, ang) { createItem(this, 'scooter', { x, z, ang }); }
 
-  // A short flight of concrete steps (with low cheek walls) — the level-change
-  // cue of the reference backstreets. Footprint is a barrier so KAI walks round.
-  // Short flight of concrete steps up to an entrance — item factory.
-  _stairs(x, z, rot, n = 5) { createItem(this, 'stairs', { x, z, rot, n }); }
 }
 
 // distance from point to segment

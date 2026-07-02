@@ -437,53 +437,54 @@ export function makeAcUnit(ctx, { x, y, z, rotY }) {
   ctx.animators.push((t) => { fan.rotation.z = t * spd; });
 }
 
-// A Japanese house entrance (玄関) that reads as a FRONT DOOR, never a
-// garage: a little pent CANOPY on brackets over the doorway, a warm timber
-// leaf with VERTICAL battens (縦格子), a tall frosted side-light with light
-// bars, a brass pull bar, a dark kickplate, a name plate on the jamb and a
-// SHALLOW threshold (max protrusion ≤0.2, safely behind the mural overlay).
-// `lift` seats it on the building's floor datum (see city._datumLift).
+// A Japanese house entrance (玄関) DRAWN IN THE MANGA PALETTE: the whole
+// world is inked greys (colour belongs to the murals alone), so the door works
+// with tone + line, not colour — a near-ink dark leaf under a pent canopy, its
+// vertical battens (縦格子) reading as pen strokes, a frosted side-light with
+// light bars, a light pull bar as the drawn highlight, and a small two-step
+// concrete stoop grounding it to the street (max protrusion 0.30 at the floor,
+// below the mural's bottom edge). `lift` seats it on the building's datum.
 export function makeDoor(ctx, { x, z, rotY, lift = 0 }) {
   const g = new THREE.Group(); g.position.set(x, lift, z); g.rotation.y = rotY;
   g.userData.kind = 'door';
   const W = 0.94, H = 2.02;
-  const FR = '#d0cdc6', WOOD = '#6b5844', BATTEN = '#544332', DARK = '#2c2822',
-        BRASS = '#b8a26a', STEP = '#c7c4bd', ROOF = '#3a3833';
-  const box = (w, h, d, col, px, py, pz, k = 1.05, cast = false) => {
+  const FR = '#d6d3cc', LEAF = '#413d37', BATTEN = '#232019', INKD = '#1c1a17',
+        LIGHT = '#e8e5df', STEP = '#c7c4bd', ROOF = '#26241f';
+  const box = (w, h, d, col, px, py, pz, k = 1.06, cast = false) => {
     const m2 = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast });
     m2.position.set(px, py, pz); g.add(m2); return m2;
   };
 
-  // slim concrete surround: two jambs + lintel
-  box(0.08, H + 0.06, 0.12, FR, -W / 2 - 0.02, H / 2, 0.02);
-  box(0.08, H + 0.06, 0.12, FR,  W / 2 + 0.02, H / 2, 0.02);
-  box(W + 0.2, 0.1, 0.12, FR, 0, H + 0.03, 0.02);
+  // light concrete surround (jambs + lintel) — the frame that pops the dark leaf
+  box(0.09, H + 0.06, 0.12, FR, -W / 2 - 0.02, H / 2, 0.02);
+  box(0.09, H + 0.06, 0.12, FR,  W / 2 + 0.02, H / 2, 0.02);
+  box(W + 0.22, 0.1, 0.12, FR, 0, H + 0.03, 0.02);
 
-  // pent CANOPY over the doorway on two little brackets — the silhouette that
-  // instantly says "entrance"
+  // pent CANOPY on brackets, dark like the roofs — the "entrance" silhouette
   const canopy = box(W + 0.42, 0.05, 0.34, ROOF, 0, H + 0.24, 0.1, 1.05, true);
-  canopy.rotation.x = 0.18;                                     // gentle outward pitch
+  canopy.rotation.x = 0.18;
   for (const sx of [-W / 2 + 0.06, W / 2 - 0.06])
-    box(0.05, 0.16, 0.16, BATTEN, sx, H + 0.12, 0.05, 1.1);     // brackets
+    box(0.05, 0.16, 0.14, INKD, sx, H + 0.12, 0.04, 1.12);      // brackets
 
-  // warm timber leaf with a hairline reveal to the jambs
-  box(W - 0.04, H - 0.04, 0.07, WOOD, 0.02, H / 2 - 0.02, 0);
-  // vertical battens (縦格子) — door grain, unmistakably a house door
+  // near-ink door leaf: tone + heavy contour, the manga way
+  box(W - 0.04, H - 0.04, 0.07, LEAF, 0.02, H / 2 - 0.02, 0);
+  // vertical battens as dark pen strokes down the leaf
   for (const bx of [-0.09, 0.09, 0.27])
-    box(0.04, H - 0.2, 0.02, BATTEN, bx, H / 2 - 0.02, 0.045, 1.12);
-  // tall frosted side-light on the hinge side, split by light bars
+    box(0.045, H - 0.2, 0.02, BATTEN, bx, H / 2 - 0.02, 0.045, 1.14);
+  // tall frosted side-light, split by LIGHT bars (light-on-dark = drawn lines)
   const gl = new THREE.Mesh(new THREE.PlaneGeometry(0.2, H * 0.66), GLASS);
   gl.position.set(-W * 0.29, H * 0.55, 0.048); g.add(gl);
   for (let i = 0; i < 3; i++)
-    box(0.2, 0.024, 0.015, FR, -W * 0.29, H * (0.32 + i * 0.23), 0.055, 1.2);
+    box(0.2, 0.024, 0.015, LIGHT, -W * 0.29, H * (0.32 + i * 0.23), 0.055, 1.2);
 
-  // brass pull bar + dark kickplate
-  const pull = inkedMesh(new THREE.CylinderGeometry(0.016, 0.016, 0.36, 8), BRASS, { k: 1.15, cast: false });
+  // pull bar as a LIGHT stroke on the dark leaf + a low kick band
+  const pull = inkedMesh(new THREE.CylinderGeometry(0.016, 0.016, 0.36, 8), LIGHT, { k: 1.15, cast: false });
   pull.position.set(W * 0.37, H * 0.5, 0.075); g.add(pull);
-  box(W - 0.1, 0.2, 0.015, DARK, 0.02, 0.12, 0.042, 1.08);
+  box(W - 0.1, 0.18, 0.015, INKD, 0.02, 0.11, 0.042, 1.1);
 
-  // name plate on the lintel corner + a SHALLOW threshold step
-  box(0.2, 0.09, 0.02, '#efece6', W * 0.28, H - 0.28, 0.05, 1.15);
-  box(W + 0.2, 0.07, 0.16, STEP, 0, 0.035, 0.06);
+  // name plate on the jamb + a two-step concrete STOOP grounding the entrance
+  box(0.2, 0.09, 0.02, LIGHT, W * 0.28, H - 0.28, 0.05, 1.15);
+  box(W + 0.22, 0.09, 0.30, STEP, 0, 0.045, 0.12);              // lower tread
+  box(W + 0.10, 0.09, 0.18, STEP, 0, 0.135, 0.07);              // upper tread
   ctx.scene.add(g);
 }
