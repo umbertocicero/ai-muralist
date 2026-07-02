@@ -24,8 +24,11 @@ A manga schoolkid named **KAI** — white short-sleeve shirt, dark shorts, backp
 - At **night the streetlamps switch on**, each casting a soft **downward cone of light** onto the lane (plus a warm ground-pool and lens bloom)
 - A poetic inner monologue for every mural
 - A full **manga atmosphere layer**: low backlit sun with a blown-out white-out glow, radiating **god-ray** light-shafts, drifting dust motes, and a **paper-grain + inked panel-frame + vignette** page overlay. Shading is **hand-inked hatching laid on the surfaces** (parallel pen strokes that cross into cross-hatch in deep shadow) — not dot screens — so it reads as a drawn manga panel
-- **Apple-grade camera**: a **follow-cam that stays behind KAI** (swinging round as he turns, keeping the ground at the bottom of frame even as the planet spins), damped orbit with release momentum, smooth zoom-to-cursor (wheel / pinch), two-finger / shift-drag pan, **Google-Street-View travel** (double-click / double-tap the pavement to glide along the streets), and **click a mural in the sidebar to fly the camera in front of it**. When KAI starts a wall the camera **drops in over his shoulder** (behind him, slightly to one side, zoomed in) so you watch the mural being drawn, then swings round to admire the finished piece and resumes the follow. When a building blocks any shot the camera **lifts up and over the rooftops** instead of clipping inside. A **“Raddrizza” (right-the-world) button** snaps the view upright behind KAI whenever you’ve spun the globe around
-- Reactive **Vue 3** UI overlay (boot screen, clock, mural log, thought bubble, status bar) with a **mobile-tuned, notch/home-bar-safe layout**
+- **Apple-grade camera**: a **follow-cam that stays behind KAI** (swinging round as he turns, keeping the ground at the bottom of frame even as the planet spins), damped orbit with release momentum, smooth zoom-to-cursor (wheel / pinch), two-finger / shift-drag pan, **Google-Street-View travel** (double-click / double-tap the pavement to glide along the streets), and a **slide-out mural gallery** listing every piece KAI has painted — click one to fly the camera in front of it (auto-closes on phones so the zoom is visible). When KAI starts a wall the camera **drops in over his shoulder** (behind him, slightly to one side, zoomed in) so you watch the mural being drawn, then swings round to admire the finished piece and resumes the follow. In narrow alleys an occlusion **hysteresis** keeps the lift/zoom-in response from flip-flopping frame to frame. When a building blocks any shot the camera **lifts up and over the rooftops** instead of clipping inside. A **“Raddrizza” (right-the-world) button** snaps the view upright behind KAI whenever you’ve spun the globe around
+- A live **MAP overlay** (🗺 button) showing the whole generated town from above, with KAI's real-time position, heading and a fading breadcrumb trail, plus every mural slot (painted or still blank)
+- The world **breathes**: a shared wind gust sways power lines (GPU vertex shader, zero per-frame JS cost beyond two uniforms), rustles leaves, and flutters balcony futons — all driven from `js/wind.js`
+- Murals **persist**: painted walls are saved to a **Cloudflare D1** database keyed by the town's seed and restored on every visitor's next boot, so the world stays painted for everyone. An in-app **⚙ Settings panel** lets each visitor pick demo/AI mode, their own Anthropic API key, model, and whether their murals get saved — no accounts, no server config needed
+- Reactive **Vue 3** UI overlay (boot screen, clock, mural log, mural gallery, thought bubble, status bar, settings) with a **mobile-tuned, notch/home-bar-safe layout**
 
 ---
 
@@ -49,30 +52,38 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   │   ├── signs.js          nobori / roadSign / curveMirror
 │   │   ├── house.js          the house itself: window/shutter instancing geometry (incl. slats), roofs, balcony (+porta-finestra +futon), shopfront, roof sign, siding, genkan door, AC unit
 │   │   └── index.js          createItem(ctx, type, opts) factory registry
-│   ├── map.js           drawCityMap — inked 2D map of the generated town (debug: window.__map())
-│   ├── character.js     Character — KAI (schoolkid) mesh + animation states
-│   ├── mural-factory.js MuralFactory — prompt, fetch, sanitize, rasterize
-│   ├── agent.js         Agent — 5-state machine, writes to Vue reactive state
-│   ├── camera-rig.js    CameraRig — follow-behind, inertial orbit, zoom, pan, travel, lift, over-shoulder paint-cam, planet-spin aware
-│   ├── atmosphere.js    Atmosphere — sun glow, god-ray shafts, dust, moon, night lamp cones/pools
-│   ├── solar.js         real solar position (NOAA) + JST clock — drives the planet spin
-│   ├── toon.js          cel-shading + surface-locked manga hatching + ink-outline hull
-│   ├── postfx.js        MangaPost — full-screen ink-line + paper + vignette post-processing
-│   └── main.js          entry point — wires Vue + Three.js + fixed-sun day/night + shared state
+│   ├── wind.js           GPU vertex-shader wind: wire sway + leaf/futon rustle, driven by a shared gust envelope (2 uniforms/frame, no per-vertex JS)
+│   ├── map.js            live town map: cached base layer (roads/buildings/poles) + live layer (KAI position/heading/trail, mural slots) for the MAP overlay, plus a one-shot printable version (debug: window.__map())
+│   ├── character.js      Character — KAI (schoolkid) mesh + animation states
+│   ├── mural-factory.js  MuralFactory — prompt, fetch, sanitize, rasterize, bakes an ink-border "primer" so every mural pops off any wall
+│   ├── agent.js          Agent — 5-state machine, writes to Vue reactive state
+│   ├── camera-rig.js     CameraRig — follow-behind, inertial orbit, zoom, pan, travel, lift, over-shoulder paint-cam, occlusion hysteresis, planet-spin aware
+│   ├── atmosphere.js     Atmosphere — sun glow, god-ray shafts, dust, moon, night lamp cones/pools
+│   ├── solar.js          real solar position (NOAA) + JST clock — drives the planet spin
+│   ├── toon.js           cel-shading + surface-locked manga hatching + ink-outline hull
+│   ├── postfx.js         MangaPost — full-screen ink-line + paper + vignette post-processing
+│   ├── persistence.js    Persistence — loads/saves painted murals to the Worker's D1-backed `/murals` endpoint
+│   ├── settings.js       resolves CONFIG from code defaults → config.yaml → the visitor's own localStorage settings
+│   └── main.js           entry point — wires Vue + Three.js + fixed-sun day/night + shared state
 │
 ├── components/     ← Vue 3 single-file components (JS, no .vue files)
-│   ├── BootScreen.js    loading/error overlay
-│   ├── TitlePanel.js    top-left title card
-│   ├── MuralLog.js      recent murals list (top-right)
-│   ├── StatusBar.js     agent status + pulsing dot (bottom-left)
-│   ├── MuralCounter.js  mural count (bottom-right)
-│   ├── ThoughtBubble.js KAI's inner monologue (bottom-center)
-│   ├── FollowButton.js  re-lock camera behind KAI
-│   ├── ResetButton.js   "Raddrizza" — right the world / camera upright behind KAI
-│   └── FlashOverlay.js  orange radial flash on mural paint
+│   ├── BootScreen.js     loading/error overlay
+│   ├── TitlePanel.js     top-left title card
+│   ├── MuralLog.js       recent murals list (top-right)
+│   ├── MuralGallery.js   slide-out drawer with every mural KAI has painted — click to fly the camera to it
+│   ├── MapOverlay.js     "MAP" button + full-screen live map of the town (js/map.js)
+│   ├── SettingsPanel.js  ⚙ mode / API key / model / save-murals toggle, stored in the visitor's browser
+│   ├── StatusBar.js      agent status + pulsing dot (bottom-left)
+│   ├── MuralCounter.js   mural count (bottom-right)
+│   ├── ThoughtBubble.js  KAI's inner monologue (bottom-center)
+│   ├── FollowButton.js   re-lock camera behind KAI
+│   ├── ResetButton.js    "Raddrizza" — right the world / camera upright behind KAI
+│   └── FlashOverlay.js   orange radial flash on mural paint
 │
-├── worker.js       ← Cloudflare Worker: API proxy + rate limiting
-├── wrangler.toml   ← Worker deploy config
+├── worker.js       ← Cloudflare Worker: API proxy + rate limiting + D1 mural persistence
+├── wrangler.toml   ← Worker deploy config (KV + optional D1 binding)
+├── schema.sql      ← D1 table schema for persisted murals
+├── config.yaml     ← optional site-owner config (save_murals, worker_url, model, mode)
 └── PROMPT.md       ← full design spec
 ```
 
@@ -99,6 +110,7 @@ Vue components  ──observe──────────────┘  (no 
 | AI generation | **Claude** (`claude-sonnet-4-6`) | SVG + thought in one API call |
 | API proxy | **Cloudflare Worker** | Hides API key, rate-limits by IP |
 | Rate limiting | **Cloudflare KV** | 8 s per IP, free tier |
+| Persistence | **Cloudflare D1** (optional) | Painted murals survive a refresh, shared world by seed |
 | Hosting | **Cloudflare Pages** | Serves the static files, free |
 | Camera | Spherical coordinates | Follow-behind + inertial orbit, zoom-to-cursor, pan, rooftop lift |
 | Collision | Oriented boxes (OBB) | Per-building rotated footprints + `charRadius` padding |
@@ -357,8 +369,8 @@ All tunables are in **`js/config.js`**:
 | `approachOffset` | `1.5` | Distance KAI stands from the wall |
 | `thinkSeconds` | `2.0` | Minimum thinking time before painting |
 | `paintSeconds` | `2.2` | Painting animation duration |
-| `camRadius` | `26` | Initial camera distance from pivot |
-| `camOrbitSpeed` | `0.08` | Auto-orbit speed while following |
+| `camRadius` | `22` | Initial camera distance from pivot |
+| `camFollowSpin` | `2.2` | How fast the follow-cam swings behind KAI as he turns |
 | `maxLogEntries` | `5` | Entries shown in the mural log |
 
 **Cut costs ~6×:** change `model` to `claude-haiku-4-5` — SVG quality stays good for this use case.
