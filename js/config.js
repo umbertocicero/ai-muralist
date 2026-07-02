@@ -1,6 +1,6 @@
 export const CONFIG = {
   // --- API ---
-  workerUrl: null,
+  workerUrl: 'https://ai-muralist-proxy.ucicero.workers.dev',
   model: 'claude-sonnet-4-6',
   maxTokens: 2048,
   requestTimeoutMs: 30000,
