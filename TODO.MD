@@ -46,6 +46,7 @@
 - [x] le case sono erroneamente sulle strade (viste dalla mappa) → il check di piazzamento misurava solo il CENTRO del lotto: nuovo _obbClearOfRoads campiona l'intero perimetro (angoli + metà lati) contro ogni strada, con restringimento progressivo o scarto del lotto — verificato: 0 violazioni su 45 edifici, mappa pulita anche all'incrocio
 
 # TODO secondari
+- [ ] i balconi devono avere le stessere caratteristiche delle finestre in termini di dettagli.
 - [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), dimensioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare, aggiungi flag in un yaml di onfigurazione se salvare o meno
 - [ ] aggiungi una sezione settings che permette di attivare la creazione di murales da parte di ai e la relativa form per configurarla (api key e modello da usare), nella stessa sezione se si sceglie demo mode allora usa gli svg pre configurati, altrimenti se configurato prendi le info dalla cache e si possono editare, oppure te le fa inserire.
