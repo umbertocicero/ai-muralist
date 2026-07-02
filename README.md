@@ -9,6 +9,11 @@ A manga schoolkid named **KAI** — white short-sleeve shirt, dark shorts, backp
 
 ---
 
+## Demo
+`https://ai-muralist.pages.dev`
+
+---
+
 ## What it does
 
 - A **procedurally generated Setagaya-style town** — no grid: an organic mesh of crooked streets of varying width, irregular rotated plots, a couple of winding wider main roads, and open lots, modelled on the Soshigaya map. One main road is dressed as a **商店街 shopping street**: taller mixed-use blocks line both sides with ground-floor **shopfronts** (name-board, awning, projecting blade sign) and **rooftop billboards**. The lanes are scattered with the lived-in street furniture of a real Japanese neighbourhood — **vending machines (自販機)**, **convex traffic mirrors (カーブミラー)**, **traffic cones + A-frame barriers**, **parked kei-cars and scooters**, **concrete staircases**, **zebra crossings**, plus a tangled overhead power-line net, curbs, balconies, AC units, drainpipes, antennas, parked bicycles, shop banners (幟), and overgrown greenery (ivy, bushes, trees, potted plants), hazing out to a blown-out bright horizon. Rendered with **Three.js r128** (deterministic seed, so the town is stable between loads)
