@@ -46,15 +46,21 @@
 - [x] le case sono erroneamente sulle strade (viste dalla mappa) → il check di piazzamento misurava solo il CENTRO del lotto: nuovo _obbClearOfRoads campiona l'intero perimetro (angoli + metà lati) contro ogni strada, con restringimento progressivo o scarto del lotto — verificato: 0 violazioni su 45 edifici, mappa pulita anche all'incrocio
 
 # TODO secondari
-- [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), diemnsioni, posizione e utente che lo ha creato, e altre info necessarire.
+- [ ] Crea un DB per salvare i murales creati, utilizza subaset, tieni info del file (da riutilizzare in futuro), dimensioni, posizione e utente che lo ha creato, e altre info necessarire.
 - [ ] se non confugurato non salvare, aggiungi flag in un yaml di onfigurazione se salvare o meno
-
+- [ ] aggiungi una sezione settings che permette di attivare la creazione di murales da parte di ai e la relativa form per configurarla (api key e modello da usare), nella stessa sezione se si sceglie demo mode allora usa gli svg pre configurati, altrimenti se configurato prendi le info dalla cache e si possono editare, oppure te le fa inserire.
+- [ ] aggiungi in setting se salvare su DB o no, all'avvio prende sempre le info dei murals creati da DB se disponibili, e le applica al mondo
 
 # TODO futuri
 - [ ] inserisci un laghetto
 - [ ] fare in modo che giri in background e salvi le info di murales fatti, dove, posizione in cui si trova. Limitare il tempo di run e renderlo configurabile, con allert che si consumano token
+- [ ] fin quando almeno persona è connessa kay gira e genera, se nessuno è connesso kay si ferma.
 - [ ] permettere la configurazione del prompt per lo stile, o automatico
 - [ ] permettere  inserimento licenza e quindi la creazione di un ulteriore omino per cui si puo definire nome, automatic stile per riconoscerlo, anche lui ha tempi di run, stile di prompt, etc.
 - [ ] fotogafia o export murales
 - [ ] lanciare vecchio scenario salvato con annessi murales
 - [ ] reset simulazione in backgroud ogni x giorni o al complatamento degli spazi
+- [ ] pulsante con sccritto nuovo mondo, e l'utente può scegliere di inserire un suo personaggio, io gli do il mondo lui se lo naviga con la propria api (feature a pagamento)
+- [ ] il personaggio si può customizzare
+- [ ] login
+- [ ] tabella audit, chi genera cosa e quando

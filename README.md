@@ -10,7 +10,7 @@ A manga schoolkid named **KAI** — white short-sleeve shirt, dark shorts, backp
 ---
 
 ## Demo
-`https://ai-muralist.pages.dev`
+[Show Demo](https://ai-muralist.pages.dev)
 
 ---
 
