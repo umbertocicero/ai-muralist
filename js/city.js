@@ -63,7 +63,7 @@ export class City {
     // They animate children of already-spherified anchors, so the planet mapping
     // is untouched. main.js drives them via city.update().
     this.animators = [];
-    this.rng       = mulberry32(20260623);
+    this.rng       = mulberry32(CONFIG.worldSeed);   // fixed seed → same town (and murals) every session
 
     this.HALF = CONFIG.world.half;
     this.R    = PLANET_R;

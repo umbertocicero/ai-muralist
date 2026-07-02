@@ -200,6 +200,48 @@ wrangler pages deploy . --project-name ai-muralist
 
 Live at `https://ai-muralist.pages.dev`.
 
+### 7 · (Optional) Persistent murals — Cloudflare D1
+
+By default every refresh starts a blank town. With a **D1** database bound to the
+Worker, each painted mural (artwork SVG, wall size + position, painter id) is
+saved and restored onto the same seeded town at boot — everyone keeps painting
+**one shared world**.
+
+```bash
+# 1. Create the database (free tier is plenty)
+wrangler d1 create ai-muralist-db
+
+# 2. Apply the schema (repo root)
+wrangler d1 execute ai-muralist-db --remote --file=schema.sql
+
+# 3. Bind it: paste the database_id printed by step 1 into wrangler.toml,
+#    uncommenting the [[d1_databases]] block:
+#      binding = "DB"
+#      database_name = "ai-muralist-db"
+#      database_id = "<id from step 1>"
+
+# 4. Redeploy the Worker
+wrangler deploy
+```
+
+That's it — the front-end needs no extra config: with `workerUrl` set it calls
+`GET/POST <workerUrl>/murals` automatically. Notes:
+
+- **World identity** — murals are keyed by `worldSeed` (`js/config.js`), the same
+  seed that generates the town. Change the seed → new town, fresh mural set (old
+  rows stay in the DB under the old seed).
+- **Painter identity** — an anonymous per-browser id (`localStorage`), stored in
+  `user_id`. No accounts, no PII.
+- **One mural per wall** — first painter wins (unique index on the wall anchor);
+  later saves of the same wall are no-ops.
+- **Inspect the data**:
+  ```bash
+  wrangler d1 execute ai-muralist-db --remote \
+    --command "SELECT id, style, user_id, created_at FROM murals ORDER BY id DESC LIMIT 10"
+  ```
+- Without the binding the Worker answers `501` on `/murals` and the app quietly
+  runs non-persistent (exactly like the optional rate-limit KV).
+
 ---
 
 ## Deploy from GitHub Codespaces / CI (API token)
@@ -266,6 +308,7 @@ All tunables are in **`js/config.js`**:
 | Key | Default | Meaning |
 |---|---|---|
 | `workerUrl` | `null` | Worker endpoint. `null` = offline demo mode |
+| `worldSeed` | `20260623` | Town generator seed + persistence world key (D1) |
 | `model` | `claude-sonnet-4-6` | Claude model for generation |
 | `maxTokens` | `2048` | Max tokens per API call |
 | `requestTimeoutMs` | `30000` | Abort fetch after this many ms |

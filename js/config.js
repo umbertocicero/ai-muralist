@@ -6,6 +6,11 @@ export const CONFIG = {
   requestTimeoutMs: 30000,
   maxSvgBytes: 60000,
 
+  // The city generator's seed — ALSO the persistence "world" key: saved murals
+  // are stored under this number and re-attached to the identical town it
+  // generates. Changing it starts a fresh town with a fresh (empty) mural set.
+  worldSeed: 20260623,
+
   // --- World (Japanese neighbourhood GRID — B&W manga / inked line-art) ---
   // Soft paper-grey sky (NOT pure white): gives the additive sun-glow and
   // light-shafts a surface to register against, and lets distance haze read.

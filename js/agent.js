@@ -113,6 +113,9 @@ export class Agent {
         ...entry,
         thumb: svg ? 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) : null,
       });
+      // Persist the finished piece (wired by main.js when a Worker is set);
+      // fire-and-forget, so the game never waits on the network.
+      this.onPainted?.(slot, this.pendingResult, entry.styleName);
       // Step aside + back so KAI isn't standing in front of his own mural while
       // the camera frames it head-on; the side is chosen open (see helper below).
       this.admirePos   = this._admireStandPoint(slot);

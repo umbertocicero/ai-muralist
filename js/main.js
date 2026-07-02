@@ -9,6 +9,7 @@ import { MuralFactory }  from './mural-factory.js';
 import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
+import { Persistence }   from './persistence.js';
 import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
 import BootScreen    from '../components/BootScreen.js';
@@ -149,6 +150,16 @@ class App {
     ui.onPaintBegin    = (slot) => this.rig.watchMural(slot);
     ui.onAdmire        = (slot) => this.rig.admireMural(slot);
     ui.onPaintEnd      = () => this.rig.releaseWatch();
+    // Persistent world: with a Worker configured, every painted mural is saved
+    // to D1 and the saved set is restored onto the same (seeded) town at boot —
+    // so a refresh continues the world instead of blanking it. Restore runs in
+    // the background; failures just mean a non-persistent session.
+    if (CONFIG.workerUrl) {
+      this.persistence = new Persistence(CONFIG.workerUrl, CONFIG.worldSeed);
+      this.agent.onPainted = (slot, result, style) => this.persistence.save(slot, result, style);
+      this.persistence.restore(this.city, this.factory, this.agent, ui)
+        .catch(e => console.warn('[persist] restore failed:', e.message));
+    }
     // Live map page: the overlay canvas is composited from js/map.js — static
     // base cached once, KAI dot + fading trail + mural markers on top.
     this._trail = []; this._trailT = 0;
