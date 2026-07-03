@@ -42,6 +42,11 @@ const BUILDERS = {
   plankFence:    furniture.makePlankFence,
   vending:       furniture.makeVendingMachine,
   manhole:       furniture.makeManhole,
+  bollard:       furniture.makeBollard,
+  postbox:       furniture.makePostbox,
+  trashPoint:    furniture.makeTrashPoint,
+  crates:        furniture.makeCrates,
+  drain:         furniture.makeStreetDrain,
   // signage (signs.js)
   nobori:        signs.makeNobori,
   roadSign:      signs.makeRoadSign,

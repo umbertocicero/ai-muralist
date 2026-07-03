@@ -115,6 +115,102 @@ export function makeVendingMachine(ctx, { x, z, ang = 0 }) {
   }
 }
 
+// A low concrete bollard (車止め) — pairs of them guard the sidewalk where the
+// zebra crossings meet it. Built AFTER the spherify pass (the crosswalks that
+// anchor them only exist then), so it seats itself via placeOnPlanet.
+export function makeBollard(ctx, { x, z }) {
+  ctx.colliders.push({ x, z, r: 0.14 });
+  const g = new THREE.Group();
+  const post = inkedMesh(new THREE.CylinderGeometry(0.085, 0.10, 0.52, 10), '#cfccc4', { k: 1.06 });
+  post.position.y = 0.26; g.add(post);
+  const dome = inkedMesh(new THREE.SphereGeometry(0.085, 10, 8), '#cfccc4', { k: 1.06, cast: false });
+  dome.position.y = 0.52; dome.scale.y = 0.6; g.add(dome);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.088, 0.06, 10), toonMat('#3a3833'));
+  band.position.y = 0.42; g.add(band);
+  placeOnPlanet(g, x, 0, z, undefined, ctx.R);
+  ctx.scene.add(g);
+}
+
+// A cylindrical Japanese post box (郵便ポスト), the classic round pillar type:
+// pedestal, drum body, collar, domed cap and a hooded mail slot facing the
+// street. (Red in life; it stays in the town's greyscale so the murals keep
+// the only colour.)
+export function makePostbox(ctx, { x, z, ang = 0 }) {
+  ctx.colliders.push({ x, z, r: 0.32 });
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+  const TONE = '#b6b2aa', TRIM = '#8f8b84';
+  const base = inkedMesh(new THREE.CylinderGeometry(0.24, 0.27, 0.16, 12), TRIM, { k: 1.04, cast: false });
+  base.position.y = 0.08; g.add(base);
+  const body = inkedMesh(new THREE.CylinderGeometry(0.21, 0.21, 0.85, 14), TONE, { k: 1.03 });
+  body.position.y = 0.58; g.add(body);
+  const collar = inkedMesh(new THREE.CylinderGeometry(0.23, 0.23, 0.07, 14), TRIM, { k: 1.05, cast: false });
+  collar.position.y = 1.02; g.add(collar);
+  const dome = inkedMesh(new THREE.SphereGeometry(0.21, 14, 10), TONE, { k: 1.04, cast: false });
+  dome.position.y = 1.05; dome.scale.y = 0.55; g.add(dome);
+  const hood = inkedMesh(new THREE.BoxGeometry(0.26, 0.05, 0.10), TRIM, { k: 1.08, cast: false });
+  hood.position.set(0, 0.92, 0.19); g.add(hood);
+  const slot = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.035), GLASS);
+  slot.position.set(0, 0.88, 0.215); g.add(slot);
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.1), SHUTTER);   // collection-times plate
+  plate.position.set(0, 0.62, 0.212); g.add(plate);
+  ctx.scene.add(g);
+}
+
+// A refuse point (ゴミ置き場): a pair of lidded bins with a couple of tied
+// garbage bags slumped beside them — the everyday clutter of a back lane.
+export function makeTrashPoint(ctx, { x, z, ang = 0 }) {
+  ctx.colliders.push({ x, z, r: 0.5 });
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+  for (const [ox, oz, s] of [[-0.24, 0.02, 1], [0.2, -0.06, 0.9]]) {
+    const body = inkedMesh(new THREE.CylinderGeometry(0.17 * s, 0.15 * s, 0.48 * s, 10), '#c6c3bc', { k: 1.05 });
+    body.position.set(ox, 0.24 * s, oz); g.add(body);
+    const lid = inkedMesh(new THREE.CylinderGeometry(0.19 * s, 0.19 * s, 0.06, 10), '#a8a49c', { k: 1.06, cast: false });
+    lid.position.set(ox, 0.5 * s, oz); g.add(lid);
+    const knob = inkedMesh(new THREE.SphereGeometry(0.035, 8, 6), '#a8a49c', { k: 1.1, cast: false });
+    knob.position.set(ox, 0.55 * s, oz); g.add(knob);
+  }
+  for (const [ox, oz, r, sy] of [[0.05, 0.3, 0.16, 0.75], [0.34, 0.22, 0.13, 0.7], [-0.08, 0.36, 0.11, 0.8]]) {
+    const bag = inkedMesh(new THREE.SphereGeometry(r, 9, 7), '#55524b', { k: 1.05, cast: false });
+    bag.position.set(ox, r * sy * 0.9, oz); bag.scale.set(1, sy, 1);
+    bag.rotation.y = ctx.rng() * 6.28; g.add(bag);
+  }
+  ctx.scene.add(g);
+}
+
+// A stack of bottle crates (ビールケース) by a shop wall — two on the ground,
+// one on top, each with a dark open mouth so the stack reads at a glance.
+export function makeCrates(ctx, { x, z, ang = 0 }) {
+  ctx.colliders.push({ x, z, r: 0.45 });
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ang;
+  const tones = ['#9c988f', '#8f8b82', '#a8a49b'];
+  const spots = [[-0.26, 0.15, 0, 0.06], [0.24, 0.15, 0.04, -0.1], [-0.03, 0.45, 0.02, 0.22]];
+  spots.forEach(([ox, oy, oz, ry], i) => {
+    const c = inkedMesh(new THREE.BoxGeometry(0.46, 0.3, 0.34), tones[i % 3], { k: 1.05 });
+    c.position.set(ox, oy, oz); c.rotation.y = ry; g.add(c);
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.28), toonMat('#3a3833'));
+    mouth.position.set(ox, oy + 0.14, oz); mouth.rotation.y = ry; g.add(mouth);
+  });
+  ctx.scene.add(g);
+}
+
+// A kerbside storm-drain grate (雨水枡) lying flat against the road edge.
+// Built AFTER the spherify pass (from _buildRoads, like the manholes), so the
+// frame seats itself on the sphere; the grate bars still batch into _roofSeg
+// in flat coords, which is finalized (and projected) later.
+export function makeStreetDrain(ctx, { x, z, ang = 0 }) {
+  const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+  const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ang - Math.PI / 2);
+  const frame = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.4), toonMat('#4a4842'));
+  placeOnPlanet(frame, x, 0.075, z, yaw.multiply(tilt), ctx.R);
+  frame.receiveShadow = true; ctx.scene.add(frame);
+  const dxu = Math.sin(ang), dzu = Math.cos(ang);      // long axis, along the kerb
+  const pxu = Math.cos(ang), pzu = -Math.sin(ang);     // short axis
+  for (let i = -2; i <= 2; i++) {
+    const ox = x + dxu * i * 0.11, oz = z + dzu * i * 0.11;
+    ctx._roofSeg.push(ox + pxu * 0.15, 0.095, oz + pzu * 0.15, ox - pxu * 0.15, 0.095, oz - pzu * 0.15);
+  }
+}
+
 // A round manhole cover lying tangent on the planet (built post-spherify, so it
 // places itself onto the sphere directly via placeOnPlanet).
 export function makeManhole(ctx, { x, z }) {

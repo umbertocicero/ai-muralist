@@ -95,6 +95,8 @@ export const CONFIG = {
     coneMax:    10,
     carMax:     5,
     scooterMax: 5,
+    crateMax:   6,
+    trashMax:   5,
   },
 
   // --- Agent / physics ---

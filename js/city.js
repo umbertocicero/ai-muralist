@@ -36,6 +36,7 @@ const ASPHALT2 = toonMat('#d2d0cc');   // main-road ribbon (slightly darker)
 // Warm paper-grey ground — lighter than before so cel bands read as clean manga tones.
 const GROUND   = toonMat('#d4cec4');
 const CURB     = toonMat('#eceae6');
+const PAVING   = toonMat('#e8e5df');   // flagstone sidewalk slab — lighter than road AND ground, so the strip reads
 // GLASS / SHUTTER panes (shared with the item factory) and the foliage geometry
 // now live in js/items/materials.js — imported above.
 const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
@@ -325,6 +326,7 @@ export class City {
     const v = new THREE.Vector3();
     const pos = [], idx = [];
     const spos = [], sidx = [];   // crosswalk / stop-line stripes (lighter paint)
+    const wpos = [], widx = [];   // flagstone sidewalk slabs along the kerbs
     let vi = 0;
     for (const r of this.mainRoads) {
       const hw = r.half;
@@ -340,14 +342,22 @@ export class City {
           planetPoint(cx + px * hw, 0.06, cz + pz * hw, v, this.R); pos.push(v.x, v.y, v.z);
           planetPoint(cx - px * hw, 0.06, cz - pz * hw, v, this.R); pos.push(v.x, v.y, v.z);
         }
+        // wound so the face normal points OUT of the planet (up): the old order
+        // faced down, so the ribbon was backface-culled from above and the road
+        // paint was invisible except where the sphere curved away
         for (let s = 0; s < N; s++) {
           const o = vi + s * 2;
-          idx.push(o, o + 1, o + 2,  o + 1, o + 3, o + 2);
+          idx.push(o, o + 2, o + 1,  o + 1, o + 2, o + 3);
         }
         vi += (N + 1) * 2;
         if (this.rng() < 0.5) {                          // an occasional manhole
           const t = this._rand(0.3, 0.7), off = this._rand(-hw * 0.45, hw * 0.45);
           this._manhole(a.x + dx * t + px * off, a.z + dz * t + pz * off);
+        }
+        if (this.rng() < 0.55) {                         // a storm-drain grate against the kerb
+          const t = this._rand(0.15, 0.85), s2 = this.rng() < 0.5 ? 1 : -1;
+          const gx = a.x + dx * t + px * s2 * (hw - 0.4), gz = a.z + dz * t + pz * s2 * (hw - 0.4);
+          if (!this.isColliding(gx, gz)) this._drain(gx, gz, Math.atan2(dx, dz));
         }
         // a zebra crossing — only on a flat, central, long-enough straight run so
         // the stripes always land on real asphalt (never spilling onto the curved
@@ -355,11 +365,19 @@ export class City {
         if (painted < 2 && Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.4 && len > 6) {
           this._crosswalk(spos, sidx, (a.x + b.x) / 2, (a.z + b.z) / 2, dx / len, dz / len, px, pz, hw);
           painted++;
+          // bollards guarding the sidewalk at both ends of the crossing
+          for (const sb of [-1, 1]) {
+            for (const ob of [-0.55, 0.55]) {
+              const bx2 = (a.x + b.x) / 2 + px * sb * (hw + 0.36) + (dx / len) * ob;
+              const bz2 = (a.z + b.z) / 2 + pz * sb * (hw + 0.36) + (dz / len) * ob;
+              if (!this.isColliding(bx2, bz2)) this._bollard(bx2, bz2);
+            }
+          }
         }
-        // a flagstone sidewalk strip along the kerb (paving joints, drawn only on
-        // open ground so it never runs through a building)
+        // a flagstone sidewalk strip along the kerb (its own raised slab + the
+        // paving joints, laid only on open ground so it never runs through a building)
         if (Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.6)
-          this._sidewalkPaving(a, dx, dz, len, px, pz, hw);
+          this._sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx);
       }
     }
     if (pos.length) {
@@ -375,6 +393,14 @@ export class City {
       g.setAttribute('position', new THREE.Float32BufferAttribute(spos, 3));
       g.setIndex(sidx); g.computeVertexNormals();
       this.scene.add(new THREE.Mesh(g, toonMat('#e9e7e2')));
+    }
+    if (wpos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
+      g.setIndex(widx); g.computeVertexNormals();
+      const walk = new THREE.Mesh(g, PAVING);
+      walk.receiveShadow = true;
+      this.scene.add(walk);
     }
   }
 
@@ -398,18 +424,24 @@ export class City {
         [mx - fx * sw2 - px * ah, mz - fz * sw2 - pz * ah],
       ];
       for (const [px2, pz2] of corners) { planetPoint(px2, y, pz2, v, this.R); spos.push(v.x, v.y, v.z); }
-      sidx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+      sidx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);   // normal up (see _buildRoads)
       base += 4;
     }
   }
 
-  // Flagstone sidewalk along a road segment's kerb: paving JOINTS (cross ties +
-  // lengthwise seams) laid as ink strokes, only where the strip sits on open
-  // ground (so it never runs under a building). Appends flat segments into the
-  // batched roof/stroke buffer (projected onto the planet in _finalizeLines).
-  _sidewalkPaving(a, dx, dz, len, px, pz, hw) {
-    const inA = hw + 0.12, inB = hw + 0.55, mid = hw + 0.33, y = 0.07;
+  // Flagstone sidewalk along a road segment's kerb. The old version drew ONLY
+  // the paving joints as ink on the bare ground, which read as stray scribbles
+  // rather than stones; now the strip gets its own raised slab ribbon (a tone
+  // lighter than both road and ground, projected onto the sphere like the road
+  // itself — appended into the shared wpos/widx buffers) and the joints are
+  // inked ON the slab in a staggered running bond: two rows of stones split by
+  // a centre seam, with the cross ties offset half a stone between rows. Laid
+  // only where the strip sits on open ground (never under a building).
+  _sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx) {
+    const inA = hw + 0.10, inB = hw + 0.62, mid = (inA + inB) / 2;
+    const ySlab = 0.085, yInk = 0.105;   // slab above the road paint, ink above the slab
     const step = 0.95, N = Math.max(1, Math.floor(len / step));
+    const v = new THREE.Vector3();
     for (const s of [-1, 1]) {
       let prev = null;
       for (let i = 0; i <= N; i++) {
@@ -418,12 +450,26 @@ export class City {
         if (this.isColliding(mx, mz)) { prev = null; continue; }
         const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb edge
         const bx = cx + px * s * inB, bz = cz + pz * s * inB;   // inner edge
-        this._roofSeg.push(ax, y, az, bx, y, bz);              // cross tie
-        if (prev) {                                            // lengthwise seams
-          this._roofSeg.push(prev.ax, y, prev.az, ax, y, az);
-          this._roofSeg.push(prev.bx, y, prev.bz, bx, y, bz);
+        if (prev) {
+          // slab quad for this stretch — same winding as the road ribbon (the
+          // pair goes in DESCENDING perpendicular order so both sides face up)
+          const o = wpos.length / 3;
+          const quad = s > 0
+            ? [[prev.bx, prev.bz], [prev.ax, prev.az], [bx, bz], [ax, az]]
+            : [[prev.ax, prev.az], [prev.bx, prev.bz], [ax, az], [bx, bz]];
+          for (const [qx, qz] of quad) { planetPoint(qx, ySlab, qz, v, this.R); wpos.push(v.x, v.y, v.z); }
+          widx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);   // normal up (see _buildRoads)
+          // lengthwise seams: kerb edge, inner edge, and the centre joint
+          this._roofSeg.push(prev.ax, yInk, prev.az, ax, yInk, az);
+          this._roofSeg.push(prev.bx, yInk, prev.bz, bx, yInk, bz);
+          this._roofSeg.push(prev.mx, yInk, prev.mz, mx, yInk, mz);
+          // cross ties, STAGGERED: the kerb row breaks at every step, the inner
+          // row half a stone later — so the strip reads as laid stones
+          this._roofSeg.push(ax, yInk, az, mx, yInk, mz);
+          this._roofSeg.push((prev.mx + mx) / 2, yInk, (prev.mz + mz) / 2,
+                             (prev.bx + bx) / 2, yInk, (prev.bz + bz) / 2);
         }
-        prev = { ax, az, bx, bz };
+        prev = { ax, az, bx, bz, mx, mz };
       }
     }
   }
@@ -1098,7 +1144,8 @@ export class City {
   _buildStreetProps() {
     const S = CONFIG.shop || {};
     let bikes = 0, banners = 0, planters = 0, signs = 0,
-        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, benches = 0;
+        vending = 0, scooters = 0, cars = 0, cones = 0, mirrors = 0, benches = 0,
+        crates = 0, trash = 0, postboxes = 0;
     for (const bld of this.buildings) {
       const r = this.rng();
       const sgn = this.rng() < 0.5 ? 1 : -1;
@@ -1142,6 +1189,18 @@ export class City {
           this._bench(p.x, p.z, outAng + Math.PI, 1.1 + this.rng() * 0.5); benches++; continue;
         }
       }
+      // stacked bottle crates against a shop flank (deliveries waiting)
+      if (crates < (S.crateMax ?? 6) && isShop && r >= 0.74 && r < 0.86) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.55), along);
+        if (!this.isColliding(p.x, p.z)) { this._crates(p.x, p.z, outAng); crates++; continue; }
+      }
+      // a refuse point (lidded bins + bags) tucked against a house flank
+      if (trash < (S.trashMax ?? 5) && r >= 0.86) {
+        const p = this._toWorld(bld.cx, bld.cz, bld.rot, sgn * (bld.hw + 0.55), along);
+        if (!this.isColliding(p.x, p.z) && this._distToMainRoad(p.x, p.z) > 0.8) {
+          this._trashPoint(p.x, p.z, outAng); trash++; continue;
+        }
+      }
     }
 
     // Convex mirrors, cones and barriers at/near road junctions.
@@ -1171,6 +1230,17 @@ export class City {
         this._roadSign(x, z, Math.atan2(nr.px - x, nr.pz - z)); signs++;
       }
     }
+
+    // a couple of round post boxes by the shopping street, slot facing the road
+    const pbRoad = this.shopRoad ?? this.mainRoads[0];
+    for (let k = 0; k < 60 && postboxes < 2; k++) {
+      const x = this._rand(-this.HALF, this.HALF), z = this._rand(-this.HALF, this.HALF);
+      if (Math.hypot(x, z) > this.CAP * 0.8) continue;
+      const d = this._distToRoad(pbRoad, x, z);
+      if (d < 0.5 || d > 1.8 || this.isColliding(x, z)) continue;
+      const nr = this._nearestRoad(x, z);
+      this._postbox(x, z, Math.atan2(nr.px - x, nr.pz - z)); postboxes++;
+    }
   }
 
   // A parked bicycle, seen side-on (its face turned toward the street).
@@ -1198,6 +1268,21 @@ export class City {
   _curveMirror(x, z, ang) { createItem(this, 'curveMirror', { x, z, ang }); }
 
   _trafficCone(x, z) { createItem(this, 'cone', { x, z }); }
+
+  // A low concrete bollard (車止め) at a crossing — item factory.
+  _bollard(x, z) { createItem(this, 'bollard', { x, z }); }
+
+  // A kerbside storm-drain grate — item factory.
+  _drain(x, z, ang) { createItem(this, 'drain', { x, z, ang }); }
+
+  // A cylindrical post box (郵便ポスト) — item factory.
+  _postbox(x, z, ang) { createItem(this, 'postbox', { x, z, ang }); }
+
+  // A refuse point: lidded bins + garbage bags — item factory.
+  _trashPoint(x, z, ang) { createItem(this, 'trashPoint', { x, z, ang }); }
+
+  // Stacked bottle crates by a shop — item factory.
+  _crates(x, z, ang) { createItem(this, 'crates', { x, z, ang }); }
 
   // A public bench against a wall (length parametric).
   _bench(x, z, ang, length) { createItem(this, 'bench', { x, z, ang, length }); }
