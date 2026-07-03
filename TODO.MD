@@ -29,7 +29,6 @@
 - [x] movimento kay più fluido nello spazio, nei cambi direzione che devono essere poco frequenti, evitare preventivamente gli impatti se si sa cosa c'è intorno. → city.steer riscritto come pilota locale: baffi di percezione a distanza fissa (0.8/1.7m avanti + fianchi ±24°), heading persistente con virata limitata (archi continui), isteresi di lato (aggira su UN lato finché non è libero), passo sempre collision-guarded (scivola lungo i muri, mai dentro). Misurato su 120s: 0 collisioni/3600 frame, 0.2% stalli, virata media 1.9°/frame
 - [x] crea house.js con dentro tutti gli oggetti che la richuardano, come balconi, finestre, etc. → js/items/house.js: geometrie finestre/serrande instanced, tetti (gable/hip/tiles/corrugated), siding, balcone, shopfront, insegna da tetto, porta genkan, AC (fixtures.js fuso dentro)
 - [x] panni sul balcone quando si muovono entrano erronemante nel balcone → oscillazione clampata verso l'ESTERNO (rotation.x ∈ [0.1amp, amp], mai negativa)
-- [x] sistema la bomboletta impugnata male → bomboletta dentro il pugno, inclinata verso il muro, cap solidale alla bomboletta
 - [x] Migliora i cordili di strada rendendoli più realistici di pietra e tridimensionali → cordolo più alto (0.16) con labbro chiaro + giunti di pietra inchiostrati sui 4 lati
 - [x] Stampa una mappa della città costruita → js/map.js drawCityMap (strade/edifici tratteggiati/slot murales/pali/KAI, stile manga); debug: window.__map()
 - [x] il balcone deve essere coerente con le finestre dietro. se è un balcone la finestra deve arrivare fino a toccarlo a terra, non una finestrella → il balcone porta la sua PORTA-FINESTRA a tutta altezza (vetro fino alla soletta, 2 ante sui balconi larghi); le finestrelle instanced su quel piano vengono saltate
@@ -160,6 +159,8 @@
 - Test: lanciare app e fare screenshot con Playwright a zoom vari
 
 **Stima complessità:** bassa (poche righe di codice, soprattutto test visuale)
+
+- [ ] sistema la bomboletta impugnata male → bomboletta dentro il pugno, inclinata verso il muro, cap solidale alla bomboletta
 
 # TODO futuri
 - [ ] inserisci un laghetto
