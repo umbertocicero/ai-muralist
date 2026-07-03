@@ -52,6 +52,115 @@
 - [x] aggiungi una sezione settings che permette di attivare la creazione di murales da parte di ai e la relativa form per configurarla (api key e modello da usare), nella stessa sezione se si sceglie demo mode allora usa gli svg pre configurati, altrimenti se configurato prendi le info dalla cache e si possono editare, oppure te le fa inserire. → components/SettingsPanel.js (bottone ⚙): modo demo/AI, api key propria (cache localStorage, editabile; usata via worker come x-user-api-key o diretta ad Anthropic se non c'è worker), modello, worker url override
 - [x] aggiungi in setting se salvare su DB o no, all'avvio prende sempre le info dei murals creati da DB se disponibili, e le applica al mondo → toggle "save murals" nel pannello; il RESTORE gira sempre quando un worker è noto (anche in demo) e prevale: l'agente non sceglie muri finché i murales salvati non hanno ripreso i loro slot
 
+# TODO grafici / UI manga
+
+## 1. UI in stile manga: bordi disegnati a mano + speech bubble
+**Obiettivo:** trasformare `.panel` (attualmente rettangoli arrotondati semitrasparenti, stile HUD sci-fi) e componenti Vue in elementi manga disegnati a mano, coerenti con l'estetica inchiostrata della scena sotto.
+
+**Scope:**
+- **index.html (CSS)**: classe `.panel` (riga 26) e `.ui` (riga 25)
+  - Aggiungere bordo doppio irregolare (primary border + thin offset stroked border con jitter ±0.3° via `clip-path` o SVG mask)
+  - Background: mantenere semi-trasparente carta ma ridurre blur-backdrop (meno "futurista", più "pagina")
+  - Border-radius: ridurre da `2px` a `0px` (angoli retti = manga)
+- **index.html (CSS) / #thought (riga 115-118)**:
+  - Trasformare da box rettangolare a **speech bubble** SVG o CSS con coda triangolare
+  - La coda punta verso KAI (dinamica: calcolare angolo camera→KAI, ruotare la coda di conseguenza — vedi js/camera-rig.js per posizione rig.target)
+  - Contenitore: `<svg>` con `<path>` e `<text>`, oppure CSS clip-path per il triangolo
+- **components/**: titoli (BootScreen.js, SettingsPanel.js, MuralLog.js)
+  - Aggiungere font brush/manga (es. "Segoe Print", "Marker Felt", oppure import web font da Google Fonts tipo "Caveat" / "Fredoka One")
+  - `.exp`, `.name`, `.sub` classi (riga 34-36 index.html): applicare font brush ai titoli, letterspacing più naturale
+- **components/ThoughtBubble.js**:
+  - Attualmente template minimalista (riga 8-12); ridisegnare con classe `.bubble` che istanzia SVG speech bubble
+  - Stato reattivo: `bubbleAngle` (calcolato da posizione KAI nel 3D → projection screen)
+  - La coda segue KAI: `transform: rotate({{ bubbleAngle }}deg)`
+
+**File da modificare:** `index.html` (CSS), `components/ThoughtBubble.js`, `js/main.js` (calcolare `ui.bubbleAngle` nel loop)
+**Stima complessità:** medio (CSS custom properties + 1 componente Vue riscritta)
+
+---
+
+## 2. Speed lines + SFX onomatopea durante azione
+**Obiettivo:** aggiungere effetti cinetici manga — linee di velocità radiali quando KAI cammina/corre, e onomatopee testuali che compaiono/scompaiono durante PAINTING.
+
+**Scope:**
+- **Speed lines (WANDERING / MOVING_TO_WALL)**:
+  - Nuovo canvas overlay (o THREE.js ScreenSpace 2D layer) che disegna **速度線** come raggi radiali dietro KAI
+  - Trigger: attivi solo quando `agent.state ∈ [WANDERING, MOVING_TO_WALL]` e `velocity > threshold` (vedi js/agent.js riga ~50)
+  - Animazione: 8-12 linee radiali da un punto dietro KAI, opacità fade-out, durata 200ms, loop continuo
+  - Parametri configurabili in `config.js` (density, length, opacity, speed)
+  
+- **SFX onomatopea (PAINTING state)**:
+  - Testo SVG/DOM overlay che appare quando entra PAINTING (vedi agent.js riga ~100)
+  - Rotazione casuale: SFX come "シャー" (sha~a = suono spray), "ドクドク" (doku-doku = goccia), "ザッザッ" (za-za = brush strokes)
+  - Lista di 5-8 onomatopee in array in `config.js`, scelta random o ciclica per stile
+  - Animazione: fade-in rapido (100ms), wobble leggero (±1-2°), fade-out su timer (vedi PAINTING duration: `config.paintSeconds`)
+  - Posizione: random in prossimità del muro dove KAI dipinge (screen-space offset dal centro)
+
+**File da modificare:** 
+- `js/config.js` (aggiungere `speedLines` + `sfxOnomatopoeia` params)
+- `js/agent.js` (scrivere a `ui.speedLinesActive`, `ui.currentSfx`, `ui.sfxPosition` quando cambia state)
+- Nuovo `components/SpeedLines.js` (canvas layer con RAF draw loop)
+- Nuovo `components/SfxOverlay.js` (SVG text element con animazione)
+- `components/` index o `js/main.js`: istanziare i due componenti
+
+**Stima complessità:** medio-alto (logica state + 2 componenti animati)
+
+---
+
+## 3. Panel-frame: bordo nero irregolare attorno al viewport (manga page closure)
+**Obiettivo:** aggiungere un bordo inchiostrato spesso e irregolare attorno ai 4 lati del viewport come ultimo layer del post-processing, dando la sensazione che l'intera scena sia una **pagina di manga disegnata**.
+
+**Scope:**
+- **postfx.js (MangaPost shader)**:
+  - Attualmente (riga 31-99) il fragment shader fa Sobel edge + paper + vignette
+  - Aggiungere uniforms: `uFrameWidth` (spessore in pixels, es. 12-20px), `uFrameNoise` (randomness del bordo, 0-1)
+  - Nel fragment shader, dopo il vignette (riga 92), aggiungere controllo se il pixel è dentro un margine dalla schermata
+  - Se sì, campionare Perlin noise (o valore hash pseudorandom) per dare texture irregolare al bordo (non rettilineo)
+  - Mix gradualmente verso nero scuro (0.05 come le ink lines, riga 80) con smoothstep su distanza dal bordo
+  - Opzione alternativa (più semplice): doppio bordo con offset (inner frame sottile + outer frame spesso con jitter)
+  
+- **index.html (CSS)**:
+  - Aggiungere `::before` o `::after` pseudo-element su `#canvas-root` con `pointer-events: none`
+  - Box-shadow inset spesso e irregolare (via SVG filter/feDisplacementMap), oppure immagine PNG border distorted
+  - Alternativa semplice: border SVG disegnato a mano e deployato come background-image
+
+**File da modificare:** 
+- `js/postfx.js` (fragment shader: aggiungere frame border + noise)
+- `js/config.js` (aggiungere `visual.frameWidth`, `visual.frameNoise`)
+- Opzionale: `index.html` CSS se si usa ::before overlay
+
+**Stima complessità:** bassa-medio (una uniforme nel shader + 10 righe di glsl)
+
+---
+
+## 4. KAI protagonist contrast: verificare e rafforzare ink outline del personaggio
+**Obiettivo:** assicurare che KAI sia sempre ben leggibile — il protagonista in manga ha contorno ink più marcato di tutto il resto. Attualmente da lontano è una macchiolina indistinta.
+
+**Scope:**
+- **character.js (createCharacter() / mesh building)**:
+  - Controllare come viene applicato `addInk()` a KAI (vedi toon.js riga 166)
+  - Verificare il parametro `k` (expansion factor) per il character — probabilmente è lo stesso di edifici (default 1.012)
+  - Soluzione: creare una variante `addInk(mesh, k=1.035, color=0x000000)` specifica per KAI (k più alto = outline più spesso)
+  - Alternativa: aumentare `inkDefault` (riga 74 config.js) solo per KAI, non globale
+  
+- **Visibilità da lontano**:
+  - Controllare LOD: KAI ha geometria semplificata da certi angoli? (vedi character.js, potrebbe usare Three.js LOD)
+  - Se sì, assicurare che LOD bassa mantenga silhouette chiara (non ridurre sagoma)
+  - Testare a distanza: camera zoom minimo (default `camRadius: 22` riga 374 config.js)
+  
+- **Test**:
+  - Screenshot a schermo intero con KAI piccolo in lontananza (urban zoom out)
+  - Confrontare contrast ink outline KAI vs. edifici vicini
+  - Se ancora blurry, aumentare k verso 1.05+ o raddoppiare geometria outline
+
+**File da modificare:**
+- `js/character.js` (riga addInk call)
+- `js/toon.js` (aggiungere parametro `isProtagonist` a addInk? oppure hardcode KAI)
+- `js/config.js` (aggiungere `characterInkScale` opzionale)
+- Test: lanciare app e fare screenshot con Playwright a zoom vari
+
+**Stima complessità:** bassa (poche righe di codice, soprattutto test visuale)
+
 # TODO futuri
 - [ ] inserisci un laghetto
 - [ ] fare in modo che giri in background e salvi le info di murales fatti, dove, posizione in cui si trova. Limitare il tempo di run e renderlo configurabile, con allert che si consumano token

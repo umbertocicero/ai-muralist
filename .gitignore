@@ -82,3 +82,4 @@ x86/
 playwright-report
 *.log
 .playwright-mcp/page-*.yml
+.playwright-mcp/page-*.jpeg
