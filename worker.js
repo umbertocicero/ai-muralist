@@ -20,6 +20,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 ]);
 
 // ---- Mural persistence (D1) ------------------------------------------------
+// Build tag, returned by GET /murals and logged by the client at restore time:
+// makes "is the deployed Worker up to date?" answerable straight from the
+// browser console. Bump when the /murals contract or validation changes.
+const WORKER_BUILD = 3;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -135,7 +139,7 @@ async function handleMurals(request, env) {
       `SELECT id, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id, created_at
          FROM murals WHERE world = ?1 ORDER BY id LIMIT ${MURAL_LIST_CAP}`
     ).bind(world).all();
-    return json({ murals: results ?? [] });
+    return json({ murals: results ?? [], build: WORKER_BUILD });
   }
 
   if (request.method !== 'POST') {

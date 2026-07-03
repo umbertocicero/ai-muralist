@@ -62,6 +62,12 @@ export class Persistence {
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         console.warn(`[persist] save rejected (HTTP ${res.status}):`, body.slice(0, 200));
+        // A field-less "Invalid mural record" is the signature of an OUTDATED
+        // deployed Worker (current builds name the failing field). Say exactly
+        // what to do — this exact confusion cost a whole debugging round.
+        if (res.status === 400 && body.includes('Invalid mural record') && !body.includes('record:')) {
+          console.warn('[persist] the deployed Worker is an older build — run: git pull && wrangler deploy');
+        }
       } else {
         console.info('[persist] mural saved');
       }
@@ -79,7 +85,15 @@ export class Persistence {
         if (res.status === 501) { console.info('[persist] worker has no D1 binding — running non-persistent'); return 0; }
         throw new Error(`HTTP ${res.status}`);
       }
-      rows = (await res.json()).murals ?? [];
+      const data = await res.json();
+      rows = data.murals ?? [];
+      // Deployed-worker build check: current builds report a number; an absent
+      // build means the Worker predates it → saves will fail until redeployed.
+      if (data.build == null) {
+        console.warn('[persist] worker build: pre-3 (OUTDATED) — run: git pull && wrangler deploy');
+      } else {
+        console.info(`[persist] worker build: ${data.build}`);
+      }
     } catch (e) {
       console.warn('[persist] restore failed:', e.message);
       return 0;
