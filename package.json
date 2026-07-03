@@ -1,0 +1,12 @@
+{
+  "name": "ai-muralist",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:install": "playwright install"
+  }
+}
