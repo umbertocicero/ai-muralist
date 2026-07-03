@@ -52,6 +52,7 @@
 # TODO secondari
 - [ ] sistema che al click su un murales, il redirect visivo verso di esso alle volte è al contrario, sul lato opposto
 - [ ] la lista dei murales si deve poter resettare, inserici un pulsante nei settings con DELETE Murales
+- [ ] i pali della corrente sono erroneamnete al centro dell strade principali delimitate dai bordi dei meciapiedi in pietra, invece devo stare a lato della strada, altrimenti non passa nessuno.
 
 # TODO grafici / UI manga
 
