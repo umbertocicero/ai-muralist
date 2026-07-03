@@ -102,17 +102,30 @@ export class Character {
     this.armL = aL.shoulder; this.elbowL = aL.elbow;
     this.armR = aR.shoulder; this.elbowR = aR.elbow;
 
-    // Spray can (the lone colour accent), GRIPPED in the right fist: the can
-    // sits inside the hand ball (not floating beside it), tilted a touch
-    // forward the way a writer angles the can at the wall, with the orange cap
-    // riding the can's own top so the whole thing tilts as one piece.
+    // Spray can (the lone colour accent), GRIPPED the way a writer actually
+    // holds one: the fist wraps the can with the can axis PERPENDICULAR to the
+    // forearm and the index finger riding the cap. (The old grip left the can
+    // parallel to the forearm, so the paint pose pointed the can's BASE at the
+    // wall.) With the ⊥ grip the raised paint pose stands the can upright with
+    // the nozzle at the wall, and at rest it carries level at his side, cap
+    // forward — both poses read right from one static grip.
+    const grip = new THREE.Group();
+    grip.position.set(0, -0.31, 0.05);          // centred in the fist
+    grip.rotation.x = 1.8;                      // ⊥ to the forearm, a hair past so it leans into the wall mid-stroke
+    aR.elbow.add(grip);
     const can = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.22, 12), toonMat('#d8d4cc'));
     can.castShadow = true; addInk(can, 1.12);
-    can.position.set(0, -0.32, 0.07); can.rotation.x = 0.30;   // in the fist, top leaning out
-    aR.elbow.add(can);
+    can.position.y = 0.02;                      // fist wraps the can's lower half
+    grip.add(can);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.06, 12), toonMat('#ff6b35'));
-    addInk(cap, 1.14); cap.position.set(0, 0.14, 0);           // on top of the can, in its local frame
+    addInk(cap, 1.14); cap.position.y = 0.14;   // on top of the can, in its local frame
     can.add(cap);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.035, 8), toonMat('#3a3833'));
+    nozzle.position.y = 0.045; cap.add(nozzle); // the spray button the finger works
+    // index finger up the back of the can, fingertip pressing the nozzle
+    const finger = cyl(0.02, 0.024, 0.13, SKIN, false);
+    finger.position.set(0, 0.10, -0.055); finger.rotation.x = -0.18; can.add(finger);
+    const tip = ball(0.024, SKIN, false); tip.position.set(0, 0.165, -0.028); can.add(tip);
 
     // ── Dark shorts + rigged legs (hip pivot, bending knee) + sneakers ──────
     // Same idea as the arms: a hip Group pivots the whole leg, the thigh hangs
