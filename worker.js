@@ -163,21 +163,25 @@ async function handleMurals(request, env) {
   }
 
   // Validate — numbers finite and inside the little world, strings bounded,
-  // svg re-checked server-side with the same guard the client uses.
+  // svg re-checked server-side with the same guard the client uses. Each check
+  // NAMES what failed: a bare "invalid record" made real deployments
+  // undebuggable from the browser console.
   const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   const { world, px, py, pz, nx, nz, wallW, wallH, style, thought, svg, userId } = body ?? {};
-  const ok =
-    Number.isInteger(world) &&
-    num(px, -200, 200) && num(py, 0, 50) && num(pz, -200, 200) &&
-    num(nx, -1.01, 1.01) && num(nz, -1.01, 1.01) &&
-    num(wallW, 0.5, 30) && num(wallH, 0.5, 30) &&
-    typeof style === 'string' && style.length <= 40 &&
-    (thought == null || (typeof thought === 'string' && thought.length <= 300)) &&
-    typeof svg === 'string' && svg.length <= 60_000 &&
-    svg.trimStart().startsWith('<svg') && !SVG_FORBIDDEN.test(svg) &&
-    typeof userId === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(userId);
-  if (!ok) {
-    return json({ error: { type: 'invalid_request_error', message: 'Invalid mural record' } }, 400);
+  const bad =
+    !Number.isInteger(world)                                          ? 'world' :
+    !(num(px, -200, 200) && num(py, 0, 50) && num(pz, -200, 200))     ? 'position' :
+    !(num(nx, -1.01, 1.01) && num(nz, -1.01, 1.01))                   ? 'normal' :
+    !(num(wallW, 0.5, 30) && num(wallH, 0.5, 30))                     ? 'wall size' :
+    !(typeof style === 'string' && style.length <= 40)                ? 'style' :
+    !(thought == null || (typeof thought === 'string' && thought.length <= 300)) ? 'thought' :
+    !(typeof svg === 'string' && svg.length <= 60_000)                ? 'svg size' :
+    !svg.trimStart().startsWith('<svg')                               ? 'svg prefix' :
+    SVG_FORBIDDEN.test(svg)                                           ? 'svg content (forbidden reference)' :
+    !(typeof userId === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(userId)) ? 'userId' :
+    null;
+  if (bad) {
+    return json({ error: { type: 'invalid_request_error', message: `Invalid mural record: ${bad}` } }, 400);
   }
 
   // First painter per wall wins: the unique (world, px, py, pz) index turns a

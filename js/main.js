@@ -160,7 +160,9 @@ class App {
     //    saved mural has re-taken its slot.
     //  · SAVE is wired only when the saveMurals flag is on (Settings / yaml).
     if (CONFIG.workerUrl) {
-      this.persistence = new Persistence(CONFIG.workerUrl, CONFIG.worldSeed);
+      // Keyed by city.worldKey (seed ⊕ layout fingerprint), NOT the bare seed:
+      // murals must only restore onto the exact town build they were painted in.
+      this.persistence = new Persistence(CONFIG.workerUrl, this.city.worldKey);
       if (CONFIG.saveMurals !== false) {
         this.agent.onPainted = (slot, result, style) => this.persistence.save(slot, result, style);
       }

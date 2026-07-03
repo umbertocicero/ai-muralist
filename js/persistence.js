@@ -112,6 +112,12 @@ export class Persistence {
       });
     }
     console.info(`[persist] restore: ${rows.length} saved, ${restored} re-applied (world ${this.world})`);
+    if (rows.length > restored) {
+      // With the layout-fingerprinted world key this should not happen: rows of
+      // an older town build live under a different key. If it does, something
+      // is claiming slots before restore (or the anchor drifted) — say so.
+      console.warn(`[persist] ${rows.length - restored} saved mural(s) found no matching wall`);
+    }
     return restored;
   }
 }

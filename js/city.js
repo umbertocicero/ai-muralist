@@ -111,6 +111,19 @@ export class City {
     this._buildInstances();   // windows + shutters → 1 InstancedMesh each
     this._fillPlanet();       // mirror the town onto the far (dark-side) hemisphere
     this.spawn = this._findOpen(0, 0);
+
+    // World key for persistence: the seed ALONE is not enough — every change
+    // to the generator code moves the walls, so murals saved under an older
+    // build would anchor to nowhere ("N saved, 0 re-applied"). Fingerprint the
+    // actual wall slots (FNV-1a over quantized anchors) and fold it into the
+    // seed: town layout changed ⇒ different world ⇒ a fresh shared canvas,
+    // and the old rows stay archived in the DB under the old key.
+    let h = 0x811c9dc5;
+    for (const s of this.wallSlots) {
+      const str = `${Math.round(s.px * 100)},${Math.round(s.py * 100)},${Math.round(s.pz * 100)};`;
+      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    }
+    this.worldKey = ((CONFIG.worldSeed ^ h) >>> 0);
   }
 
   // Fill the rest of the little planet: the playable town is a cap on top, so we

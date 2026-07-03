@@ -254,9 +254,11 @@ wrangler deploy
 That's it — the front-end needs no extra config: with `workerUrl` set it calls
 `GET/POST <workerUrl>/murals` automatically. Notes:
 
-- **World identity** — murals are keyed by `worldSeed` (`js/config.js`), the same
-  seed that generates the town. Change the seed → new town, fresh mural set (old
-  rows stay in the DB under the old seed).
+- **World identity** — murals are keyed by `worldSeed` (`js/config.js`) **⊕ a
+  fingerprint of the generated wall layout**. Changing the seed *or* any town
+  generation code yields a new world key → fresh mural set, so saved murals can
+  only restore onto the exact town build they were painted in (old rows stay
+  archived in the DB under the old key).
 - **Painter identity** — an anonymous per-browser id (`localStorage`), stored in
   `user_id`. No accounts, no PII.
 - **One mural per wall** — first painter wins (unique index on the wall anchor);
