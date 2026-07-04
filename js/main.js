@@ -22,6 +22,8 @@ import SettingsPanel from '../components/SettingsPanel.js';
 import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
+import SpeedLines    from '../components/SpeedLines.js';
+import SfxOverlay    from '../components/SfxOverlay.js';
 import FollowButton  from '../components/FollowButton.js';
 import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
@@ -42,6 +44,11 @@ const ui = reactive({
   gallery:         [],   // full archive of every mural (+ thumb) for the side drawer
   thought:         '',
   thoughtVisible:  false,
+  tailAngle:       0,      // speech-bubble tail rotation (deg) toward KAI
+  tailUp:          false,  // tail on the top edge when KAI is above the bubble
+  speedLines:      false,  // manga action lines while KAI walks
+  sfxText:         '',     // current onomatopoeia
+  sfxX: 50, sfxY: 34, sfxRot: 0, sfxKey: 0,   // its position/tilt + retrigger key
   flashActive:     false,
   cameraFollowing: true,
   viewTilted:      false,        // horizon rolled → show the "Raddrizza" button
@@ -62,7 +69,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, FollowButton, ResetButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SpeedLines, SfxOverlay, FollowButton, ResetButton, FlashOverlay },
   setup() {
     return { ui };
   },
@@ -87,7 +94,9 @@ const VueRoot = {
     <SettingsPanel :on-delete="ui.onDeleteMurals" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
-    <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />
+    <SpeedLines    :active="ui.speedLines" />
+    <SfxOverlay    :text="ui.sfxText" :x="ui.sfxX" :y="ui.sfxY" :rot="ui.sfxRot" :k="ui.sfxKey" />
+    <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" :tail-angle="ui.tailAngle" :tail-up="ui.tailUp" />
     <FollowButton  :visible="!ui.cameraFollowing" @follow="onFollow" />
     <ResetButton   :visible="ui.viewTilted" @reset="onReset" />
   `,
@@ -265,6 +274,42 @@ class App {
     if (this.running) { this.clock.getDelta(); requestAnimationFrame(this._loop); }
   }
 
+  // Fade the thought bubble in/out from the game loop instead of a CSS
+  // transition. The transition is main-thread and gets starved by the WebGL
+  // render loop under heavy load (it can stick at opacity 0); an inline opacity
+  // eased here always advances, since the loop is what's running. Inline style
+  // wins over the stylesheet, so this is the authoritative value.
+  _fadeThought(dt) {
+    this._thoughtEl ??= document.getElementById('thought');
+    if (!this._thoughtEl) return;
+    const target = ui.thoughtVisible ? 1 : 0;
+    this._thoughtOp = (this._thoughtOp ?? 0) + (target - (this._thoughtOp ?? 0)) * (1 - Math.exp(-dt * 6));
+    this._thoughtEl.style.opacity = this._thoughtOp.toFixed(3);
+  }
+
+  // Point the thought-bubble tail at KAI: project his world position to the
+  // screen, take the vector from the bubble to him, and drive the tail's side
+  // (top/bottom edge) + rotation. Clamped so the tail never lies flat.
+  _aimThoughtTail() {
+    const v = (this._v ??= new THREE.Vector3());
+    this.character.group.getWorldPosition(v).project(this.camera);
+    if (v.z >= 1) { ui.tailAngle = 0; return; }             // behind the camera → leave as-is
+    const kx = (v.x * 0.5 + 0.5) * innerWidth;
+    const ky = (-v.y * 0.5 + 0.5) * innerHeight;
+    const bx = innerWidth / 2, by = innerHeight - 134;      // ≈ bubble centre (bottom:90 + ~half height)
+    const dx = kx - bx, dy = ky - by;
+    const up = dy < 0;                                       // KAI above the bubble
+    const ang = Math.atan2(dx, up ? -dy : dy);              // 0 = straight toward KAI's edge
+    const deg = Math.max(-1, Math.min(1, ang)) * 180 / Math.PI;   // clamp ±57°
+    // Only write when it actually moves: KAI is stationary while thinking/
+    // painting, so this settles to ~zero updates — a per-frame reactive write
+    // would re-render ThoughtBubble 60×/s and starve its CSS opacity transition
+    // (the bubble would never fade in).
+    if (up !== ui.tailUp || Math.abs(deg - ui.tailAngle) > 1.5) {
+      ui.tailUp = up; ui.tailAngle = deg;
+    }
+  }
+
   _loop() {
     if (!this.running) return;
     requestAnimationFrame(this._loop);
@@ -290,6 +335,8 @@ class App {
     const nowMs = performance.now();
     if (nowMs - this._lastSky >= 330) { this._lastSky = nowMs; this._updateSky(); }
     this.atmosphere.update(dt, t, this.camera);
+    if (ui.thoughtVisible) this._aimThoughtTail();
+    this._fadeThought(dt);
     this.post.render(this.scene, this.camera);
     if (!ui.booted) {
       ui.booted  = true;

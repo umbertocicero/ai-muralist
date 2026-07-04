@@ -134,6 +134,19 @@ export class Agent {
     this._returnToWander();
   }
 
+  // Flash a manga onomatopoeia (spray hiss / brush stroke) over the wall. The
+  // bumped key retriggers the pop-in animation even for a repeat of the same
+  // word; a little random offset+tilt keeps successive ones from stacking.
+  _popSfx() {
+    const list = CONFIG.fx?.sfx;
+    if (!list || !list.length) return;
+    this.ui.sfxText = list[(Math.random() * list.length) | 0];
+    this.ui.sfxX    = 38 + Math.random() * 24;   // vw-ish, biased to upper-centre
+    this.ui.sfxY    = 26 + Math.random() * 20;
+    this.ui.sfxRot  = (Math.random() * 16 - 8) | 0;
+    this.ui.sfxKey  = (this.ui.sfxKey || 0) + 1;
+  }
+
   // Where KAI stands to admire a finished mural: a step BACK from the wall and
   // to one side, so he's clear of the camera's head-on framing. Prefer whichever
   // side of the wall is open; fall back to the plain approach point if both are
@@ -165,6 +178,10 @@ export class Agent {
   // ---- Main update (called every frame) -----------------------------------
   update(dt, t) {
     const step = CONFIG.moveSpeed * dt;
+
+    // Manga speed lines: on while KAI is actually striding somewhere.
+    this.ui.speedLines = (CONFIG.fx?.speedLines !== false) &&
+      (this.state === STATE.WANDERING || this.state === STATE.MOVING_TO_WALL);
 
     switch (this.state) {
 
@@ -217,6 +234,8 @@ export class Agent {
             this._setState(STATE.PAINTING);
             this.paintTimer       = 0;
             this.ui.flashActive   = true;
+            this._sfx2            = false;
+            this._popSfx();          // spray-hiss onomatopoeia over the wall
           } else {
             this._releaseSlot();
           }
@@ -227,6 +246,8 @@ export class Agent {
       case STATE.PAINTING: {
         this.paintTimer += dt;
         this.char.paint(t);
+        // a second onomatopoeia mid-stroke, for rhythm
+        if (this.paintTimer > CONFIG.paintSeconds * 0.5 && !this._sfx2) { this._sfx2 = true; this._popSfx(); }
         // _finishPainting is async (it awaits the SVG image load); guard so the
         // still-PAINTING state can't re-enter it across frames → exactly one
         // mural + one log entry per wall.

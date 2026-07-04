@@ -38,6 +38,8 @@ const FRAG = /* glsl */`
   uniform float uEdgeHigh;    // Sobel threshold high
   uniform float uGrain;       // paper grain strength
   uniform float uVigDark;     // vignette floor (1 = none)
+  uniform float uFrameW;      // inked page-border thickness (frac of short side; 0 = off)
+  uniform float uFrameNoise;  // how irregular the border's inner edge is (0..1)
   varying vec2 vUv;
 
   const mat2 ROT45 = mat2(0.7071, -0.7071, 0.7071, 0.7071);
@@ -94,6 +96,21 @@ const FRAG = /* glsl */`
     float grain = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5);
     c += grain * uGrain * grey;
 
+    // --- irregular inked PAGE BORDER (manga panel edge) ---
+    // Distance (px) to the nearest screen edge; the inner edge of the ink band
+    // is jittered per ~6px cell so it reads HAND-DRAWN — a brushed page closure,
+    // not the clean rectangle that used to frame the HUD. Kept mostly off the
+    // murals (grey gate) so a piece touching the edge still shows through.
+    if (uFrameW > 0.0) {
+      vec2 e = min(vUv, 1.0 - vUv) * uResolution;      // px to nearest x / y edge
+      float d = min(e.x, e.y);
+      float wpx = uFrameW * min(uResolution.x, uResolution.y);
+      float n = fract(sin(dot(floor(gl_FragCoord.xy / 6.0), vec2(41.3, 289.1))) * 7561.7);
+      float w = wpx * (1.0 + (n - 0.5) * uFrameNoise);
+      float frame = 1.0 - smoothstep(w * 0.55, w, d);
+      c = mix(c, vec3(0.03), frame * mix(0.5, 1.0, grey));
+    }
+
     // back to linear; the renderer's sRGB output encoding finishes the job
     gl_FragColor = vec4(pow(clamp(c, 0.0, 1.0), vec3(2.2)), 1.0);
   }
@@ -127,6 +144,8 @@ export class MangaPost {
         uEdgeHigh:   { value: edgeHigh },
         uGrain:      { value: opts.grain ?? v.grain ?? 0.016 },
         uVigDark:    { value: opts.vignetteDark ?? v.vignetteDark ?? 0.88 },
+        uFrameW:     { value: opts.frameWidth ?? v.frameWidth ?? 0.016 },
+        uFrameNoise: { value: opts.frameNoise ?? v.frameNoise ?? 0.6 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,

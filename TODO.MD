@@ -56,6 +56,12 @@
 
 # TODO grafici / UI manga
 
+> ✅ TUTTI E 4 FATTI:
+> 1. `.panel` ridisegnati manga (angoli retti, doppio bordo inchiostrato via `::before`, drop-shadow "disegnato"); il #thought è ora uno **speech bubble** con coda inchiostrata (triangolo outline+carta) che punta verso KAI, calcolata in main.js `_aimThoughtTail` (proiezione schermo → lato top/bottom + rotazione, throttled) — l'opacità è pilotata dal game-loop (`_fadeThought`) perché la transition CSS main-thread viene affamata dal loop WebGL.
+> 2. **Speed lines** (components/SpeedLines.js): action lines radiali CSS mentre KAI cammina (agent → `ui.speedLines`). **SFX onomatopea** (components/SfxOverlay.js): シャー/ザッ/… che scoppiano dipingendo (`_popSfx`, retrigger via `:key`), testo con contorno inchiostrato.
+> 3. **Page frame** irregolare inchiostrato nel post-shader (postfx.js `uFrameW`/`uFrameNoise`, jitter per-cella) — bordo pagina "disegnato a mano", non il rettangolo pulito rimosso prima.
+> 4. **KAI ink** rinforzato: contorno del protagonista ×2.1 rispetto alla scenografia (character.js `charInk`, config `characterInkScale`) → resta una silhouette leggibile anche da lontano.
+
 ## 1. UI in stile manga: bordi disegnati a mano + speech bubble
 **Obiettivo:** trasformare `.panel` (attualmente rettangoli arrotondati semitrasparenti, stile HUD sci-fi) e componenti Vue in elementi manga disegnati a mano, coerenti con l'estetica inchiostrata della scena sotto.
 

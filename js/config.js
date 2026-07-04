@@ -74,6 +74,8 @@ export const CONFIG = {
     inkDefault:     1.022,      // INK EXPANSIONE MASSIMA (era 1.018)
     keyLight:       2.8,        // HIGHLIGHTS BRILLANTISSIMI (era 2.45)
     ambientLight:   0.18,       // OMBRE ancora più dense e inchiostrate
+    frameWidth:     0.016,      // inked page-border thickness (frac of short side; 0 = off)
+    frameNoise:     0.6,        // irregularity of the hand-drawn border edge
   },
 
   // --- Commercial shopping street (商店街) ---
@@ -135,9 +137,20 @@ export const CONFIG = {
   camFollowLerp: 3.2,           // pivot follow easing rate (per second)
   camFollowSpin: 2.2,           // how fast the follow-cam swings behind KAI
 
+  // Protagonist ink: multiplies KAI's outline-shell expansion so his contour is
+  // heavier than the town's (see js/character.js). 1 = same as scenery.
+  characterInkScale: 2.1,
+
   // --- UI ---
   maxLogEntries: 5,
   styleNames: ['Ukiyo-e','Sumi-e','Manga','Woodblock','Anime','Kirie','Wabi-sabi','Kanji'],
+
+  // Manga action FX. `speedLines`: radial action lines while KAI walks.
+  // `sfx`: onomatopoeia that pop in while he paints (spray hiss, brush strokes).
+  fx: {
+    speedLines: true,
+    sfx: ['シャー', 'ザッ', 'ザザッ', 'プシュー', 'カッ', 'ドバッ', 'サッ'],
+  },
 };
 
 // url(#…) fragment references are ALLOWED — they're how fills point at the

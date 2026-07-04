@@ -1,26 +1,35 @@
 import * as THREE from 'three';
 import { lerpAngle } from './helpers.js';
+import { CONFIG } from './config.js';
 import { toonMat, addInk } from './toon.js';
+
+// KAI is the protagonist: in manga the lead carries a heavier ink contour than
+// the set behind him, so he stays a clear silhouette even as a distant speck.
+// `charInk` inflates each part's ink shell — the outline expansion is (k-1), so
+// we scale that delta. addInk's own black keeps the contrast pure.
+const CHAR_INK = CONFIG.characterInkScale ?? 2.1;
+const charInk = k => 1 + (k - 1) * CHAR_INK;
+const inkOutline = (m, k) => addInk(m, charInk(k));
 
 // ── cel-shaded primitive helpers (ink-outlined) ───────────────────────────
 function box(w, h, d, color, ink = true, k = 1.05) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toonMat(color));
-  m.castShadow = true; if (ink) addInk(m, k); return m;
+  m.castShadow = true; if (ink) inkOutline(m, k); return m;
 }
 function ball(r, color, ink = true, k = 1.04) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), toonMat(color));
-  m.castShadow = true; if (ink) addInk(m, k); return m;
+  m.castShadow = true; if (ink) inkOutline(m, k); return m;
 }
 function tuft(r, len, color, k = 1.06) {
   const m = new THREE.Mesh(new THREE.ConeGeometry(r, len, 4), toonMat(color));
-  m.castShadow = true; addInk(m, k); return m;
+  m.castShadow = true; inkOutline(m, k); return m;
 }
 // A rounded limb/torso piece: a (optionally tapered) cylinder. Far softer than a
 // box — this is what takes the "squareness" out of the figure so it reads as a
 // drawn manga body instead of a stack of crates.
 function cyl(rTop, rBot, h, color, ink = true, k = 1.05, seg = 14) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), toonMat(color));
-  m.castShadow = true; if (ink) addInk(m, k); return m;
+  m.castShadow = true; if (ink) inkOutline(m, k); return m;
 }
 // A squashable rounded blob (an ellipsoid) — for shoes, the pack, soft caps.
 function blob(r, color, sx, sy, sz, ink = true, k = 1.05) {

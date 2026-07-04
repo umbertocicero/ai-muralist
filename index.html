@@ -23,11 +23,22 @@
   canvas { display: block; }
 
   .ui { position: fixed; z-index: 10; pointer-events: none; font-family: 'Courier New', monospace; color: #1a1a1a; }
+  /* Manga panel: paper card with a bold square ink border, a thin inner second
+     line (the classic double frame) and a hard drop shadow so it reads as a
+     drawn panel laid on the page — not a translucent sci-fi HUD. */
   .panel {
-    background: rgba(245, 240, 230, 0.88);
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
-    padding: 12px 16px; border-radius: 2px;
+    position: relative;
+    background: rgba(247, 243, 235, 0.93);
+    border: 2px solid #17140f;
+    border-radius: 0;
+    backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px);
+    padding: 12px 16px;
+    box-shadow: 3px 3px 0 rgba(20, 18, 16, 0.16);
+  }
+  .panel::before {
+    content: ''; position: absolute; inset: 3px;
+    border: 1px solid rgba(20, 18, 16, 0.30);
+    pointer-events: none;
   }
 
   #title { top: 18px; left: 18px; }
@@ -112,10 +123,67 @@
   #counter .num { font-size: 40px; font-weight: bold; line-height: 1; color: #ff6b35; }
   #counter .cap { font-size: 10px; letter-spacing: 2px; color: #666655; margin-top: 2px; }
 
-  #thought { bottom: 90px; left: 50%; transform: translateX(-50%); max-width: min(560px, 86vw); text-align: center; opacity: 0; transition: opacity 0.5s ease; }
-  #thought.show { opacity: 1; }
+  /* Opacity is driven from the game loop (main.js _fadeThought), NOT a CSS
+     transition — the transition is main-thread and gets starved by the WebGL
+     render loop under load (it would stick at 0). Inline opacity wins over this. */
+  #thought { bottom: 90px; left: 50%; transform: translateX(-50%); max-width: min(560px, 86vw); text-align: center; opacity: 0; }
   #thought .tip { font-size: 10px; letter-spacing: 3px; color: #ff6b35; margin-bottom: 6px; }
   #thought .text { font-size: 17px; line-height: 1.4; font-style: italic; }
+  /* Speech-bubble tail: an inked triangle (black outline + paper fill) hinged at
+     the bubble edge; main.js rotates it to point at KAI, and flips it to the top
+     edge when KAI is above the bubble. */
+  #thought .bubble { position: relative; }
+  #thought .tail {
+    position: absolute; left: 50%; top: 100%; margin-top: -2px;
+    width: 0; height: 0;
+    border-left: 14px solid transparent; border-right: 14px solid transparent;
+    border-top: 22px solid #17140f;
+    transform-origin: top center;
+  }
+  #thought .tail::after {
+    content: ''; position: absolute; left: -11px; top: -23px;
+    width: 0; height: 0;
+    border-left: 11px solid transparent; border-right: 11px solid transparent;
+    border-top: 18px solid rgba(247, 243, 235, 0.93);
+  }
+  #thought .tail.up {
+    top: auto; bottom: 100%; margin-top: 0; margin-bottom: -2px;
+    border-top: 0; border-bottom: 22px solid #17140f;
+    transform-origin: bottom center;
+  }
+  #thought .tail.up::after {
+    top: auto; bottom: -23px;
+    border-top: 0; border-bottom: 18px solid rgba(247, 243, 235, 0.93);
+  }
+
+  /* ── Manga action FX: speed lines while walking, SFX pop while painting ──── */
+  #speed-lines {
+    position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    opacity: 0; transition: opacity 0.45s ease;
+    background: repeating-conic-gradient(from 0deg at 50% 58%,
+      rgba(20,18,16,0.5) 0deg 0.45deg, transparent 0.45deg 6deg);
+    -webkit-mask: radial-gradient(closest-side at 50% 58%, transparent 30%, #000 76%);
+            mask: radial-gradient(closest-side at 50% 58%, transparent 30%, #000 76%);
+  }
+  #speed-lines.on { opacity: 0.5; animation: speedpulse 0.5s ease-in-out infinite alternate; }
+  @keyframes speedpulse { from { opacity: 0.30; } to { opacity: 0.55; } }
+
+  #sfx-layer { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+  #sfx-layer .sfx {
+    position: absolute; transform-origin: center;
+    font-family: 'Arial Black', 'Hiragino Kaku Gothic Std', 'Yu Gothic', sans-serif;
+    font-weight: 900; font-size: clamp(38px, 8.5vw, 104px); line-height: 1;
+    color: #f4f1ea; -webkit-text-stroke: 3px #17140f; paint-order: stroke fill;
+    text-shadow: 4px 5px 0 rgba(20,18,16,0.28);
+    animation: sfxpop 1.1s ease-out forwards;
+  }
+  @keyframes sfxpop {
+    0%   { opacity: 0; transform: scale(0.4) rotate(var(--r, 0deg)); }
+    16%  { opacity: 1; transform: scale(1.14) rotate(var(--r, 0deg)); }
+    30%  { transform: scale(0.97) rotate(var(--r, 0deg)); }
+    72%  { opacity: 1; transform: scale(1.0) rotate(var(--r, 0deg)); }
+    100% { opacity: 0; transform: scale(1.06) rotate(var(--r, 0deg)); }
+  }
 
   #flash { position: fixed; inset: 0; z-index: 9; pointer-events: none; background: radial-gradient(circle at center, rgba(255,107,53,0.18), transparent 70%); opacity: 0; transition: opacity 0.4s ease; }
   #flash.on { opacity: 1; }
