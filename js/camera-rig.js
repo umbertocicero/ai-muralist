@@ -277,6 +277,17 @@ export class CameraRig {
     this._detach();
     this.velAz = this.velPolar = 0;
     planetPoint(t.px, t.py, t.pz, this.pivotTarget, this.R);
+    // Put the camera on the wall's OUTWARD side (its normal), not wherever the
+    // orbit happened to be pointing — otherwise the fly-in lands behind the wall
+    // roughly half the time (the "opposite side" bug). Resolve the flat normal
+    // (nx,nz) into the pivot's tangent basis to get the azimuth, exactly like the
+    // paint/admire cam does.
+    if (t.nx != null && t.nz != null) {
+      const up0 = this._up.copy(this.pivotTarget).normalize();
+      let T0 = this._t.set(0, 1, 0).cross(up0); if (T0.lengthSq() < 1e-6) T0.set(1, 0, 0); T0.normalize();
+      const B0 = this._b.copy(up0).cross(T0).normalize();
+      this.azimuth = Math.atan2(t.nx * B0.x + t.nz * B0.z, t.nx * T0.x + t.nz * T0.z);
+    }
     this.polar        = 1.15;
     this.targetRadius = 7.0;
   }

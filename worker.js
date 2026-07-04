@@ -6,7 +6,7 @@
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, x-user-api-key',
 };
 
@@ -140,6 +140,18 @@ async function handleMurals(request, env) {
          FROM murals WHERE world = ?1 ORDER BY id LIMIT ${MURAL_LIST_CAP}`
     ).bind(world).all();
     return json({ murals: results ?? [], build: WORKER_BUILD });
+  }
+
+  // DELETE /murals?world=<seed>  → wipe this world's shared canvas (the Settings
+  // "DELETE MURALS" reset). Scoped to one world, so it can't touch archived
+  // rows saved under other seeds / town builds.
+  if (request.method === 'DELETE') {
+    const world = parseInt(new URL(request.url).searchParams.get('world') ?? '', 10);
+    if (!Number.isFinite(world)) {
+      return json({ error: { type: 'invalid_request_error', message: 'Missing ?world=<seed>' } }, 400);
+    }
+    const res = await env.DB.prepare(`DELETE FROM murals WHERE world = ?1`).bind(world).run();
+    return json({ deleted: res?.meta?.changes ?? 0 });
   }
 
   if (request.method !== 'POST') {

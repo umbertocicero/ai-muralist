@@ -779,9 +779,17 @@ export class City {
       const step = (r === this.shopRoad) ? shopStep : roadStep;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz) || 1;
+        // Offset PERPENDICULAR to the road (one consistent flank), so poles line
+        // the curb instead of standing in the carriageway. The old `+ r.half` on
+        // x alone assumed every road ran north–south, dumping poles mid-road on
+        // any east–west or diagonal stretch. `r.half` = road half-width; +0.6
+        // clears the stone curb.
+        const ox = (dz / len) * (r.half + 0.6), oz = (-dx / len) * (r.half + 0.6);
         for (let t = 0; t < 1; t += step) {
-          const x = a.x + (b.x - a.x) * t + r.half + 0.3;
-          const z = a.z + (b.z - a.z) * t;
+          const x = a.x + dx * t + ox;
+          const z = a.z + dz * t + oz;
           if (Math.hypot(x, z) > this.CAP) continue;
           if (!this.isColliding(x, z) && Math.abs(x) < this.HALF && Math.abs(z) < this.HALF)
             { this._pole(x, z, 8.6, this.rng() < 0.3); this.poles.push({ x, z }); }
@@ -822,14 +830,17 @@ export class City {
         this._lamppost(f.x, f.z, Math.atan2(n.x, n.z)); lamps++;
       }
     }
-    // and a sparse run along the main roads (opposite flank from the poles)
+    // and a sparse run along the main roads (opposite flank from the poles) —
+    // same perpendicular offset, negated, so they hug the OTHER curb
     for (const r of this.mainRoads) {
       for (let i = 0; i < r.pts.length - 1; i++) {
         if (this.rng() > 0.5) continue;
         const a = r.pts[i], b = r.pts[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz) || 1;
         const t = this._rand(0.25, 0.75);
-        const x = a.x + (b.x - a.x) * t - r.half - 0.4;
-        const z = a.z + (b.z - a.z) * t;
+        const x = a.x + dx * t - (dz / len) * (r.half + 0.5);
+        const z = a.z + dz * t - (-dx / len) * (r.half + 0.5);
         if (Math.hypot(x, z) > this.CAP || this.isColliding(x, z)) continue;
         const nr = this._nearestRoad(x, z);
         this._lamppost(x, z, Math.atan2(nr.px - x, nr.pz - z));

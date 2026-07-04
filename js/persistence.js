@@ -74,6 +74,14 @@ export class Persistence {
     }).catch(e => console.warn('[persist] save failed:', e.message));
   }
 
+  // Wipe this world's shared canvas (the Settings "DELETE MURALS" reset).
+  // Resolves to the number deleted, or throws so the caller can report failure.
+  async deleteAll() {
+    const res = await fetch(`${this.url}?world=${this.world}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()).deleted ?? 0;
+  }
+
   // Fetch every mural of this world and re-attach each to the wall slot at its
   // anchor. Restored walls are marked used, so KAI moves on to blank ones; the
   // agent's mural count advances too, keeping the 8-style rotation going.

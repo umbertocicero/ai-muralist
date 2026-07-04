@@ -54,6 +54,7 @@ const ui = reactive({
   onAdmire:        null,   // Agent: mural done → zoom in to admire it
   onPaintEnd:      null,   // Agent: done admiring → resume follow
   onMapRender:     null,   // MapOverlay → live city-map compositor (js/map.js)
+  onDeleteMurals:  null,   // SettingsPanel "DELETE MURALS" → wipe this world (D1)
 });
 
 // ==========================================================================
@@ -83,7 +84,7 @@ const VueRoot = {
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
     <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" />
     <MapOverlay    :render="ui.onMapRender" />
-    <SettingsPanel />
+    <SettingsPanel :on-delete="ui.onDeleteMurals" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" />
@@ -170,6 +171,8 @@ class App {
       this.persistence.restore(this.city, this.factory, this.agent, ui)
         .catch(e => console.warn('[persist] restore failed:', e.message))
         .finally(() => { this.agent.holdPainting = false; });
+      // Settings "DELETE MURALS" → wipe this world's shared canvas.
+      ui.onDeleteMurals = () => this.persistence.deleteAll();
     }
     // Live map page: the overlay canvas is composited from js/map.js — static
     // base cached once, KAI dot + fading trail + mural markers on top.

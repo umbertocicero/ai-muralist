@@ -224,6 +224,10 @@
     border: 1.5px solid #ff6b35; border-radius: 2px;
   }
   #settings-panel .s-btn.ghost { background: transparent; color: #4a5a66; border-color: #4a5a66; }
+  #settings-panel .s-danger { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.12); display: flex; align-items: center; gap: 8px; }
+  #settings-panel .s-btn.danger { background: transparent; color: #c0392b; border-color: #c0392b; }
+  #settings-panel .s-btn.danger:hover:not(:disabled) { background: #c0392b; color: #fff; }
+  #settings-panel .s-btn.danger:disabled { opacity: 0.5; cursor: default; }
 
   #map-overlay {
     position: fixed; inset: 0; z-index: 28; pointer-events: auto;

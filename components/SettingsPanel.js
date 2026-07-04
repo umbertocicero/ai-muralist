@@ -16,6 +16,9 @@ import { CONFIG } from '../js/config.js';
 // ===========================================================================
 export default {
   name: 'SettingsPanel',
+  // onDelete: wipes the shared world's murals (wired to Persistence in main.js);
+  // null when no Worker is configured, so the button hides.
+  props: { onDelete: { type: Function, default: null } },
   data() {
     const s = loadUserSettings();
     return {
@@ -25,6 +28,7 @@ export default {
       model:     s.model ?? '',
       workerUrl: s.workerUrl ?? '',
       saveMurals: s.saveMurals !== false,
+      deleting:  false,
       models: ['claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-opus-4-8'],
     };
   },
@@ -48,6 +52,19 @@ export default {
     reset() {
       saveUserSettings({});
       location.reload();
+    },
+    async deleteMurals() {
+      if (!this.onDelete || this.deleting) return;
+      if (!confirm('Delete every mural in this shared world? This clears the canvas for everyone and cannot be undone.')) return;
+      this.deleting = true;
+      try {
+        const n = await this.onDelete();
+        alert(`Deleted ${n ?? 0} mural(s). Reloading a blank world.`);
+        location.reload();
+      } catch (e) {
+        this.deleting = false;
+        alert('Delete failed: ' + (e?.message ?? e));
+      }
     },
   },
   template: `
@@ -88,6 +105,13 @@ export default {
       <div class="s-row s-actions">
         <button class="s-btn" @click="apply">SAVE &amp; RELOAD</button>
         <button class="s-btn ghost" @click="reset">RESET</button>
+      </div>
+
+      <div class="s-danger" v-if="onDelete && effectiveWorker">
+        <button class="s-btn danger" :disabled="deleting" @click="deleteMurals">
+          {{ deleting ? 'DELETING…' : 'DELETE MURALS' }}
+        </button>
+        <span class="s-note">wipes this shared world for everyone</span>
       </div>
     </div>
   `,
