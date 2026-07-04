@@ -179,10 +179,6 @@ export class Agent {
   update(dt, t) {
     const step = CONFIG.moveSpeed * dt;
 
-    // Manga speed lines: on while KAI is actually striding somewhere.
-    this.ui.speedLines = (CONFIG.fx?.speedLines !== false) &&
-      (this.state === STATE.WANDERING || this.state === STATE.MOVING_TO_WALL);
-
     switch (this.state) {
 
       case STATE.WANDERING: {

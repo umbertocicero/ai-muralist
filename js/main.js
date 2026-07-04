@@ -22,7 +22,6 @@ import SettingsPanel from '../components/SettingsPanel.js';
 import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
-import SpeedLines    from '../components/SpeedLines.js';
 import SfxOverlay    from '../components/SfxOverlay.js';
 import FollowButton  from '../components/FollowButton.js';
 import ResetButton   from '../components/ResetButton.js';
@@ -46,7 +45,6 @@ const ui = reactive({
   thoughtVisible:  false,
   tailAngle:       0,      // speech-bubble tail rotation (deg) toward KAI
   tailUp:          false,  // tail on the top edge when KAI is above the bubble
-  speedLines:      false,  // manga action lines while KAI walks
   sfxText:         '',     // current onomatopoeia
   sfxX: 50, sfxY: 34, sfxRot: 0, sfxKey: 0,   // its position/tilt + retrigger key
   flashActive:     false,
@@ -69,7 +67,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SpeedLines, SfxOverlay, FollowButton, ResetButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay },
   setup() {
     return { ui };
   },
@@ -94,7 +92,6 @@ const VueRoot = {
     <SettingsPanel :on-delete="ui.onDeleteMurals" />
     <StatusBar     :state="ui.status" />
     <MuralCounter  :count="ui.muralCount" />
-    <SpeedLines    :active="ui.speedLines" />
     <SfxOverlay    :text="ui.sfxText" :x="ui.sfxX" :y="ui.sfxY" :rot="ui.sfxRot" :k="ui.sfxKey" />
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" :tail-angle="ui.tailAngle" :tail-up="ui.tailUp" />
     <FollowButton  :visible="!ui.cameraFollowing" @follow="onFollow" />

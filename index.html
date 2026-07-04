@@ -26,8 +26,12 @@
   /* Manga panel: paper card with a bold square ink border, a thin inner second
      line (the classic double frame) and a hard drop shadow so it reads as a
      drawn panel laid on the page — not a translucent sci-fi HUD. */
+  /* NB: no `position` here — the HUD panels get `position: fixed` from `.ui` and
+     the thought bubble from `#thought .bubble`; a `position: relative` on .panel
+     would override `.ui`'s fixed (same specificity, later rule) and collapse the
+     right-anchored panels (the gallery drawer) to the left. The ::before still
+     anchors to whatever positioning the panel already has. */
   .panel {
-    position: relative;
     background: rgba(247, 243, 235, 0.93);
     border: 2px solid #17140f;
     border-radius: 0;
@@ -156,18 +160,7 @@
     border-top: 0; border-bottom: 18px solid rgba(247, 243, 235, 0.93);
   }
 
-  /* ── Manga action FX: speed lines while walking, SFX pop while painting ──── */
-  #speed-lines {
-    position: fixed; inset: 0; z-index: 4; pointer-events: none;
-    opacity: 0; transition: opacity 0.45s ease;
-    background: repeating-conic-gradient(from 0deg at 50% 58%,
-      rgba(20,18,16,0.5) 0deg 0.45deg, transparent 0.45deg 6deg);
-    -webkit-mask: radial-gradient(closest-side at 50% 58%, transparent 30%, #000 76%);
-            mask: radial-gradient(closest-side at 50% 58%, transparent 30%, #000 76%);
-  }
-  #speed-lines.on { opacity: 0.5; animation: speedpulse 0.5s ease-in-out infinite alternate; }
-  @keyframes speedpulse { from { opacity: 0.30; } to { opacity: 0.55; } }
-
+  /* ── Manga action FX: SFX pop while painting ─────────────────────────────── */
   #sfx-layer { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
   #sfx-layer .sfx {
     position: absolute; transform-origin: center;

@@ -145,10 +145,9 @@ export const CONFIG = {
   maxLogEntries: 5,
   styleNames: ['Ukiyo-e','Sumi-e','Manga','Woodblock','Anime','Kirie','Wabi-sabi','Kanji'],
 
-  // Manga action FX. `speedLines`: radial action lines while KAI walks.
-  // `sfx`: onomatopoeia that pop in while he paints (spray hiss, brush strokes).
+  // Manga action FX — `sfx`: onomatopoeia that pop in while KAI paints (spray
+  // hiss, brush strokes).
   fx: {
-    speedLines: true,
     sfx: ['シャー', 'ザッ', 'ザザッ', 'プシュー', 'カッ', 'ドバッ', 'サッ'],
   },
 };
