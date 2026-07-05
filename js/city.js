@@ -59,7 +59,8 @@ export class City {
     this.poles     = [];
     this.colliders = [];   // round prop colliders {x,z,r}
     this.barriers  = [];   // thin fence/wall colliders {cx,cz,hw,hd,rot}
-    this._roofSeg  = [];   // batched line segments (roof tiles / siding / seams)
+    this._roofSeg  = [];   // batched line segments (roof tiles / seams) — sphere-projected
+    this._wallSeg  = [];   // wall-attached ink (siding seams) — ALREADY seated on the rigid box
     this._wireSeg  = [];   // batched overhead-wire segments
     this._wireWind = [];   // per-vertex (sway weight, phase) for the GPU wire wind
     this._winXf    = [];   // window transforms [x,y,z,rotY,…] → one InstancedMesh
@@ -956,6 +957,19 @@ export class City {
     o.quaternion.copy(cq).multiply(this._sw4);
   }
 
+  // Seat a single flat point (px,py,pz) on a building's rigid box (same frame as
+  // _seatOnWall) → world coords in `out`. For wall-attached INK (siding seams)
+  // that must lie flat on the wall instead of sphere-projecting off it.
+  _seatFlatPoint(px, py, pz, cx, cz, H, hw, hd, out) {
+    const hr = Math.hypot(hw, hd), h0 = H / 2;
+    const sink = (hr > 0.7 && h0 > 0.05) ? Math.min(this.R * (1 - Math.cos(Math.min(hr, this.R) / this.R)) + 0.06, 1.2) : 0;
+    const sy = (h0 + sink / 2) / h0, yEff = h0 - sink / 2;
+    planetPoint(cx, yEff, cz, this._sw1, this.R);
+    planetQuat(cx, cz, this._sw2, this.R);
+    this._sw3.set(px - cx, (py - h0) * sy, pz - cz).applyQuaternion(this._sw2);
+    return out.copy(this._sw1).add(this._sw3);
+  }
+
   // Deterministic value noise in [-1,1) keyed on a position (+ salt). Used to give
   // inked seams a hand-drawn waver WITHOUT touching the rng() stream (so the town
   // layout / worldKey — and thus saved murals — stay identical).
@@ -1211,10 +1225,11 @@ export class City {
   // hundreds of one-segment Line draw calls into two.
   _finalizeLines() {
     const v = new THREE.Vector3();
-    const build = (arr, mat, wind) => {
+    const build = (arr, mat, wind, raw = false) => {
       if (!arr.length) return;
-      // map every endpoint onto the planet (segments become short chords)
-      for (let i = 0; i < arr.length; i += 3) {
+      // map every endpoint onto the planet (segments become short chords) — unless
+      // it's already seated on a rigid wall (raw), in which case it's world-space
+      if (!raw) for (let i = 0; i < arr.length; i += 3) {
         planetPoint(arr[i], arr[i + 1], arr[i + 2], v, this.R);
         arr[i] = v.x; arr[i + 1] = v.y; arr[i + 2] = v.z;
       }
@@ -1224,6 +1239,7 @@ export class City {
       this.scene.add(new THREE.LineSegments(g, mat));
     };
     build(this._roofSeg, ROOFLINE);
+    build(this._wallSeg, ROOFLINE, null, true);   // siding seams — already on the wall
     build(this._wireSeg, WIRE, this._wireWind);   // cables sway in the GPU wind
   }
 

@@ -212,6 +212,7 @@ export function makeCorrugated(ctx, { cx, cz, rot, y, hw, hd }) {
 // Horizontal wood-siding seams on a building's four faces (板張り houses).
 export function makeSidingLines(ctx, { cx, cz, rot, hw, hd, H }) {
   const faces = [[0, 1, hd, hw], [0, -1, hd, hw], [1, 0, hw, hd], [-1, 0, hw, hd]];
+  const pa = new THREE.Vector3(), pb = new THREE.Vector3();
   for (const [nlx, nlz, half, wl] of faces) {
     const tlx = -nlz, tlz = nlx;
     const o = ctx._dir(rot, nlx, nlz);
@@ -219,8 +220,12 @@ export function makeSidingLines(ctx, { cx, cz, rot, hw, hd, H }) {
     for (let y = 0.6; y < H - 0.2 && c < 7; y += 0.55, c++) {
       const a = ctx._toWorld(cx, cz, rot, nlx * half + tlx * (-wl + 0.15), nlz * half + tlz * (-wl + 0.15));
       const b = ctx._toWorld(cx, cz, rot, nlx * half + tlx * (wl - 0.15), nlz * half + tlz * (wl - 0.15));
-      const la = ctx._datumLift(cx, cz, a.x, a.z), lb = ctx._datumLift(cx, cz, b.x, b.z);
-      ctx._roofSeg.push(a.x + o.x * 0.05, y + la, a.z + o.z * 0.05, b.x + o.x * 0.05, y + lb, b.z + o.z * 0.05);
+      // seat both ends on the rigid box so the seam lies FLAT on the wall (pushed
+      // to _wallSeg, which isn't sphere-projected) instead of drifting off it as a
+      // chord — the "lines running past the house" bug.
+      ctx._seatFlatPoint(a.x + o.x * 0.05, y, a.z + o.z * 0.05, cx, cz, H, hw, hd, pa);
+      ctx._seatFlatPoint(b.x + o.x * 0.05, y, b.z + o.z * 0.05, cx, cz, H, hw, hd, pb);
+      ctx._wallSeg.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
     }
   }
 }
