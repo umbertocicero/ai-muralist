@@ -239,16 +239,21 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
           // the same floor datum as the lifted facade fittings. At 0.30 the
           // translucent paint sits IN FRONT of every flush fitting, so windows
           // and doors ghost through the mural instead of piercing it.
-          const OUT = 0.30;
+          // Seat the mural on the building's RIGID box exactly like the windows
+          // (city._seatFlatPoint replicates the box's centre-radial orientation +
+          // footprint sink/stretch). The old build used planetPoint(cx,0,cz)+raw
+          // slot.py, which ignored the sink/stretch and left the paint up to ~0.35 m
+          // too far out radially — floating off the wall, worse low on tall blocks.
+          // OUT is small now that fittings sit flush: just clear of the panes/sills.
+          const OUT = 0.13;
           const yaw = Math.atan2(slot.nx, slot.nz);
           _yawQ.setFromAxisAngle(_UP, yaw);
           const bld = this.city?.buildings?.[slot.buildingIdx];
-          if (bld) {
+          if (bld && this.city._seatFlatPoint) {
             const q = planetQuat(bld.cx, bld.cz, new THREE.Quaternion());
-            const anchor = planetPoint(bld.cx, 0, bld.cz, new THREE.Vector3());
-            const off = new THREE.Vector3(
-              slot.px + slot.nx * OUT - bld.cx, slot.py, slot.pz + slot.nz * OUT - bld.cz).applyQuaternion(q);
-            plane.position.copy(anchor).add(off);
+            this.city._seatFlatPoint(
+              slot.px + slot.nx * OUT, slot.py, slot.pz + slot.nz * OUT,
+              bld.cx, bld.cz, bld.top, bld.hw, bld.hd, plane.position);
             plane.quaternion.copy(q).multiply(_yawQ);
           } else {
             placeOnPlanet(plane,
@@ -280,12 +285,11 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
             })
           );
           shadowMesh.receiveShadow = true;
-          if (bld) {
+          if (bld && this.city._seatFlatPoint) {
             const q = planetQuat(bld.cx, bld.cz, new THREE.Quaternion());
-            const anchor = planetPoint(bld.cx, 0, bld.cz, new THREE.Vector3());
-            const off = new THREE.Vector3(
-              slot.px + slot.nx * (OUT + 0.01) - bld.cx, slot.py, slot.pz + slot.nz * (OUT + 0.01) - bld.cz).applyQuaternion(q);
-            shadowMesh.position.copy(anchor).add(off);
+            this.city._seatFlatPoint(
+              slot.px + slot.nx * (OUT + 0.01), slot.py, slot.pz + slot.nz * (OUT + 0.01),
+              bld.cx, bld.cz, bld.top, bld.hw, bld.hd, shadowMesh.position);
             shadowMesh.quaternion.copy(q).multiply(_yawQ);
           } else {
             placeOnPlanet(shadowMesh,
