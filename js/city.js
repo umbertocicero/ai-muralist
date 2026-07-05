@@ -86,6 +86,9 @@ export class City {
     // every object City adds after this index is a city object (the scene may
     // already hold the lights); used by _spherifyIndividuals to wrap only ours.
     this._childBase = scene.children.length;
+    // scratch for _seatOnWall (wall-fitting spherify)
+    this._sw1 = new THREE.Vector3(); this._sw2 = new THREE.Quaternion();
+    this._sw3 = new THREE.Vector3(); this._sw4 = new THREE.Quaternion();
 
     this._buildGround();
     this._generate();
@@ -183,6 +186,11 @@ export class City {
     for (let i = this._childBase; i < kids.length; i++) {
       const o = kids[i];
       if (o === this.planet || o.isLight || o.isCamera) continue;
+      // Wall fittings (balconies …) that span far out/along the facade must ride
+      // their BUILDING's rigid box, not the sphere at their own point — otherwise
+      // they tilt + drift off the wall the further the block sits from the pole
+      // (the same "floating windows" cause). Seat them in the box's frame instead.
+      if (o._wallFrame) { this._seatOnWall(o); continue; }
       const ox = o.position.x, oy = o.position.y, oz = o.position.z;
       // A flat-bottomed box sits tangent on the curved planet, so the surface
       // curves away under its edges and it looks like it floats. Sink the base
@@ -771,7 +779,7 @@ export class City {
     // one coherent concrete balcony on the upper floor (not per-window planks);
     // it brings its own full-height porta-finestra on the wall behind (the
     // instanced windows there were skipped above).
-    if (hasBalcony) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, balcY, seed);
+    if (hasBalcony) this._balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, balcY, seed, H, hw, hd);
     // drainpipe + base plants on the street side (pipe rides the floor datum so
     // its top meets the eaves like the rest of the facade)
     const e = this._toWorld(cx, cz, rot, nlx * half + tlx * (wallLen / 2 - 0.3), nlz * half + tlz * (wallLen / 2 - 0.3));
@@ -805,8 +813,8 @@ export class City {
   _acUnit(x, y, z, rotY) { createItem(this, 'acUnit', { x, y, z, rotY }); }
 
   // Concrete balcony + porta-finestra + wind-flapped futons — item factory (house.js).
-  _balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed) {
-    createItem(this, 'balcony', { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed });
+  _balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed, H, hw, hd) {
+    createItem(this, 'balcony', { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed, H, hw, hd });
   }
 
   // Shopfront (kanban + awning + blade sign) — item factory (house.js).
@@ -928,6 +936,24 @@ export class City {
     if (p.x >  this.HALF) p.x -= W; else if (p.x < -this.HALF) p.x += W;
     if (p.z >  this.HALF) p.z -= W; else if (p.z < -this.HALF) p.z += W;
     return p;
+  }
+
+  // Seat a wall-fitting mesh on its building's rigid box (see _spherifyIndividuals
+  // and the window fix in _buildInstances): replicate the box's own spherify —
+  // centre-radial orientation + footprint sink/stretch — so the fitting stays
+  // glued to the wall at any height/offset instead of floating on the sphere.
+  _seatOnWall(o) {
+    const { cx, cz, H, hw, hd } = o._wallFrame;
+    const ox = o.position.x, oy = o.position.y, oz = o.position.z;
+    const hr = Math.hypot(hw, hd), h0 = H / 2;
+    const sink = (hr > 0.7 && h0 > 0.05) ? Math.min(this.R * (1 - Math.cos(Math.min(hr, this.R) / this.R)) + 0.06, 1.2) : 0;
+    const sy = (h0 + sink / 2) / h0, yEff = h0 - sink / 2;
+    const bpos = planetPoint(cx, yEff, cz, this._sw1, this.R);
+    const cq = planetQuat(cx, cz, this._sw2, this.R);
+    this._sw3.set(ox - cx, (oy - h0) * sy, oz - cz).applyQuaternion(cq);
+    o.position.copy(bpos).add(this._sw3);
+    this._sw4.copy(o.quaternion);
+    o.quaternion.copy(cq).multiply(this._sw4);
   }
 
   // Deterministic value noise in [-1,1) keyed on a position (+ salt). Used to give

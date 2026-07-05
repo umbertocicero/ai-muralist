@@ -231,28 +231,31 @@ export function makeSidingLines(ctx, { cx, cz, rot, hw, hd, H }) {
 // porta-finestra reaching down to the balcony floor — a balcony you could step
 // onto, not a shelf under a little window). Futons draped over the rail flap in
 // the wind but only OUTWARD, so the cloth never swings back through the parapet.
-export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed }) {
+export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed, H, hw, hd }) {
   const w = Math.min(wallLen * 0.82, 4.2), out = 0.62, ph = 0.56;   // width · depth · parapet height
-  // floor slab — the whole balcony rides the building's floor datum (see
-  // city._datumLift), not the local sphere surface, so it lines up with the
-  // porta-finestra and the facade however far from the block's centre it sits.
+  // Every balcony piece is tagged with its BUILDING's frame and seated on the
+  // rigid box by _seatOnWall (see city._spherifyIndividuals). The balcony spans
+  // far out/along the wall, so projecting each piece onto the sphere at its own
+  // point tilted them and tore the balcony off the facade (the "floating windows"
+  // cause). The box frame also carries the floor datum, so no _datumLift here.
+  const wf = { cx, cz, H, hw, hd };
+  const add = (o) => { o._wallFrame = wf; ctx.scene.add(o); return o; };
   const fc = ctx._toWorld(cx, cz, rot, nlx * (half + out / 2), nlz * (half + out / 2));
-  y += ctx._datumLift(cx, cz, fc.x, fc.z);
   const slab = inkedMesh(new THREE.BoxGeometry(w, 0.12, out), '#c8c5bf', { k: 1.03, cast: false });
-  slab.position.set(fc.x, y, fc.z); slab.rotation.y = rotY; ctx.scene.add(slab);
+  slab.position.set(fc.x, y, fc.z); slab.rotation.y = rotY; add(slab);
   // solid front parapet wall
   const pc = ctx._toWorld(cx, cz, rot, nlx * (half + out), nlz * (half + out));
   const front = inkedMesh(new THREE.BoxGeometry(w, ph, 0.1), '#b6b3ac', { k: 1.03, cast: false });
-  front.position.set(pc.x, y + ph / 2, pc.z); front.rotation.y = rotY; ctx.scene.add(front);
+  front.position.set(pc.x, y + ph / 2, pc.z); front.rotation.y = rotY; add(front);
   // two side returns → the balcony reads as a volume, not a floating shelf
   for (const s of [-1, 1]) {
     const sc = ctx._toWorld(cx, cz, rot, nlx * (half + out / 2) + tlx * (s * w / 2), nlz * (half + out / 2) + tlz * (s * w / 2));
     const side = inkedMesh(new THREE.BoxGeometry(0.09, ph, out), '#bebbb4', { k: 1.04, cast: false });
-    side.position.set(sc.x, y + ph / 2, sc.z); side.rotation.y = rotY; ctx.scene.add(side);
+    side.position.set(sc.x, y + ph / 2, sc.z); side.rotation.y = rotY; add(side);
   }
   // dark metal rail cap along the top
   const cap = inkedMesh(new THREE.BoxGeometry(w + 0.1, 0.07, 0.16), '#6e695f', { k: 1.05, cast: false });
-  cap.position.set(pc.x, y + ph + 0.03, pc.z); cap.rotation.y = rotY; ctx.scene.add(cap);
+  cap.position.set(pc.x, y + ph + 0.03, pc.z); cap.rotation.y = rotY; add(cap);
 
   // full-height door-window(s) on the wall behind: dark glass reaching the slab,
   // split by light glazing bars (two leaves on wide balconies, one on narrow).
@@ -268,14 +271,14 @@ export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLe
     // dark sash FRAME slightly larger than the pane, just behind it
     const fcw = ctx._toWorld(cx, cz, rot, nlx * (half + 0.09) + tlx * toff, nlz * (half + 0.09) + tlz * toff);
     const frame = new THREE.Mesh(new THREE.PlaneGeometry(paneW + 0.16, paneH + 0.12), FRAME_MAT);
-    frame.position.set(fcw.x, cy + 0.02, fcw.z); frame.rotation.y = rotY; ctx.scene.add(frame);
+    frame.position.set(fcw.x, cy + 0.02, fcw.z); frame.rotation.y = rotY; add(frame);
     const wc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.1) + tlx * toff, nlz * (half + 0.1) + tlz * toff);
     const pane = new THREE.Mesh(new THREE.PlaneGeometry(paneW, paneH), GLASS);
-    pane.position.set(wc.x, cy, wc.z); pane.rotation.y = rotY; ctx.scene.add(pane);
+    pane.position.set(wc.x, cy, wc.z); pane.rotation.y = rotY; add(pane);
     const bar = (bw, bh, dy2, dt2) => {
       const b = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), MUNTIN_MAT);
       const bc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.11) + tlx * (toff + dt2), nlz * (half + 0.11) + tlz * (toff + dt2));
-      b.position.set(bc.x, cy + dy2, bc.z); b.rotation.y = rotY; ctx.scene.add(b);
+      b.position.set(bc.x, cy + dy2, bc.z); b.rotation.y = rotY; add(b);
     };
     bar(0.05, paneH, 0, 0);                 // central vertical bar (two sliding leaves)
     bar(paneW, 0.05, paneH * 0.22, 0);      // transom bar (matches the window muntin)
@@ -285,7 +288,7 @@ export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLe
     // concrete threshold under the door — the balcony's "sill" (SILL_MAT tone)
     const tc = ctx._toWorld(cx, cz, rot, nlx * (half + 0.14) + tlx * toff, nlz * (half + 0.14) + tlz * toff);
     const thr = inkedMesh(new THREE.BoxGeometry(paneW + 0.22, 0.07, 0.14), '#d7d3cb', { k: 1.04, cast: false });
-    thr.position.set(tc.x, y + 0.10, tc.z); thr.rotation.y = rotY; ctx.scene.add(thr);
+    thr.position.set(tc.x, y + 0.10, tc.z); thr.rotation.y = rotY; add(thr);
   }
 
   // futon / blanket draped over the rail and hanging down the front — each one
@@ -297,7 +300,7 @@ export function makeBalcony(ctx, { cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLe
     const lp = ctx._toWorld(cx, cz, rot, nlx * (half + out + 0.06) + tlx * toff, nlz * (half + out + 0.06) + tlz * toff);
     const fh = 0.66 + ctx.rng() * 0.22;
     const anchor = new THREE.Group();
-    anchor.position.set(lp.x, y + ph + 0.05, lp.z); anchor.rotation.y = rotY; ctx.scene.add(anchor);
+    anchor.position.set(lp.x, y + ph + 0.05, lp.z); anchor.rotation.y = rotY; add(anchor);
     const swing = new THREE.Group(); anchor.add(swing);
     // a SOFT draped cloth (folds + rounded fold-over lip + wavy hem), not a plank
     const cloth = drapedClothGeometry(0.6, fh, { seed: (seed * 3 + i) | 0, nfolds: 2 + (i % 2) });
