@@ -1159,6 +1159,7 @@ export class City {
     // over the whole map.
     const tdx = this._wrapDelta(target.x - pos.x), tdz = this._wrapDelta(target.z - pos.z);
     const distT = Math.hypot(tdx, tdz);
+    const prevH = st.h;   // committed heading last frame (undefined on the first step)
     st.bias = clamp((st.bias ?? 0) + (Math.random() - 0.5) * 2.4 * dt, -0.6, 0.6);
     st.bias *= Math.max(0, 1 - 0.25 * dt);
     const desired = Math.atan2(tdx, tdz)
@@ -1196,10 +1197,35 @@ export class City {
       const nx = pos.x + Math.sin(a) * step, nz = pos.z + Math.cos(a) * step;
       if (!this.isColliding(nx, nz, 0.14)) {
         pos.x = nx; pos.z = nz; this.wrapPoint(pos); st.h = a;
+        // ANTI-PIROUETTE — break the "trottola": KAI caught in an avoidance
+        // limit-cycle, circling an obstacle (a truck, a corner) forever instead of
+        // getting past it. Sum the signed heading change, but ZERO that budget the
+        // moment he makes real headway (a new closest approach to the goal, or a
+        // fresh goal) — honest navigation is always progressing, so its budget stays
+        // small. Only a no-headway maneuver lets a whole revolution pile up; and if,
+        // after that full turn, he's ended up back where the loop began, it's a
+        // CLOSED orbit (not an honest wide detour, which walks away from its start).
+        // That's the unambiguous trottola: drop the plan so the agent re-targets.
+        if (st.tx !== target.x || st.tz !== target.z) {              // fresh goal
+          st.tx = target.x; st.tz = target.z; st.best = distT;
+          st.spin = 0; st.loopX = pos.x; st.loopZ = pos.z;
+        } else if (distT < (st.best ?? Infinity) - 0.05) {           // real headway
+          st.best = distT; st.spin = 0; st.loopX = pos.x; st.loopZ = pos.z;
+        }
+        if (prevH !== undefined) {
+          st.spin = (st.spin ?? 0) + wrap(a - prevH);
+          if (Math.abs(st.spin) >= 2 * Math.PI) {                    // a full turn, no headway
+            if (this.toroidalDist(st.loopX, st.loopZ, pos.x, pos.z) < 2.0) {
+              st.h = undefined; st.side = 0; st.spin = 0; st.bias = 0;
+              return null;                                           // closed loop → bail
+            }
+            st.spin = 0; st.loopX = pos.x; st.loopZ = pos.z;         // honest turn-around → carry on
+          }
+        }
         return { x: Math.sin(a), z: Math.cos(a) };
       }
     }
-    st.h = undefined; st.side = 0;              // boxed in — let the agent pick a new plan
+    st.h = undefined; st.side = 0; st.spin = 0;  // boxed in — let the agent pick a new plan
     return null;
   }
 
