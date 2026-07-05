@@ -756,13 +756,16 @@ export class City {
         if (hasBalcony && f === floors - 1 && Math.abs(tc) < balcW / 2) continue;  // porta-finestra instead
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
         const ox = n.x * 0.09, oz = n.z * 0.09;
-        const lift = this._datumLift(cx, cz, w.x, w.z);   // back onto the building's floor datum
-        // Roller shutters belong to SHOPFRONTS (商店街). On a house they read
-        // as a garage door, so residential ground floors keep windows.
+        const lift = this._datumLift(cx, cz, w.x, w.z);   // used by the AC unit below
+        // Windows/shutters carry their BUILDING's frame (centre cx,cz + size H,hw,
+        // hd) so _buildInstances can seat them on the rigid box's wall at any
+        // height — placing them on the sphere instead let them drift off the wall
+        // the taller/wider the block got (the "detached windows" bug). Stride 9:
+        // [wx, wy, wz, cx, cz, H, hw, hd, yaw].
         if (shop && f === 0 && (c + seed) % 3 === 0) {
-          this._shutXf.push(w.x + ox, 1.05 + lift, w.z + oz, rotY); continue;   // instanced
+          this._shutXf.push(w.x + ox, 1.05, w.z + oz, cx, cz, H, hw, hd, rotY); continue;
         }
-        this._winXf.push(w.x + ox, wy + lift, w.z + oz, rotY);                  // instanced
+        this._winXf.push(w.x + ox, wy, w.z + oz, cx, cz, H, hw, hd, rotY);
 
         // occasional AC outdoor unit, sitting flush against the wall — with the
         // grille ring + spinning fan blades drawn on its street-facing face
@@ -1209,16 +1212,29 @@ export class City {
   // collapses to a single InstancedMesh draw call instead of hundreds.
   _buildInstances() {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), yaw = new THREE.Quaternion(),
-          p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+          p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0),
+          cq = new THREE.Quaternion(), bpos = new THREE.Vector3(), off = new THREE.Vector3();
+    const R = this.R;
     const make = (geo, mat, arr) => {
-      const n = arr.length / 4; if (!n) return;
+      const n = arr.length / 9; if (!n) return;
       const im = new THREE.InstancedMesh(geo, mat, n);
       for (let i = 0; i < n; i++) {
-        const x = arr[i * 4], y = arr[i * 4 + 1], z = arr[i * 4 + 2];
-        planetPoint(x, y, z, p, this.R);                 // onto the sphere
-        planetQuat(x, z, q, this.R);                     // transport rotation …
-        yaw.setFromAxisAngle(up, arr[i * 4 + 3]);
-        q.multiply(yaw);                                 // … carrying the wall's facing
+        const o = i * 9;
+        const wx = arr[o], wy = arr[o + 1], wz = arr[o + 2],
+              cx = arr[o + 3], cz = arr[o + 4], H = arr[o + 5], hw = arr[o + 6], hd = arr[o + 7], yv = arr[o + 8];
+        // Replicate the building box's OWN spherify (see _spherifyIndividuals):
+        // it sinks + stretches down by its footprint sagitta and orients to the
+        // radial at its CENTRE. Seat the fitting in that exact rigid frame so it
+        // stays glued to the wall no matter how the block leans on the planet.
+        const hr = Math.hypot(hw, hd), h0 = H / 2;
+        const sink = (hr > 0.7 && h0 > 0.05) ? Math.min(R * (1 - Math.cos(Math.min(hr, R) / R)) + 0.06, 1.2) : 0;
+        const sy = (h0 + sink / 2) / h0, yEff = h0 - sink / 2;
+        planetPoint(cx, yEff, cz, bpos, R);              // spherified box centre
+        planetQuat(cx, cz, cq, R);                       // box orientation (radial at centre)
+        off.set(wx - cx, (wy - h0) * sy, wz - cz).applyQuaternion(cq);
+        p.copy(bpos).add(off);
+        yaw.setFromAxisAngle(up, yv);
+        q.copy(cq).multiply(yaw);                        // face the wall, carried by the box frame
         im.setMatrixAt(i, m.compose(p, q, s));
       }
       im.instanceMatrix.needsUpdate = true;
