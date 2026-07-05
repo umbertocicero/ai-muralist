@@ -96,11 +96,15 @@ export function drawLive(g, city, agent, trail, size, t = performance.now() / 10
   if (trail && trail.length >= 4) {
     const n = trail.length / 2;
     g.lineWidth = 3; g.lineJoin = g.lineCap = 'round';
+    const seam = city.HALF;   // a Pac-Man wrap jumps ~2·HALF between two breadcrumbs
     for (let i = 1; i < n; i++) {
+      const ax = trail[(i - 1) * 2], az = trail[(i - 1) * 2 + 1];
+      const bx = trail[i * 2],       bz = trail[i * 2 + 1];
+      if (Math.abs(bx - ax) > seam || Math.abs(bz - az) > seam) continue;  // don't streak across a wrap
       g.strokeStyle = `rgba(255,107,53,${(0.08 + 0.72 * (i / n)).toFixed(3)})`;
       g.beginPath();
-      g.moveTo(px(trail[(i - 1) * 2]), pz(trail[(i - 1) * 2 + 1]));
-      g.lineTo(px(trail[i * 2]), pz(trail[i * 2 + 1]));
+      g.moveTo(px(ax), pz(az));
+      g.lineTo(px(bx), pz(bz));
       g.stroke();
     }
   }

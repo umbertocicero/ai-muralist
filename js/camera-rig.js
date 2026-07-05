@@ -312,6 +312,19 @@ export class CameraRig {
     this._offAxis = false;   // back on the follow axis → hide the Follow button
   }
 
+  // KAI Pac-Man'd across a torus seam — his flat position jumped to the opposite
+  // edge, so his spot on the planet is now on the far side. CUT the follow-cam
+  // straight there (pivot + re-lock behind him) instead of letting it sweep all
+  // the way around the globe. No-op while the user is driving the camera / a mural
+  // cam is running (those aren't glued to KAI's wander).
+  wrapSnap(charPos) {
+    if (!this.following || this._cine) return;
+    planetPoint(charPos.x, CONFIG.camLookY, charPos.z, this.pivot, this.R);
+    this.pivotTarget.copy(this.pivot);
+    this.velAz = 0;
+    this._snapBehind = true;
+  }
+
   // Right the world: snap pitch/zoom back to the default 3/4 look-down so the
   // rooftops face up again — the escape hatch after you've spun the little planet
   // around and lost which way is up. While you're navigating the map this levels

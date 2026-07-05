@@ -74,6 +74,9 @@ export const CONFIG = {
     inkDefault:     1.022,      // INK EXPANSIONE MASSIMA (era 1.018)
     keyLight:       2.8,        // HIGHLIGHTS BRILLANTISSIMI (era 2.45)
     ambientLight:   0.18,       // OMBRE ancora più dense e inchiostrate
+    nightFill:      0.68,       // soft cool light from OPPOSITE the sun: keeps the
+                                // town's far edge (which curves onto the planet's
+                                // night side) readable in penombra, not pitch-black
     frameWidth:     0.016,      // inked page-border thickness (frac of short side; 0 = off)
     frameNoise:     0.6,        // irregularity of the hand-drawn border edge
   },

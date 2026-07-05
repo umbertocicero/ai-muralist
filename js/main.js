@@ -230,8 +230,12 @@ class App {
     this.scene.add(key.target);
     this.key = key;
 
-    // A dim, cool moon light from OPPOSITE the sun that fills the night side.
-    const moon = new THREE.DirectionalLight('#aab6d6', 0.0);
+    // A soft, cool fill light from OPPOSITE the sun. The town is a big cap on the
+    // little planet: its far edge/corners curve past the terminator onto the night
+    // side and would otherwise render pitch-black. This lifts that far zone into a
+    // readable penombra (cooler + dimmer than the sunlit side), so KAI can wander
+    // all the way out there and it still reads. (See visual.nightFill.)
+    const moon = new THREE.DirectionalLight('#b8c2de', v.nightFill ?? 0.68);
     moon.position.copy(this._sunDir).multiplyScalar(-100).setY(70);
     this.scene.add(moon);
     this.moonLight = moon;
@@ -249,9 +253,11 @@ class App {
     this._worldQuat.setFromUnitVectors(this._up, this._sunDir);
     this.city.worldRoot.quaternion.copy(this._worldQuat);
 
-    // Full day — lights, sky and fog are fixed at their daytime values.
+    // Full day — lights, sky and fog are fixed at their daytime values. The
+    // anti-sun fill stays ON (it's what keeps the town's far, curved-away edge
+    // readable rather than black).
     this.ambient.intensity = CONFIG.visual?.ambientLight ?? 0.52;
-    this.moonLight.intensity = 0;
+    this.moonLight.intensity = CONFIG.visual?.nightFill ?? 0.68;
     col.copy(DAY);
     this.scene.background.copy(col);
     this.scene.fog.color.copy(col);
@@ -312,7 +318,15 @@ class App {
     requestAnimationFrame(this._loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t  = this.clock.elapsedTime;
+    // Pac-Man wrap: KAI's flat position is toroidal (city.wrapPoint). If he crossed
+    // a seam this frame his spot on the planet jumped to the far side — snap the
+    // follow-cam there so it cuts across cleanly instead of orbiting the whole globe.
+    const _px = this.character.pos.x, _pz = this.character.pos.z;
     this.agent.update(dt, t);
+    if (Math.abs(this.character.pos.x - _px) > this.city.HALF ||
+        Math.abs(this.character.pos.z - _pz) > this.city.HALF) {
+      this.rig.wrapSnap(this.character.pos);
+    }
     // breadcrumb trail for the live map (~7 points/s, capped at ~90s of walk)
     this._trailT += dt;
     if (this._trailT > 0.15) {

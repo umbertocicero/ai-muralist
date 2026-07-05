@@ -185,7 +185,7 @@ export class Agent {
         this.wanderTimer += dt;
         const moved   = this.city.steer(this.char.pos, this.wanderTarget, step, this._nav);
         if (moved) this.char.faceDirection(moved);
-        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.8;
+        const arrived = this.city.toroidalDist(this.wanderTarget.x, this.wanderTarget.z, this.char.pos.x, this.char.pos.z) < 0.8;
         // reached the far target → pick the next one ahead; only when truly
         // stuck (dead-end) escape in any direction, so he keeps long straight legs
         if (arrived) this._newWanderTarget();
@@ -209,7 +209,7 @@ export class Agent {
         const ap     = this.city.approachPoint(this.currentSlot);
         const moved  = this.city.steer(this.char.pos, ap, step, this._nav);
         if (moved) this.char.faceDirection(moved);
-        const dist   = Math.hypot(ap.x - this.char.pos.x, ap.z - this.char.pos.z);
+        const dist   = this.city.toroidalDist(ap.x, ap.z, this.char.pos.x, this.char.pos.z);
         if (dist < 0.5) {
           // actually arrived at the wall → paint it
           this._beginThinking();
@@ -259,7 +259,7 @@ export class Agent {
         // camera hold on the finished mural for a few seconds.
         this.admireTimer += dt;
         const dist = this.admirePos
-          ? Math.hypot(this.admirePos.x - this.char.pos.x, this.admirePos.z - this.char.pos.z) : 0;
+          ? this.city.toroidalDist(this.admirePos.x, this.admirePos.z, this.char.pos.x, this.char.pos.z) : 0;
         if (dist > 0.25) {
           const moved = this.city.steer(this.char.pos, this.admirePos, step * 0.8);
           if (moved) this.char.faceDirection(moved);
@@ -275,7 +275,7 @@ export class Agent {
       case STATE.CONTEMPLATING: {
         const moved   = this.city.steer(this.char.pos, this.wanderTarget, step * 0.6, this._nav);
         if (moved) this.char.faceDirection(moved);
-        const arrived = Math.hypot(this.wanderTarget.x - this.char.pos.x, this.wanderTarget.z - this.char.pos.z) < 0.8;
+        const arrived = this.city.toroidalDist(this.wanderTarget.x, this.wanderTarget.z, this.char.pos.x, this.char.pos.z) < 0.8;
         if (arrived)      this.wanderTarget = this.city.forwardPoint(this.char.pos.x, this.char.pos.z, this.char.facing);
         else if (!moved)  this.wanderTarget = this.city.randomReachablePoint();
         this.char.walk(t, 0.6);

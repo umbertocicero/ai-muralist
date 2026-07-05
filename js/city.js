@@ -860,23 +860,38 @@ export class City {
   // their walls LEAN up to ~0.15 outside the flat footprint this test uses —
   // without the margin KAI could hug a wall at charRadius and his shoulder/arm
   // visually sank into the leaning plaster.
+  // ── Torus wrap (Pac-Man) ──────────────────────────────────────────────────
+  // The town's flat square has its opposite edges identified: KAI leaving one
+  // side re-enters the other, so there's no wall on the little planet — he can
+  // walk all the way right and come out the left. These give the SHORTEST signed
+  // delta / distance across that seam, and canonicalise a point back into
+  // [-HALF, HALF). Collision, steering and arrival all reckon distance this way.
+  _wrapDelta(d) { const W = this.HALF * 2; return d - W * Math.round(d / W); }
+  toroidalDist(ax, az, bx, bz) { return Math.hypot(this._wrapDelta(ax - bx), this._wrapDelta(az - bz)); }
+  wrapPoint(p) {
+    const W = this.HALF * 2;
+    if (p.x >  this.HALF) p.x -= W; else if (p.x < -this.HALF) p.x += W;
+    if (p.z >  this.HALF) p.z -= W; else if (p.z < -this.HALF) p.z += W;
+    return p;
+  }
+
   isColliding(x, z, extra = 0) {
-    if (Math.abs(x) > this.HALF || Math.abs(z) > this.HALF) return true;
     const r = CONFIG.charRadius + extra;
+    const wd = d => this._wrapDelta(d);   // measure across the seam, not around the map
     for (const b of this.buildings) {
-      const dx = x - b.cx, dz = z - b.cz;
+      const dx = wd(x - b.cx), dz = wd(z - b.cz);
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
       if (Math.abs(lx) < b.hw + r && Math.abs(lz) < b.hd + r) return true;
     }
     // round props: poles, trees, bushes, water towers
     for (const o of this.colliders) {
-      const dx = x - o.x, dz = z - o.z, rr = o.r + r;
+      const dx = wd(x - o.x), dz = wd(z - o.z), rr = o.r + r;
       if (dx * dx + dz * dz < rr * rr) return true;
     }
     // thin barriers: fences + low garden walls (oriented boxes)
     for (const b of this.barriers) {
-      const dx = x - b.cx, dz = z - b.cz;
+      const dx = wd(x - b.cx), dz = wd(z - b.cz);
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
       if (Math.abs(lx) < b.hw + r && Math.abs(lz) < b.hd + r) return true;
@@ -887,7 +902,7 @@ export class City {
   // returns roof height at (x,z) inside a footprint, else 0 — for camera collision
   hitsBuilding(x, z) {
     for (const b of this.buildings) {
-      const dx = x - b.cx, dz = z - b.cz;
+      const dx = this._wrapDelta(x - b.cx), dz = this._wrapDelta(z - b.cz);
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
       if (Math.abs(lx) < b.hw && Math.abs(lz) < b.hd) return b.top;
@@ -955,9 +970,11 @@ export class City {
       const spread = a < 16 ? 0.8 : 2.6;
       const ang  = facing + (this.rng() - 0.5) * spread;
       const dist = 16 + this.rng() * 22;
-      const px = x + Math.sin(ang) * dist, pz = z + Math.cos(ang) * dist;
-      if (Math.abs(px) < this.HALF - 1.5 && Math.abs(pz) < this.HALF - 1.5 && !this.isColliding(px, pz))
-        return { x: px, z: pz };
+      // A point ahead can fall OFF the edge — that's fine now: wrap it back onto
+      // the opposite side so "keep walking straight" carries KAI Pac-Man-style
+      // across the seam instead of turning him around at an invisible wall.
+      const p = this.wrapPoint({ x: x + Math.sin(ang) * dist, z: z + Math.cos(ang) * dist });
+      if (!this.isColliding(p.x, p.z)) return p;
     }
     return this.randomReachablePoint();
   }
@@ -1024,10 +1041,14 @@ export class City {
     // the target so arrivals stay clean. The whiskers below still guard every
     // step, so the wandering can never push him into a wall — it just makes
     // the walk read curious instead of surveyed.
-    const distT = Math.hypot(target.x - pos.x, target.z - pos.z);
+    // Aim by the SHORTEST route across the torus: if the target is quicker over a
+    // seam, head for the seam (and KAI Pac-Mans across) instead of trekking back
+    // over the whole map.
+    const tdx = this._wrapDelta(target.x - pos.x), tdz = this._wrapDelta(target.z - pos.z);
+    const distT = Math.hypot(tdx, tdz);
     st.bias = clamp((st.bias ?? 0) + (Math.random() - 0.5) * 2.4 * dt, -0.6, 0.6);
     st.bias *= Math.max(0, 1 - 0.25 * dt);
-    const desired = Math.atan2(target.x - pos.x, target.z - pos.z)
+    const desired = Math.atan2(tdx, tdz)
                   + st.bias * clamp((distT - 2) / 6, 0, 1);
     let h = st.h ?? desired;
 
@@ -1061,7 +1082,7 @@ export class City {
       const a = wrap(h + side * k * 0.22);
       const nx = pos.x + Math.sin(a) * step, nz = pos.z + Math.cos(a) * step;
       if (!this.isColliding(nx, nz, 0.14)) {
-        pos.x = nx; pos.z = nz; st.h = a;
+        pos.x = nx; pos.z = nz; this.wrapPoint(pos); st.h = a;
         return { x: Math.sin(a), z: Math.cos(a) };
       }
     }
