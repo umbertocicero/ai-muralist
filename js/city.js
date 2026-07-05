@@ -37,6 +37,11 @@ const ASPHALT2 = toonMat('#d2d0cc');   // main-road ribbon (slightly darker)
 const GROUND   = toonMat('#d4cec4');
 const CURB     = toonMat('#eceae6');
 const PAVING   = toonMat('#e8e5df');   // flagstone sidewalk slab — lighter than road AND ground, so the strip reads
+// The kerb RISER: the low vertical face between the raised sidewalk and the road.
+// A touch darker so the cel shader lands it a band down from the flat top (reads
+// as a shaded curb edge), and DoubleSide so it shows whichever way it's wound as
+// the strip runs around the planet.
+const KERBFACE = toonMat('#d0cdc7', { side: THREE.DoubleSide });
 // GLASS / SHUTTER panes (shared with the item factory) and the foliage geometry
 // now live in js/items/materials.js — imported above.
 const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
@@ -327,6 +332,7 @@ export class City {
     const pos = [], idx = [];
     const spos = [], sidx = [];   // crosswalk / stop-line stripes (lighter paint)
     const wpos = [], widx = [];   // flagstone sidewalk slabs along the kerbs
+    const kpos = [], kidx = [];   // the raised kerb's vertical riser faces
     let vi = 0;
     for (const r of this.mainRoads) {
       const hw = r.half;
@@ -377,7 +383,7 @@ export class City {
         // a flagstone sidewalk strip along the kerb (its own raised slab + the
         // paving joints, laid only on open ground so it never runs through a building)
         if (Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.6)
-          this._sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx);
+          this._sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx, kpos, kidx);
       }
     }
     if (pos.length) {
@@ -401,6 +407,14 @@ export class City {
       const walk = new THREE.Mesh(g, PAVING);
       walk.receiveShadow = true;
       this.scene.add(walk);
+    }
+    if (kpos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(kpos, 3));
+      g.setIndex(kidx); g.computeVertexNormals();
+      const kerb = new THREE.Mesh(g, KERBFACE);
+      kerb.castShadow = true; kerb.receiveShadow = true;
+      this.scene.add(kerb);
     }
   }
 
@@ -429,47 +443,71 @@ export class City {
     }
   }
 
-  // Flagstone sidewalk along a road segment's kerb. The old version drew ONLY
-  // the paving joints as ink on the bare ground, which read as stray scribbles
-  // rather than stones; now the strip gets its own raised slab ribbon (a tone
-  // lighter than both road and ground, projected onto the sphere like the road
-  // itself — appended into the shared wpos/widx buffers) and the joints are
-  // inked ON the slab in a staggered running bond: two rows of stones split by
-  // a centre seam, with the cross ties offset half a stone between rows. Laid
-  // only where the strip sits on open ground (never under a building).
-  _sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx) {
-    const inA = hw + 0.10, inB = hw + 0.62, mid = (inA + inB) / 2;
-    const ySlab = 0.085, yInk = 0.105;   // slab above the road paint, ink above the slab
-    const step = 0.95, N = Math.max(1, Math.floor(len / step));
+  // Raised concrete kerb + gutter along a road segment — modelled on the inked
+  // Setagaya reference, not the old "ladder". The strip is a proper RAISED slab:
+  //   • a flat top ribbon (PAVING) that sits a step above the road,
+  //   • a shaded vertical RISER on the road side (and a short inner face) so the
+  //     kerb reads with real depth and the cel shader darkens the face a band,
+  //   • a drainage-channel groove hugging the road edge,
+  //   • long concrete COVER SLABS: lengthwise edge seams + a cross joint only
+  //     every ~1.6 m (wide slabs), plus fine vertical hatch ticks up the riser
+  //     for the hand-inked curb shading — no more rungs.
+  // Laid only where the strip sits on open ground (never under a building).
+  // NOTE: consumes no rng() — geometry only — so the town layout / worldKey is
+  // untouched and saved murals still restore.
+  _sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx, kpos, kidx) {
+    const inA = hw + 0.06;                 // kerb top, road side (the visible face)
+    const inB = hw + 0.66;                 // inner edge, against the lots/wall
+    const chan = inA + 0.16;               // gutter drainage channel, just off the kerb
+    const mid  = (inA + inB) / 2;
+    const yGround = 0.0, yRoad = 0.06, ySlab = 0.15;   // slab top a curb-step above the road
+    const yInk = ySlab + 0.02, yFoot = yRoad + 0.012;
+    const step = 0.8, N = Math.max(1, Math.floor(len / step));
     const v = new THREE.Vector3();
+    const pushQuadUp = (buf, x1, z1, x2, z2, x3, z3, x4, z4, y) => {
+      const o = buf === wpos ? wpos.length / 3 : 0;
+      for (const [qx, qz] of [[x1, z1], [x2, z2], [x3, z3], [x4, z4]]) { planetPoint(qx, y, qz, v, this.R); buf.push(v.x, v.y, v.z); }
+      return o;
+    };
+    // A vertical riser face between an edge line and the surface below it. Wound
+    // either way is fine — KERBFACE is DoubleSide.
+    const pushRiser = (x1, z1, x2, z2, yTop, yBot) => {
+      const o = kpos.length / 3;
+      planetPoint(x1, yTop, z1, v, this.R); kpos.push(v.x, v.y, v.z);
+      planetPoint(x2, yTop, z2, v, this.R); kpos.push(v.x, v.y, v.z);
+      planetPoint(x1, yBot, z1, v, this.R); kpos.push(v.x, v.y, v.z);
+      planetPoint(x2, yBot, z2, v, this.R); kpos.push(v.x, v.y, v.z);
+      kidx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+    };
     for (const s of [-1, 1]) {
-      let prev = null;
+      let prev = null, seg = 0;
       for (let i = 0; i <= N; i++) {
         const t = i / N, cx = a.x + dx * t, cz = a.z + dz * t;
         const mx = cx + px * s * mid, mz = cz + pz * s * mid;
         if (this.isColliding(mx, mz)) { prev = null; continue; }
-        const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb edge
+        const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb top (road side)
         const bx = cx + px * s * inB, bz = cz + pz * s * inB;   // inner edge
+        const hx = cx + px * s * chan, hz = cz + pz * s * chan; // channel line
         if (prev) {
-          // slab quad for this stretch — same winding as the road ribbon (the
-          // pair goes in DESCENDING perpendicular order so both sides face up)
+          // flat top ribbon (winding matches the road ribbon so it faces up)
           const o = wpos.length / 3;
-          const quad = s > 0
-            ? [[prev.bx, prev.bz], [prev.ax, prev.az], [bx, bz], [ax, az]]
-            : [[prev.ax, prev.az], [prev.bx, prev.bz], [ax, az], [bx, bz]];
-          for (const [qx, qz] of quad) { planetPoint(qx, ySlab, qz, v, this.R); wpos.push(v.x, v.y, v.z); }
-          widx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);   // normal up (see _buildRoads)
-          // lengthwise seams: kerb edge, inner edge, and the centre joint
-          this._roofSeg.push(prev.ax, yInk, prev.az, ax, yInk, az);
-          this._roofSeg.push(prev.bx, yInk, prev.bz, bx, yInk, bz);
-          this._roofSeg.push(prev.mx, yInk, prev.mz, mx, yInk, mz);
-          // cross ties, STAGGERED: the kerb row breaks at every step, the inner
-          // row half a stone later — so the strip reads as laid stones
-          this._roofSeg.push(ax, yInk, az, mx, yInk, mz);
-          this._roofSeg.push((prev.mx + mx) / 2, yInk, (prev.mz + mz) / 2,
-                             (prev.bx + bx) / 2, yInk, (prev.bz + bz) / 2);
+          if (s > 0) { pushQuadUp(wpos, prev.bx, prev.bz, prev.ax, prev.az, bx, bz, ax, az, ySlab); }
+          else       { pushQuadUp(wpos, prev.ax, prev.az, prev.bx, prev.bz, ax, az, bx, bz, ySlab); }
+          widx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+          // road-side riser (slab top → road) and a shorter inner riser (→ ground)
+          pushRiser(prev.ax, prev.az, ax, az, ySlab, yRoad);
+          pushRiser(prev.bx, prev.bz, bx, bz, ySlab, yGround);
+          // lengthwise ink: kerb top edge, kerb foot (at the road), inner edge,
+          // and the recessed gutter-channel groove
+          this._roofSeg.push(prev.ax, yInk,  prev.az, ax, yInk,  az);
+          this._roofSeg.push(prev.ax, yFoot, prev.az, ax, yFoot, az);
+          this._roofSeg.push(prev.bx, yInk,  prev.bz, bx, yInk,  bz);
+          this._roofSeg.push(prev.hx, yInk,  prev.hz, hx, yInk,  hz);
+          // a cover-slab CROSS joint only every other step (~1.6 m) → long slabs
+          if (seg % 2 === 0) this._roofSeg.push(ax, yInk, az, bx, yInk, bz);
+          seg++;
         }
-        prev = { ax, az, bx, bz, mx, mz };
+        prev = { ax, az, bx, bz, hx, hz };
       }
     }
   }
