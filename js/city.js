@@ -38,10 +38,10 @@ const GROUND   = toonMat('#d4cec4');
 const CURB     = toonMat('#eceae6');
 const PAVING   = toonMat('#e8e5df');   // flagstone sidewalk slab — lighter than road AND ground, so the strip reads
 // The kerb RISER: the low vertical face between the raised sidewalk and the road.
-// A touch darker so the cel shader lands it a band down from the flat top (reads
-// as a shaded curb edge), and DoubleSide so it shows whichever way it's wound as
-// the strip runs around the planet.
-const KERBFACE = toonMat('#d0cdc7', { side: THREE.DoubleSide });
+// Distinctly darker so the cel shader lands it a full band under the light top
+// (the curb reads as a shaded step, not a flat painted strip), and DoubleSide so
+// it shows whichever way it's wound as the strip runs around the planet.
+const KERBFACE = toonMat('#bdb9b1', { side: THREE.DoubleSide });
 // GLASS / SHUTTER panes (shared with the item factory) and the foliage geometry
 // now live in js/items/materials.js — imported above.
 const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
@@ -460,7 +460,7 @@ export class City {
     const inB = hw + 0.66;                 // inner edge, against the lots/wall
     const chan = inA + 0.16;               // gutter drainage channel, just off the kerb
     const mid  = (inA + inB) / 2;
-    const yGround = 0.0, yRoad = 0.06, ySlab = 0.15;   // slab top a curb-step above the road
+    const yGround = 0.0, yRoad = 0.06, ySlab = 0.2;    // slab top a clear curb-step above the road
     const yInk = ySlab + 0.02, yFoot = yRoad + 0.012;
     const step = 0.7, N = Math.max(1, Math.floor(len / step));
     const fx = dx / len, fz = dz / len;                 // unit along the road

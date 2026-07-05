@@ -46,15 +46,31 @@ export function makePlanterBox(ctx, { x, z, ang }) {
   }
 }
 
-// A roadwork traffic cone with a reflective band.
+// A roadwork traffic cone. The body is a MID-GREY so the cel shader bands it and
+// it reads as a solid 3-D cone (the old near-white body vanished into the paper,
+// leaving just a flat outline triangle). A bright reflective band wraps it as a
+// frustum hugging the slope, and it sits on a wide square foot.
 export function makeTrafficCone(ctx, { x, z }) {
-  ctx.colliders.push({ x, z, r: 0.18 });
-  const cone = inkedMesh(new THREE.ConeGeometry(0.17, 0.5, 12), '#c9c6c0', { k: 1.05, cast: false });
-  cone.position.set(x, 0.27, z); ctx.scene.add(cone);
-  const base = inkedMesh(new THREE.BoxGeometry(0.34, 0.05, 0.34), '#9a968e', { k: 1.04, cast: false });
-  base.position.set(x, 0.025, z); ctx.scene.add(base);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.08, 12), toonMat('#efece6'));
-  band.position.set(x, 0.33, z); ctx.scene.add(band);
+  ctx.colliders.push({ x, z, r: 0.22 });
+  const H = 0.52, R = 0.24, yB = 0.08;                       // stocky, road-cone proportions
+  const body = inkedMesh(new THREE.ConeGeometry(R, H, 16), '#aeaaa2', { k: 1.05, cast: false });
+  body.position.set(x, yB + H / 2, z); ctx.scene.add(body);
+  // wide, flat square foot
+  const base = inkedMesh(new THREE.BoxGeometry(0.5, 0.08, 0.5), '#88847c', { k: 1.04, cast: false });
+  base.position.set(x, 0.04, z); ctx.scene.add(base);
+  // a bold WHITE reflective band + a thinner dark one under it (the classic cone
+  // markings) — frustums whose radii track the cone slope, scaled a hair proud so
+  // they wrap the surface cleanly. DoubleSide so the band never culls to nothing.
+  const rAt = (y) => R * (1 - (y - yB) / H);
+  const ring = (y0, y1, col) => {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(rAt(y1), rAt(y0), y1 - y0, 16, 1, true),
+      toonMat(col, { side: THREE.DoubleSide }));
+    m.scale.setScalar(1.06);
+    m.position.set(x, (y0 + y1) / 2, z); m.renderOrder = 1; ctx.scene.add(m);
+  };
+  ring(yB + H * 0.26, yB + H * 0.5,  '#f7f4ee');   // wide reflective white band
+  ring(yB + H * 0.5,  yB + H * 0.58, '#4c4842');   // thin dark separator above it
 }
 
 // An A-frame barricade (single-A sawhorse) with a striped board.
