@@ -462,8 +462,19 @@ export class City {
     const mid  = (inA + inB) / 2;
     const yGround = 0.0, yRoad = 0.06, ySlab = 0.15;   // slab top a curb-step above the road
     const yInk = ySlab + 0.02, yFoot = yRoad + 0.012;
-    const step = 0.8, N = Math.max(1, Math.floor(len / step));
+    const step = 0.7, N = Math.max(1, Math.floor(len / step));
+    const fx = dx / len, fz = dz / len;                 // unit along the road
     const v = new THREE.Vector3();
+    // Hand-drawn waver: nudge an edge point sideways (across the strip) by a
+    // two-octave deterministic noise, so the inked seams wobble like a pen line
+    // instead of a ruler-straight CAD edge. `salt` differs per seam so the
+    // parallel lines don't ripple in lock-step.
+    const wav = (bx, bz, salt, s, amp = 0.055) => {
+      const n = this._inkNoise(bx * 0.8, bz * 0.8, salt)
+              + 0.5 * this._inkNoise(bx * 2.1, bz * 2.1, salt + 3.1);
+      const d = n * amp;
+      return { x: bx + px * s * d, z: bz + pz * s * d };
+    };
     const pushQuadUp = (buf, x1, z1, x2, z2, x3, z3, x4, z4, y) => {
       const o = buf === wpos ? wpos.length / 3 : 0;
       for (const [qx, qz] of [[x1, z1], [x2, z2], [x3, z3], [x4, z4]]) { planetPoint(qx, y, qz, v, this.R); buf.push(v.x, v.y, v.z); }
@@ -488,6 +499,11 @@ export class City {
         const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb top (road side)
         const bx = cx + px * s * inB, bz = cz + pz * s * inB;   // inner edge
         const hx = cx + px * s * chan, hz = cz + pz * s * chan; // channel line
+        // wavered ink points for this rib (mesh below stays on the true edges;
+        // only the pen lines wobble). Foot uses the same base as the top but a
+        // different salt, so the curb's two edges don't ripple identically.
+        const jT = wav(ax, az, 1.7, s),  jF = wav(ax, az, 5.3, s);
+        const jB = wav(bx, bz, 8.9, s),  jH = wav(hx, hz, 12.1, s);
         if (prev) {
           // flat top ribbon (winding matches the road ribbon so it faces up)
           const o = wpos.length / 3;
@@ -497,17 +513,22 @@ export class City {
           // road-side riser (slab top → road) and a shorter inner riser (→ ground)
           pushRiser(prev.ax, prev.az, ax, az, ySlab, yRoad);
           pushRiser(prev.bx, prev.bz, bx, bz, ySlab, yGround);
-          // lengthwise ink: kerb top edge, kerb foot (at the road), inner edge,
-          // and the recessed gutter-channel groove
-          this._roofSeg.push(prev.ax, yInk,  prev.az, ax, yInk,  az);
-          this._roofSeg.push(prev.ax, yFoot, prev.az, ax, yFoot, az);
-          this._roofSeg.push(prev.bx, yInk,  prev.bz, bx, yInk,  bz);
-          this._roofSeg.push(prev.hx, yInk,  prev.hz, hx, yInk,  hz);
-          // a cover-slab CROSS joint only every other step (~1.6 m) → long slabs
-          if (seg % 2 === 0) this._roofSeg.push(ax, yInk, az, bx, yInk, bz);
+          // lengthwise ink (wavered): kerb top edge, kerb foot at the road, inner
+          // edge, and the recessed gutter-channel groove
+          this._roofSeg.push(prev.jT.x, yInk,  prev.jT.z, jT.x, yInk,  jT.z);
+          this._roofSeg.push(prev.jF.x, yFoot, prev.jF.z, jF.x, yFoot, jF.z);
+          this._roofSeg.push(prev.jB.x, yInk,  prev.jB.z, jB.x, yInk,  jB.z);
+          this._roofSeg.push(prev.jH.x, yInk,  prev.jH.z, jH.x, yInk,  jH.z);
+          // cover-slab CROSS joints at IRREGULAR spacing (noise-gated, not every
+          // n-th rib) and slightly skewed along the road — long, uneven slabs
+          // like hand-inked concrete covers, never a ruled ladder.
+          if (this._inkNoise(cx, cz, 20.0) > 0.12) {
+            const ja = this._inkNoise(cx, cz, 21.0) * 0.13, jb = this._inkNoise(cx, cz, 22.0) * 0.13;
+            this._roofSeg.push(jT.x + fx * ja, yInk, jT.z + fz * ja, jB.x + fx * jb, yInk, jB.z + fz * jb);
+          }
           seg++;
         }
-        prev = { ax, az, bx, bz, hx, hz };
+        prev = { ax, az, bx, bz, jT, jF, jB, jH };
       }
     }
   }
@@ -913,14 +934,27 @@ export class City {
     return p;
   }
 
+  // Deterministic value noise in [-1,1) keyed on a position (+ salt). Used to give
+  // inked seams a hand-drawn waver WITHOUT touching the rng() stream (so the town
+  // layout / worldKey — and thus saved murals — stay identical).
+  _inkNoise(x, z, salt) {
+    const n = Math.sin(x * 12.9898 + z * 78.233 + salt * 37.719) * 43758.5453;
+    return (n - Math.floor(n)) * 2 - 1;
+  }
+
   isColliding(x, z, extra = 0) {
     const r = CONFIG.charRadius + extra;
     const wd = d => this._wrapDelta(d);   // measure across the seam, not around the map
+    // WALLPAD keeps KAI off the FACADE, not just the structural box: AC units,
+    // window sills, drainpipes and shopfronts jut ~0.2 m out past b.hw/b.hd but
+    // aren't in the collision box, so without it his shoulder sank into them (the
+    // "walks into walls" bug). Pad the box out by roughly that overhang.
+    const pad = 0.2;
     for (const b of this.buildings) {
       const dx = wd(x - b.cx), dz = wd(z - b.cz);
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
-      if (Math.abs(lx) < b.hw + r && Math.abs(lz) < b.hd + r) return true;
+      if (Math.abs(lx) < b.hw + r + pad && Math.abs(lz) < b.hd + r + pad) return true;
     }
     // round props: poles, trees, bushes, water towers
     for (const o of this.colliders) {
