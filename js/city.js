@@ -505,6 +505,11 @@ export class City {
         const t = i / N, cx = a.x + dx * t, cz = a.z + dz * t;
         const mx = cx + px * s * mid, mz = cz + pz * s * mid;
         if (this.isColliding(mx, mz)) { prev = null; continue; }
+        // Break the kerb where it would run INTO another road (junctions): this
+        // strip sits +0.39 m outside its own road, so a reading below that means
+        // the point has entered a crossing carriageway. Stopping short leaves a
+        // clean gap at the crossing instead of two kerbs drawing an X on the road.
+        if (this._distToMainRoad(mx, mz) < 0.25) { prev = null; continue; }
         const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb top (road side)
         const bx = cx + px * s * inB, bz = cz + pz * s * inB;   // inner edge
         // only TWO wavered pen lines (the kerb edge + the inner edge). The old
