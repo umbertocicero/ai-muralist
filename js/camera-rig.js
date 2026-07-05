@@ -42,12 +42,15 @@ export class CameraRig {
     this.pivot       = planetPoint(CONFIG.charStart.x, CONFIG.camLookY, CONFIG.charStart.z, new THREE.Vector3(), this.R);
     this.pivotTarget = this.pivot.clone();
     this.following   = true;
-    // Navigation guard: the town is a cap around the north pole; flat coords run
-    // to ±world.half, so its far corners sit this many radians from the pole.
-    // Free-roam (drag/travel/zoom-to-cursor) is clamped to here + a small margin
-    // so you can sweep the whole town but never drift onto the empty far side and
-    // end up looking at it "upside down". Murals all live inside this cap.
-    this._maxPivotTheta = Math.hypot(CONFIG.world.half, CONFIG.world.half) / this.R + 0.12;
+    // Navigation guard: how far (radians from the north pole) the look-point may
+    // roam. The town is a cap around the pole, but this is a TINY planet — the
+    // whole point is that you can fly right over the horizon and around the far
+    // side (double-tap the ground toward the top of the screen a few times to
+    // circumnavigate). The camera's "up" is the local surface normal everywhere
+    // (see update()), so the far side reads upright, not "upside down". We allow
+    // the full sphere; a hair short of the exact antipode keeps the tangent frame
+    // from going singular as you cross the south pole.
+    this._maxPivotTheta = Math.PI - 0.02;
     this._cine       = null;     // mural slot the camera is "watching" while KAI paints
     this._cineAz     = 0;
     this._cinePolar  = CONFIG.camPolar;
@@ -195,9 +198,10 @@ export class CameraRig {
     this._offAxis = true;   // the user has taken the camera off the follow axis → show "Follow KAI"
   }
 
-  // Keep a look-point (in the rig's un-spun frame) from straying past the town
-  // cap: if it sits more than _maxPivotTheta radians from the north pole, slide
-  // it back onto that rim circle at the same azimuth, preserving its radius.
+  // Keep a look-point (in the rig's un-spun frame) inside the roamable range: if
+  // it sits more than _maxPivotTheta radians from the north pole (essentially the
+  // whole sphere now), slide it back onto that rim circle at the same azimuth,
+  // preserving its radius — a guard against overshooting the exact antipode.
   _clampPivot(v) {
     const len = v.length();
     if (len < 1e-6) return v;
