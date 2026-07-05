@@ -36,7 +36,8 @@ const ASPHALT2 = toonMat('#d2d0cc');   // main-road ribbon (slightly darker)
 // Warm paper-grey ground — lighter than before so cel bands read as clean manga tones.
 const GROUND   = toonMat('#d4cec4');
 const CURB     = toonMat('#eceae6');
-const PAVING   = toonMat('#e8e5df');   // flagstone sidewalk slab — lighter than road AND ground, so the strip reads
+const PAVING   = toonMat('#cfcbc2');   // sidewalk slab: a soft concrete grey that stays a readable BAND on the
+                                       // blown-white lit ground (near-white read as bare paper + floating ink)
 // The kerb RISER: the low vertical face between the raised sidewalk and the road.
 // Distinctly darker so the cel shader lands it a full band under the light top
 // (the curb reads as a shaded step, not a flat painted strip), and DoubleSide so
@@ -457,19 +458,18 @@ export class City {
   // untouched and saved murals still restore.
   _sidewalkPaving(a, dx, dz, len, px, pz, hw, wpos, widx, kpos, kidx) {
     const inA = hw + 0.06;                 // kerb top, road side (the visible face)
-    const inB = hw + 0.66;                 // inner edge, against the lots/wall
-    const chan = inA + 0.16;               // gutter drainage channel, just off the kerb
+    const inB = hw + 0.72;                 // inner edge, against the lots/wall
     const mid  = (inA + inB) / 2;
     const yGround = 0.0, yRoad = 0.06, ySlab = 0.2;    // slab top a clear curb-step above the road
-    const yInk = ySlab + 0.02, yFoot = yRoad + 0.012;
+    const yInk = ySlab + 0.02;
     const step = 0.7, N = Math.max(1, Math.floor(len / step));
     const fx = dx / len, fz = dz / len;                 // unit along the road
     const v = new THREE.Vector3();
-    // Hand-drawn waver: nudge an edge point sideways (across the strip) by a
-    // two-octave deterministic noise, so the inked seams wobble like a pen line
-    // instead of a ruler-straight CAD edge. `salt` differs per seam so the
-    // parallel lines don't ripple in lock-step.
-    const wav = (bx, bz, salt, s, amp = 0.055) => {
+    // Gentle hand-drawn waver: nudge an edge point sideways (across the strip) by
+    // a two-octave deterministic noise so the pen lines aren't ruler-straight —
+    // but SMALL, so the curb reads as a clean edge, not a scribble. Different salt
+    // per edge so the two rails don't ripple in lock-step.
+    const wav = (bx, bz, salt, s, amp = 0.03) => {
       const n = this._inkNoise(bx * 0.8, bz * 0.8, salt)
               + 0.5 * this._inkNoise(bx * 2.1, bz * 2.1, salt + 3.1);
       const d = n * amp;
@@ -491,19 +491,17 @@ export class City {
       kidx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
     };
     for (const s of [-1, 1]) {
-      let prev = null, seg = 0;
+      let prev = null;
       for (let i = 0; i <= N; i++) {
         const t = i / N, cx = a.x + dx * t, cz = a.z + dz * t;
         const mx = cx + px * s * mid, mz = cz + pz * s * mid;
         if (this.isColliding(mx, mz)) { prev = null; continue; }
         const ax = cx + px * s * inA, az = cz + pz * s * inA;   // kerb top (road side)
         const bx = cx + px * s * inB, bz = cz + pz * s * inB;   // inner edge
-        const hx = cx + px * s * chan, hz = cz + pz * s * chan; // channel line
-        // wavered ink points for this rib (mesh below stays on the true edges;
-        // only the pen lines wobble). Foot uses the same base as the top but a
-        // different salt, so the curb's two edges don't ripple identically.
-        const jT = wav(ax, az, 1.7, s),  jF = wav(ax, az, 5.3, s);
-        const jB = wav(bx, bz, 8.9, s),  jH = wav(hx, hz, 12.1, s);
+        // only TWO wavered pen lines (the kerb edge + the inner edge). The old
+        // build stacked four near-parallel lines (edge/foot/channel/inner) which,
+        // on the blown-white ground, read as a floating tangle of scribbles.
+        const jT = wav(ax, az, 1.7, s), jB = wav(bx, bz, 8.9, s);
         if (prev) {
           // flat top ribbon (winding matches the road ribbon so it faces up)
           const o = wpos.length / 3;
@@ -513,22 +511,17 @@ export class City {
           // road-side riser (slab top → road) and a shorter inner riser (→ ground)
           pushRiser(prev.ax, prev.az, ax, az, ySlab, yRoad);
           pushRiser(prev.bx, prev.bz, bx, bz, ySlab, yGround);
-          // lengthwise ink (wavered): kerb top edge, kerb foot at the road, inner
-          // edge, and the recessed gutter-channel groove
-          this._roofSeg.push(prev.jT.x, yInk,  prev.jT.z, jT.x, yInk,  jT.z);
-          this._roofSeg.push(prev.jF.x, yFoot, prev.jF.z, jF.x, yFoot, jF.z);
-          this._roofSeg.push(prev.jB.x, yInk,  prev.jB.z, jB.x, yInk,  jB.z);
-          this._roofSeg.push(prev.jH.x, yInk,  prev.jH.z, jH.x, yInk,  jH.z);
-          // cover-slab CROSS joints at IRREGULAR spacing (noise-gated, not every
-          // n-th rib) and slightly skewed along the road — long, uneven slabs
-          // like hand-inked concrete covers, never a ruled ladder.
-          if (this._inkNoise(cx, cz, 20.0) > 0.12) {
-            const ja = this._inkNoise(cx, cz, 21.0) * 0.13, jb = this._inkNoise(cx, cz, 22.0) * 0.13;
+          // the two clean lengthwise curb edges
+          this._roofSeg.push(prev.jT.x, yInk, prev.jT.z, jT.x, yInk, jT.z);
+          this._roofSeg.push(prev.jB.x, yInk, prev.jB.z, jB.x, yInk, jB.z);
+          // SPARSE cover-slab cross joints (~1 every 2.5 m), slightly skewed — long
+          // concrete slabs, never a ladder of rungs.
+          if (this._inkNoise(cx, cz, 20.0) > 0.45) {
+            const ja = this._inkNoise(cx, cz, 21.0) * 0.1, jb = this._inkNoise(cx, cz, 22.0) * 0.1;
             this._roofSeg.push(jT.x + fx * ja, yInk, jT.z + fz * ja, jB.x + fx * jb, yInk, jB.z + fz * jb);
           }
-          seg++;
         }
-        prev = { ax, az, bx, bz, jT, jF, jB, jH };
+        prev = { ax, az, bx, bz, jT, jB };
       }
     }
   }
