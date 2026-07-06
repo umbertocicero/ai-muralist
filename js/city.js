@@ -684,7 +684,7 @@ export class City {
       const cap = inkedMesh(new THREE.BoxGeometry(hw * 2 + 0.3, 0.36, hd * 2 + 0.3), '#cdcbc7', { k: 1.02 });
       cap.position.set(cx, H + 0.18, cz); cap.rotation.y = rot;
       this.scene.add(cap);
-      if (this.rng() < 0.45) this._corrugated(cx, cz, rot, H + 0.37, hw, hd);  // ridged metal roof
+      if (this.rng() < 0.45) this._corrugated(cx, cz, rot, H + 0.37, hw, hd, H);  // ridged metal roof
       if (this.rng() < 0.5) {
         const a = this._toWorld(cx, cz, rot, hw * 0.5, -hd * 0.5);
         this._antenna(a.x, H, a.z);
@@ -1235,7 +1235,7 @@ export class City {
   _roofTiles(cx, cz, rot, H, hw, hd, hip, rh = 0, halfSpan = 0, len = 0) {
     createItem(this, 'roofTiles', { cx, cz, rot, H, hw, hd, hip, rh, halfSpan, len });
   }
-  _corrugated(cx, cz, rot, y, hw, hd)         { createItem(this, 'corrugated', { cx, cz, rot, y, hw, hd }); }
+  _corrugated(cx, cz, rot, y, hw, hd, H)      { createItem(this, 'corrugated', { cx, cz, rot, y, hw, hd, H }); }
 
   // Wooden board fence (板塀) across the front of a plot.
   // Board fence (板塀) around an open lot — item factory.

@@ -174,9 +174,16 @@ export function makeGableRoof(ctx, { cx, cz, hw, hd, rot, H }) {
 
 // Parallel tile/ridge strokes down a pitched roof (batched ink strokes).
 export function makeRoofTiles(ctx, { cx, cz, rot, H, hw, hd, hip, rh = 0, halfSpan = 0, len = 0 }) {
+  // Seat every stroke on the building's RIGID frame (→ _wallSeg, which isn't
+  // sphere-projected) so it lies flat on the roof. Pushed to _roofSeg the strokes
+  // projected onto the sphere as chords and their ends poked past the rigid roof
+  // edge — the little ticks sticking out along the eaves.
+  const _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
   const line = (lx0, ly0, lz0, lx1, ly1, lz1) => {
     const a = ctx._toWorld(cx, cz, rot, lx0, lz0), b = ctx._toWorld(cx, cz, rot, lx1, lz1);
-    ctx._roofSeg.push(a.x, H + ly0, a.z, b.x, H + ly1, b.z);
+    ctx._seatFlatPoint(a.x, H + ly0, a.z, cx, cz, H, hw, hd, _pa);
+    ctx._seatFlatPoint(b.x, H + ly1, b.z, cx, cz, H, hw, hd, _pb);
+    ctx._wallSeg.push(_pa.x, _pa.y, _pa.z, _pb.x, _pb.y, _pb.z);
   };
   if (hip) {
     // Eave-parallel rings up the pyramid. The hip cone is a 4-sided pyramid
@@ -209,13 +216,19 @@ export function makeRoofTiles(ctx, { cx, cz, rot, H, hw, hd, hip, rh = 0, halfSp
   }
 }
 
-// Low corrugated-metal roof — parallel ribs across a flat cap.
-export function makeCorrugated(ctx, { cx, cz, rot, y, hw, hd }) {
+// Low corrugated-metal roof — parallel ribs across a flat cap. Seated on the
+// building's rigid frame (→ _wallSeg) so the ribs stay on the cap instead of
+// projecting off it as chords (ticks past the edge). H = building height.
+export function makeCorrugated(ctx, { cx, cz, rot, y, hw, hd, H }) {
+  const _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
+  const Hb = H ?? y;
   const N = Math.max(4, Math.round(hw * 1.4));
   for (let i = 0; i <= N; i++) {
     const lx = -hw + (2 * hw) * (i / N);
     const a = ctx._toWorld(cx, cz, rot, lx, -hd + 0.2), b = ctx._toWorld(cx, cz, rot, lx, hd - 0.2);
-    ctx._roofSeg.push(a.x, y, a.z, b.x, y, b.z);
+    ctx._seatFlatPoint(a.x, y, a.z, cx, cz, Hb, hw, hd, _pa);
+    ctx._seatFlatPoint(b.x, y, b.z, cx, cz, Hb, hw, hd, _pb);
+    ctx._wallSeg.push(_pa.x, _pa.y, _pa.z, _pb.x, _pb.y, _pb.z);
   }
 }
 
