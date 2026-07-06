@@ -56,7 +56,10 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   ├── map.js            live town map: cached base layer (roads/buildings/poles) + live layer (KAI position/heading/trail, mural slots) for the MAP overlay, plus a one-shot printable version (debug: window.__map())
 │   ├── character.js      Character — KAI (schoolkid) mesh + animation states
 │   ├── mural-factory.js  MuralFactory — prompt, fetch, sanitize, rasterize, bakes an ink-border "primer" so every mural pops off any wall
-│   ├── agent.js          Agent — 5-state machine, writes to Vue reactive state
+│   ├── sim.mjs           KaySim — PURE server-side brain: grid movement (no toroidal wrap), nearest-with-randomness wall choice, 6-state machine. Shared by the Worker Durable Object AND tests/sim.test.mjs
+│   ├── live.js           LiveLink — browser ↔ live shared Kay (WebSocket): uploads the world model once, renders the server's Kay + streamed murals
+│   ├── remote-driver.js  RemoteDriver — animates the on-screen Kay from server snapshots (replaces the local Agent when a live server is connected)
+│   ├── agent.js          Agent — 5-state machine (OFFLINE fallback only, when no live server), writes to Vue reactive state
 │   ├── camera-rig.js     CameraRig — follow-behind, inertial orbit, zoom, pan, travel, lift, over-shoulder paint-cam, occlusion hysteresis, planet-spin aware
 │   ├── atmosphere.js     Atmosphere — sun glow, god-ray shafts, dust, moon, night lamp cones/pools
 │   ├── solar.js          real solar position (NOAA) + JST clock — drives the planet spin
@@ -80,10 +83,11 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 │   ├── ResetButton.js    "Raddrizza" — right the world / camera upright behind KAI
 │   └── FlashOverlay.js   orange radial flash on mural paint
 │
-├── worker.js       ← Cloudflare Worker: API proxy + rate limiting + D1 mural persistence
-├── wrangler.toml   ← Worker deploy config (KV + optional D1 binding)
+├── worker.js       ← Cloudflare Worker: API proxy + rate limiting + D1 persistence + KayDO (live shared Kay Durable Object)
+├── wrangler.toml   ← Worker deploy config (KV + optional D1 + optional KayDO Durable Object binding)
 ├── schema.sql      ← D1 table schema for persisted murals
-├── config.yaml     ← optional site-owner config (save_murals, worker_url, model, mode)
+├── config.yaml     ← optional site-owner config (save_murals, worker_url, model, mode, live)
+├── tests/sim.test.mjs ← deterministic node test of KaySim (continuity / proximity / coverage / revisit)
 └── PROMPT.md       ← full design spec
 ```
 
@@ -270,6 +274,50 @@ That's it — the front-end needs no extra config: with `workerUrl` set it calls
   ```
 - Without the binding the Worker answers `501` on `/murals` and the app quietly
   runs non-persistent (exactly like the optional rate-limit KV).
+
+---
+
+### 8 · (Optional) Live shared Kay — one Kay for everyone
+
+By default (offline / no Durable Object) **every browser runs its own Kay**: two
+visitors see him in different places. Bind the **`KayDO` Durable Object** and Kay
+becomes a single, server-authoritative entity instead:
+
+- **One shared position** — the server owns Kay's `(x, z)`; every browser connects
+  over a WebSocket (`<workerUrl>/live`) and renders the *same* Kay.
+- **Runs only while someone's watching** — the simulation ticks on a Durable
+  Object alarm while ≥1 browser is connected, and **freezes** (stops the alarm)
+  the moment the last one leaves; it resumes from the same spot on reconnect.
+- **The server picks and paints** — Kay chooses the next wall himself (random but
+  **nearest-first**, so he never jumps across town; a wall he can't reach is
+  deferred and revisited later — **no wall is "better"**), calls Anthropic with
+  the site key, stores the mural in the same D1 table, and broadcasts it live to
+  every browser. Movement is **continuous** — the old "Pac-Man" wrap is gone.
+
+The Durable Object binding + migration already ship in `wrangler.toml`
+(SQLite-backed DOs are on the free plan), so a normal redeploy enables it:
+
+```bash
+wrangler deploy                 # applies the [[migrations]] tag = "v1" (KayDO)
+wrangler secret put ANTHROPIC_API_KEY   # the server now paints autonomously
+```
+
+Pace/cost knobs (optional `vars`/secrets; Kay bills the site key continuously
+while anyone is connected): `KAY_COOLDOWN_MIN` (default 20 s) and
+`KAY_COOLDOWN_RANGE` (default 20 s) set the steady gap between murals;
+`KAY_THINK` / `KAY_PAINT` / `KAY_ADMIRE` and `KAY_MODEL` (default
+`claude-sonnet-4-6`) tune the rest.
+
+Turn it off without removing the binding via `config.yaml`: `live: false`
+(each browser falls back to its own local Kay). Without the `KAY` binding the
+Worker answers `501` on `/live` and the client falls back automatically.
+
+The pure movement/selection logic lives in `js/sim.mjs` and is proven by a
+dependency-free node test:
+
+```bash
+npm run test:sim   # continuity (no teleport) · proximity · full coverage · revisit
+```
 
 ---
 

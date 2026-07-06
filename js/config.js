@@ -7,6 +7,11 @@ export const CONFIG = {
   requestTimeoutMs: 30000,
   maxSvgBytes: 60000,
 
+  // Live shared Kay: when a workerUrl is set, connect to the server-authoritative
+  // Kay (one shared position for all browsers, server picks + paints walls). Set
+  // false (config.yaml: live: false) to force the old per-browser local Kay.
+  live: true,
+
   // The city generator's seed — ALSO the persistence "world" key: saved murals
   // are stored under this number and re-attached to the identical town it
   // generates. Changing it starts a fresh town with a fresh (empty) mural set.

@@ -15,3 +15,9 @@ worker_url: https://ai-muralist-proxy.ucicero.workers.dev
 
 # Force a mode: demo | ai. Default: auto (ai when a worker/api key is set).
 # mode: demo
+
+# Live shared Kay (needs worker_url + the [[durable_objects]] KAY binding in
+# wrangler.toml). true (default) = one server-authoritative Kay every browser
+# shares, who picks and paints walls himself and freezes when nobody's watching.
+# false = the old per-browser local Kay.
+# live: true

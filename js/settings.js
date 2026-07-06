@@ -64,11 +64,14 @@ export async function applySettings(CONFIG) {
   const mode      = user.mode ?? site.mode ?? ((workerUrl || apiKey) ? 'ai' : 'demo');
   // save flag: visitor toggle > site yaml > default ON (needs a worker to land)
   const saveMurals = (user.saveMurals ?? site.save_murals ?? true) !== false;
+  // live shared Kay: site yaml > default ON (only takes effect with a workerUrl)
+  const live = (site.live ?? CONFIG.live ?? true) !== false;
 
   CONFIG.workerUrl  = workerUrl || null;
   CONFIG.model      = model;
   CONFIG.mode       = mode;
   CONFIG.userApiKey = apiKey;
   CONFIG.saveMurals = saveMurals;
-  return { workerUrl: CONFIG.workerUrl, apiKey, model, mode, saveMurals };
+  CONFIG.live       = live;
+  return { workerUrl: CONFIG.workerUrl, apiKey, model, mode, saveMurals, live };
 }
