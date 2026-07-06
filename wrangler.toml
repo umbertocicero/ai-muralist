@@ -1,6 +1,24 @@
 name = "ai-muralist-proxy"
 main = "worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-09-23"
+
+# Live shared Kay (optional). A single Durable Object per world runs the ONE
+# authoritative simulation every browser connects to at <worker>/live. Deploy
+# with the migration below applied (it ships in this file). Without this binding
+# the Worker still runs — each browser just falls back to its own local Kay.
+# SQLite-backed Durable Objects are available on the free plan.
+[[durable_objects.bindings]]
+name = "KAY"
+class_name = "KayDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["KayDO"]
+
+# Optional pace/model overrides for the server-side painter (Kay bills the site
+# ANTHROPIC_API_KEY autonomously). Set as vars or secrets, e.g.:
+#   KAY_COOLDOWN_MIN (default 20s)   KAY_COOLDOWN_RANGE (default 20s)
+#   KAY_THINK / KAY_PAINT / KAY_ADMIRE   KAY_MODEL (default claude-sonnet-4-6)
 
 # Rate-limiting store. Create it once with:
 #   wrangler kv:namespace create RATE_LIMIT_KV

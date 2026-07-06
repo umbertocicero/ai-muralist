@@ -2,6 +2,10 @@ const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: 'tests',
+  // Playwright owns the browser *.spec.js files; the pure-Node simulation test
+  // (tests/sim.test.mjs, run with `node`) must NOT be collected here — it runs
+  // on import and would exit the runner. Run it with `npm run test:sim`.
+  testMatch: '**/*.spec.js',
   timeout: 30 * 1000,
   expect: {
     timeout: 5000,

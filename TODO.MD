@@ -173,8 +173,8 @@
 
 # TODO futuri
 - [ ] inserisci un laghetto
-- [ ] fare in modo che giri in background e salvi le info di murales fatti, dove, posizione in cui si trova. Limitare il tempo di run e renderlo configurabile, con allert che si consumano token
-- [ ] fin quando almeno persona è connessa kay gira e genera, se nessuno è connesso kay si ferma.
+- [x] fare in modo che giri in background e salvi le info di murales fatti, dove, posizione in cui si trova. Limitare il tempo di run e renderlo configurabile, con allert che si consumano token → Kay ora è AUTORITATIVO SUL SERVER (Durable Object KayDO in worker.js): sceglie e dipinge lui i muri, salva su D1 e trasmette in live. Ritmo/costo configurabili via env (KAY_COOLDOWN_MIN/RANGE, KAY_THINK/PAINT/ADMIRE, KAY_MODEL). NB: alert-token e cap giornaliero ancora da fare.
+- [x] fin quando almeno persona è connessa kay gira e genera, se nessuno è connesso kay si ferma. → posizione centralizzata + condivisa (WebSocket /live), il tick gira su alarm SOLO mentre ≥1 browser è connesso e si CONGELA quando l'ultimo esce (riprende dallo stesso punto). Effetto Pac-Man (wrap toroidale) eliminato sul percorso live: movimento continuo, scelta muro random ma per vicinanza, muri saltati ripresi dopo. Core in js/sim.mjs, provato da tests/sim.test.mjs.
 - [ ] permettere la configurazione del prompt per lo stile, o automatico
 - [ ] permettere  inserimento licenza e quindi la creazione di un ulteriore omino per cui si puo definire nome, automatic stile per riconoscerlo, anche lui ha tempi di run, stile di prompt, etc.
 - [ ] fotogafia o export murales

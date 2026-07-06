@@ -1116,10 +1116,11 @@ export class City {
   // often minutes away), with a little variety among the nearest. Falls back to
   // any free wall so KAI never runs out of things to paint.
   pickFreeSlot(from) {
-    const free = this.wallSlots.filter(s => !s.used && this.isApproachFree(s));
-    if (!free.length) return null;
-    const open = free.filter(s => this.frontageOpen(s));
-    const pool = open.length ? open : free;
+    // All walls are equal — no "best wall" / frontage preference (the server sim
+    // in js/sim.mjs does the same). Just free walls with a walkable approach,
+    // nearest-first with a little randomness so the route stays local + varied.
+    const pool = this.wallSlots.filter(s => !s.used && this.isApproachFree(s));
+    if (!pool.length) return null;
     if (!from) return pool[(Math.random() * pool.length) | 0];
     pool.sort((a, b) =>
       ((a.px - from.x) ** 2 + (a.pz - from.z) ** 2) - ((b.px - from.x) ** 2 + (b.pz - from.z) ** 2));

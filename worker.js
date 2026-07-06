@@ -1,8 +1,14 @@
-// AI Muralist — Cloudflare Worker API proxy + mural persistence
+// AI Muralist — Cloudflare Worker API proxy + mural persistence + live Kay
 // Hides the Anthropic API key, adds CORS, validates/normalizes input and
 // rate-limits per IP. With a D1 binding (DB) it also stores every painted
-// mural at GET/POST <worker>/murals, so the world survives a refresh.
+// mural at GET/POST <worker>/murals, so the world survives a refresh. With a
+// Durable Object binding (KAY) it also runs the ONE shared, server-authoritative
+// Kay at <worker>/live (WebSocket): his position is centralized (identical for
+// every browser), advances only while ≥1 browser is connected, and he chooses +
+// paints walls himself — see the KayDO class at the bottom of this file.
 // Deploy: `wrangler deploy` · Secret: `wrangler secret put ANTHROPIC_API_KEY`
+
+import { KaySim } from './js/sim.mjs';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -23,7 +29,7 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Build tag, returned by GET /murals and logged by the client at restore time:
 // makes "is the deployed Worker up to date?" answerable straight from the
 // browser console. Bump when the /murals contract or validation changes.
-const WORKER_BUILD = 3;
+const WORKER_BUILD = 4;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -38,7 +44,14 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });
     }
-    if (new URL(request.url).pathname.endsWith('/murals')) {
+    const path = new URL(request.url).pathname;
+    // Live shared Kay — one Durable Object per world, keyed by ?world=<worldKey>.
+    // Every browser of the same world talks to the SAME object, so they all see
+    // one Kay at one position. The WebSocket upgrade is forwarded straight in.
+    if (path.endsWith('/live')) {
+      return handleLive(request, env);
+    }
+    if (path.endsWith('/murals')) {
       return handleMurals(request, env);
     }
     if (request.method !== 'POST') {
@@ -215,4 +228,342 @@ function json(data, status = 200) {
     status,
     headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   });
+}
+
+// ===========================================================================
+//  Live shared Kay — Durable Object
+// ===========================================================================
+// GET /live?world=<worldKey>  (WebSocket upgrade) → connect to the ONE Kay of
+// this world. The Worker routes every connection for a given worldKey to the
+// same Durable Object instance (idFromName), so all browsers share one
+// authoritative simulation. Without the KAY binding the client silently falls
+// back to its own local Kay (see js/main.js).
+function handleLive(request, env) {
+  if (!env.KAY) {
+    return json({ error: { type: 'config_error', message: 'Live not configured (missing Durable Object binding KAY)' } }, 501);
+  }
+  const world = parseInt(new URL(request.url).searchParams.get('world') ?? '', 10);
+  if (!Number.isFinite(world)) {
+    return json({ error: { type: 'invalid_request_error', message: 'Missing ?world=<worldKey>' } }, 400);
+  }
+  const id = env.KAY.idFromName(String(world));
+  return env.KAY.get(id).fetch(request);
+}
+
+// Pacing / tick knobs. All optional env overrides so a deployment can slow Kay
+// down (token cost) without a code change. TICK_MS drives the alarm loop.
+const TICK_MS = 100;
+const KAY_MODEL_DEFAULT = 'claude-sonnet-4-6';
+const STYLE_NAMES = ['Ukiyo-e', 'Sumi-e', 'Manga', 'Woodblock', 'Anime', 'Kirie', 'Wabi-sabi', 'Kanji'];
+const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+function pacing(env) {
+  return {
+    thinkSeconds:  envNum(env.KAY_THINK, 2.0),
+    paintSeconds:  envNum(env.KAY_PAINT, 2.2),
+    admireSeconds: envNum(env.KAY_ADMIRE, 3.0),
+    cooldownMin:   envNum(env.KAY_COOLDOWN_MIN, 20),
+    cooldownRange: envNum(env.KAY_COOLDOWN_RANGE, 20),
+  };
+}
+
+export class KayDO {
+  constructor(state, env) {
+    this.state    = state;
+    this.env      = env;
+    this.storage  = state.storage;
+    this.sessions = new Set();     // open WebSockets (presence + broadcast)
+    this.sim      = null;
+    this.worldKey = null;
+    this._loaded  = false;
+    this._generating = false;      // an AI paint is in flight (guards double-start)
+    this._lastTick = null;
+    this._lastPersist = 0;
+  }
+
+  // Restore the simulation from storage on first touch (the DO may have been
+  // evicted while frozen). The world MODEL (grid + wall catalogue) is stored
+  // once, uploaded by the first browser; Kay's live state is stored each tick.
+  async _ensureLoaded() {
+    if (this._loaded) return;
+    this._loaded = true;
+    this.worldKey = (await this.storage.get('worldKey')) ?? null;
+    const model = await this.storage.get('model');
+    if (model) {
+      this.sim = new KaySim(model, pacing(this.env));
+      const saved = await this.storage.get('sim');
+      if (saved) this.sim.hydrate(saved);
+      await this._reconcilePainted();
+    }
+  }
+
+  // Seed the sim's "already painted" set from D1 so Kay never wastes tokens
+  // repainting walls a previous session (or another world build) already covered.
+  // Matches each stored mural to its wall by anchor (same 0.1 m tolerance the
+  // client restore uses to absorb 3-decimal rounding).
+  async _reconcilePainted() {
+    if (!this.sim || !this.env.DB || !Number.isInteger(this.worldKey)) return;
+    try {
+      const { results } = await this.env.DB.prepare(
+        `SELECT px, py, pz FROM murals WHERE world = ?1`).bind(this.worldKey).all();
+      for (const row of results ?? []) {
+        const w = this.sim.walls.find((w) =>
+          (w.px - row.px) ** 2 + (w.py - row.py) ** 2 + (w.pz - row.pz) ** 2 < 0.01);
+        if (w) this.sim.painted.add(w.id);
+      }
+    } catch { /* best-effort — worst case Kay revisits a painted wall (INSERT ignored) */ }
+  }
+
+  async fetch(request) {
+    await this._ensureLoaded();
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return json({ error: { type: 'invalid_request_error', message: 'Expected WebSocket' } }, 426);
+    }
+    const world = parseInt(new URL(request.url).searchParams.get('world') ?? '', 10);
+    if (Number.isFinite(world) && this.worldKey == null) this.worldKey = world;
+
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+    this.sessions.add(server);
+    server.addEventListener('message', (ev) => this._onMessage(server, ev));
+    const drop = () => { this.sessions.delete(server); };
+    server.addEventListener('close', drop);
+    server.addEventListener('error', drop);
+
+    this._send(server, {
+      type: 'hello', build: WORKER_BUILD, worldKey: this.worldKey,
+      needWorld: !this.sim, kay: this.sim ? this.sim.snapshot() : null,
+    });
+    await this._ensureTicking();      // first client → wake the tick loop
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async _onMessage(ws, ev) {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'world' && !this.sim) {
+      const model = decodeModel(msg.model);
+      if (!model) { this._send(ws, { type: 'error', message: 'bad world model' }); return; }
+      if (Number.isInteger(msg.worldKey)) this.worldKey = msg.worldKey;
+      this.sim = new KaySim(model, pacing(this.env));
+      await this.storage.put('model', model);
+      await this.storage.put('worldKey', this.worldKey);
+      await this._reconcilePainted();
+      await this._ensureTicking();
+    }
+  }
+
+  async _ensureTicking() {
+    if (!this.sim) return;
+    if ((await this.storage.getAlarm()) == null) {
+      this._lastTick = Date.now();
+      await this.storage.setAlarm(Date.now() + TICK_MS);
+    }
+  }
+
+  // The heartbeat. Advances Kay one step, kicks off a paint when he arrives at a
+  // wall, and broadcasts his position. STOPS rescheduling itself the moment no
+  // browser is connected — that is what "freezes while nobody's watching".
+  async alarm() {
+    await this._ensureLoaded();
+    if (this.sessions.size === 0) {                 // nobody connected → freeze
+      if (this.sim) await this.storage.put('sim', this.sim.serialize());
+      return;                                       // (no setAlarm → loop stops)
+    }
+    if (!this.sim) { await this.storage.setAlarm(Date.now() + TICK_MS); return; }
+
+    const now = Date.now();
+    let dt = (now - (this._lastTick ?? now)) / 1000;
+    this._lastTick = now;
+    if (!(dt > 0)) dt = TICK_MS / 1000;
+    dt = Math.min(dt, 0.25);                         // clamp a long pause / jitter
+
+    const sig = this.sim.step(dt);
+    if (sig && sig.paint && !this._generating) {
+      this._generating = true;
+      this.state.waitUntil(this._paintWall(sig.paint));
+    }
+    this._broadcast({ type: 'kay', ...this.sim.snapshot() });
+
+    if (now - this._lastPersist > 2000) {
+      this._lastPersist = now;
+      await this.storage.put('sim', this.sim.serialize());
+    }
+    await this.storage.setAlarm(now + TICK_MS);
+  }
+
+  // Kay reached a wall → imagine + paint it. Calls Anthropic with the SITE key
+  // (he runs autonomously, no visitor key), stores the piece in D1 (same table
+  // as the client save path), broadcasts it to every browser, and releases Kay
+  // to finish his brush stroke. Any failure just skips the wall (retried later).
+  async _paintWall(wall) {
+    try {
+      const key = this.env.ANTHROPIC_API_KEY;
+      if (!key) { this.sim.paintFailed(); return; }
+      const index = this.sim.muralCount;
+      const { text } = buildMuralPrompt(wall, index);
+      const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: this.env.KAY_MODEL || KAY_MODEL_DEFAULT,
+          max_tokens: 2048, temperature: 1,
+          messages: [{ role: 'user', content: text }],
+        }),
+      });
+      const data = await upstream.json();
+      if (data.error) throw new Error(data.error.message || 'api_error');
+      const raw = data?.content?.[0]?.text;
+      const parsed = parseMural(raw);
+      const svg = parsed.svg;
+      if (!svg || svg.length > 60_000 || SVG_FORBIDDEN.test(svg) || !svg.trimStart().startsWith('<svg')) {
+        throw new Error('bad_svg');
+      }
+      const style = STYLE_NAMES[index % STYLE_NAMES.length];
+
+      if (this.env.DB && Number.isInteger(this.worldKey)) {
+        const r3 = (v) => Math.round(v * 1000) / 1000;
+        await this.env.DB.prepare(
+          `INSERT OR IGNORE INTO murals (world, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
+        ).bind(this.worldKey, r3(wall.px), r3(wall.py), r3(wall.pz), r3(wall.nx), r3(wall.nz),
+               r3(wall.wallW), r3(wall.wallH), style, parsed.thought ?? null, svg, 'kay-server').run();
+      }
+
+      this.sim.paintDone({ svg, thought: parsed.thought });
+      // Broadcast in the SAME shape the client's mural-apply expects (mirrors a
+      // /murals row): the browser matches it to the wall slot by anchor.
+      this._broadcast({
+        type: 'mural',
+        px: wall.px, py: wall.py, pz: wall.pz, nx: wall.nx, nz: wall.nz,
+        wall_w: wall.wallW, wall_h: wall.wallH,
+        style, thought: parsed.thought ?? null, svg, user_id: 'kay-server',
+      });
+    } catch {
+      this.sim.paintFailed();
+    } finally {
+      this._generating = false;
+    }
+  }
+
+  _send(ws, obj) { try { ws.send(JSON.stringify(obj)); } catch { this.sessions.delete(ws); } }
+  _broadcast(obj) {
+    const s = JSON.stringify(obj);
+    for (const ws of this.sessions) { try { ws.send(s); } catch { this.sessions.delete(ws); } }
+  }
+}
+
+// Decode + validate the world model a browser uploads. `cells` travels as
+// base64 of a per-cell Uint8Array (0 = walkable, else solid) to keep the message
+// small; everything else is plain JSON. Returns the model with a real Uint8Array,
+// or null if it fails any sanity check.
+function decodeModel(m) {
+  try {
+    if (!m || typeof m !== 'object') return null;
+    if (!Number.isFinite(m.half) || !(m.cellSize > 0)) return null;
+    const cols = m.cols | 0, rows = m.rows | 0;
+    if (cols <= 0 || rows <= 0 || cols * rows > 200_000) return null;
+    if (!m.spawn || !Number.isFinite(m.spawn.x) || !Number.isFinite(m.spawn.z)) return null;
+    if (!Array.isArray(m.walls) || !m.walls.length || m.walls.length > 4000) return null;
+    const bin = atob(m.cellsB64);
+    if (bin.length !== cols * rows) return null;
+    const cells = new Uint8Array(cols * rows);
+    for (let i = 0; i < bin.length; i++) cells[i] = bin.charCodeAt(i);
+    const walls = m.walls.map((w, i) => ({
+      id: Number.isInteger(w.id) ? w.id : i,
+      px: +w.px, py: +w.py, pz: +w.pz, nx: +w.nx, nz: +w.nz,
+      wallW: +w.wallW, wallH: +w.wallH, ax: +w.ax, az: +w.az,
+    }));
+    if (walls.some((w) => ![w.px, w.pz, w.nx, w.nz, w.ax, w.az, w.wallW, w.wallH].every(Number.isFinite))) return null;
+    return { half: +m.half, cellSize: +m.cellSize, cols, rows, cells,
+             spawn: { x: +m.spawn.x, z: +m.spawn.z }, walls };
+  } catch { return null; }
+}
+
+// ---- Server-side mural prompt (ported from js/mural-factory.js) -------------
+function aspectDesc(wall) {
+  const r = wall.wallH / wall.wallW;
+  if (r > 1.3)   return 'tall portrait';
+  if (1 / r > 1.3) return 'wide landscape';
+  return 'roughly square';
+}
+
+function buildMuralPrompt(wall, index) {
+  const PW = 512;
+  const PH = Math.round(512 * (wall.wallH / wall.wallW));
+  const text =
+`You are KAI, a teenage street artist wandering a grey Japanese neighbourhood.
+You paint vivid murals on concrete walls — bursts of colour in a monochrome world.
+Your painting style is expressive and hand-drawn, never rigid or geometric.
+
+This is mural #${index}. Use (${index} % 8) to choose your style:
+
+STYLE 0 — UKIYO-E
+Flowing organic waves, mountains, wind. Flat colour washes in navy·vermillion·gold.
+Use <path d="M...C...C...Z"> with smooth bezier curves for every major shape.
+
+STYLE 1 — SUMI-E
+Ink-wash meditation. Sweeping brushstroke paths, varying stroke-width (1–18px),
+monochrome grey-black washes with one vivid accent colour bleeding through.
+Heavy use of <path> with stroke-linecap="round" and opacity layers.
+
+STYLE 2 — MANGA
+Dynamic energy. Speed-line paths radiating from a focal point.
+High contrast: near-black ground with electric colour pop (one hue).
+Use <path> for motion blur lines, <circle>/<ellipse> for focal elements.
+
+STYLE 3 — WOODBLOCK
+Hand-printed feel. Bold organic outlines (stroke-width 3–6) on flat colour fields.
+Earth tones: indigo·rust·tan·charcoal. Paths with slightly imperfect curves.
+
+STYLE 4 — ANIME
+Cel-shaded scene. Hard contour <path> strokes outlining coloured areas.
+Primary palette — red, yellow, blue, white, black — no gradients in fills,
+but dramatic gradient sky/background behind the composition.
+
+STYLE 5 — KIRIE (paper cut)
+Intricate silhouette work cut from a single vivid colour field.
+Organic paper-cut <path> shapes: leaves, waves, birds, branches —
+delicate negative space. One accent colour + stark black/white.
+
+STYLE 6 — WABI-SABI
+Imperfect beauty. Asymmetric brushed shapes, aged textures.
+Overlapping semi-transparent washes in ochre·moss·ash·umber.
+Let shapes be irregular, "unfinished", with visible layering.
+
+STYLE 7 — KANJI-ART
+Abstract calligraphic forms — not letters, but shapes inspired by brushed kanji.
+Thick-to-thin <path> strokes (stroke-width varies 1px to 30px along path),
+deep ink gradients, bold sweep gestures across the full canvas.
+
+The wall is ${wall.wallW.toFixed(1)}m wide × ${wall.wallH.toFixed(1)}m tall (${aspectDesc(wall)}).
+
+Return your response in EXACTLY this format and nothing else:
+THOUGHT: <one sentence, 7-12 words, KAI's raw poetic inner monologue; no quotes, no trailing punctuation, do not start with "I">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PW} ${PH}" width="${PW}" height="${PH}">...</svg>
+
+SVG RULES — follow exactly:
+TECHNIQUE: Use <path d="..."> with Bezier curve commands (C, Q, S, A) as your PRIMARY drawing tool.
+           Avoid using <rect> and <polygon> as main design elements — they produce flat, geometric results.
+           Create organic, painted-looking forms with curved paths and expressive strokes.
+ALLOWED elements: path circle ellipse line polyline defs linearGradient radialGradient stop g
+FORBIDDEN: rect polygon text image use symbol script foreignObject and any href/xlink/url() references
+BACKGROUND: first element must be a <rect> or large <path> covering the full viewBox as background only
+GRADIENTS: at least 2 gradient definitions in <defs> — use them for depth and painterly washes
+COLOUR: at least 5 distinct colours; fill the entire canvas — no bare white areas
+STROKES: use stroke attributes on <path> to simulate ink lines and brushwork
+LIMIT: maximum 40 elements (not counting <defs> children)
+OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no comments.`;
+  return { PW, PH, text };
+}
+
+function parseMural(raw) {
+  let thought = 'this grey wall has been waiting for someone like me';
+  if (typeof raw !== 'string') return { thought, svg: null };
+  const tm = raw.match(/THOUGHT:\s*(.+)/i);
+  if (tm) thought = tm[1].split('\n')[0].trim().replace(/^["']|["']$/g, '');
+  const start = raw.indexOf('<svg');
+  const end   = raw.lastIndexOf('</svg>');
+  const svg   = (start !== -1 && end !== -1) ? raw.slice(start, end + 6) : null;
+  return { thought, svg };
 }

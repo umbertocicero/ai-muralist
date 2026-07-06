@@ -10,6 +10,8 @@ import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
 import { Persistence }   from './persistence.js';
+import { LiveLink }      from './live.js';
+import { RemoteDriver }  from './remote-driver.js';
 import { applySettings } from './settings.js';
 import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
@@ -180,6 +182,25 @@ class App {
       // Settings "DELETE MURALS" → wipe this world's shared canvas.
       ui.onDeleteMurals = () => this.persistence.deleteAll();
     }
+
+    // ── Live shared Kay ────────────────────────────────────────────────────
+    // When a Worker is configured (and live isn't disabled) Kay is authoritative
+    // ON THE SERVER: one shared position for every browser, and the server picks
+    // + paints the walls. This browser stops running Kay's brain — it just
+    // renders where the server says he is (RemoteDriver). If the socket never
+    // connects (no DO binding / offline) we fall back to the local Agent below.
+    this.liveEnabled = !!(CONFIG.workerUrl && CONFIG.live !== false);
+    this.live = null;
+    this.remote = null;
+    this._offline = false;
+    if (this.liveEnabled) {
+      this.remote = new RemoteDriver(this.city, this.character, ui);
+      this.live   = new LiveLink(CONFIG.workerUrl, this.city.worldKey, this.city, this.factory, ui);
+      this.live.onState = (s, p) => this.remote.onState(s, p, this.live.kay);
+      this.live.start();
+      // If no live server answers within the grace window, run the local Kay.
+      setTimeout(() => { if (!this.live.everConnected) this._offline = true; }, 8000);
+    }
     // Live map page: the overlay canvas is composited from js/map.js — static
     // base cached once, KAI dot + fading trail + mural markers on top.
     this._trail = []; this._trailT = 0;
@@ -318,14 +339,24 @@ class App {
     requestAnimationFrame(this._loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t  = this.clock.elapsedTime;
-    // Pac-Man wrap: KAI's flat position is toroidal (city.wrapPoint). If he crossed
-    // a seam this frame his spot on the planet jumped to the far side — snap the
-    // follow-cam there so it cuts across cleanly instead of orbiting the whole globe.
-    const _px = this.character.pos.x, _pz = this.character.pos.z;
-    this.agent.update(dt, t);
-    if (Math.abs(this.character.pos.x - _px) > this.city.HALF ||
-        Math.abs(this.character.pos.z - _pz) > this.city.HALF) {
-      this.rig.wrapSnap(this.character.pos);
+    // Who moves Kay this frame:
+    //  · live server connected → render the authoritative position (no wrapping,
+    //    so the "Pac-Man" teleport is gone entirely on this path);
+    //  · live enabled but still handshaking → hold him still (don't let the local
+    //    brain claim/paint walls the server owns);
+    //  · offline / demo → the local Agent drives himself (legacy toroidal walk,
+    //    with the follow-cam wrap-snap kept only here).
+    if (this.live && this.live.everConnected) {
+      this.remote.update(dt, t, this.live.kay);
+    } else if (this.liveEnabled && !this._offline) {
+      this.character.idle(t); this.character.sync();
+    } else {
+      const _px = this.character.pos.x, _pz = this.character.pos.z;
+      this.agent.update(dt, t);
+      if (Math.abs(this.character.pos.x - _px) > this.city.HALF ||
+          Math.abs(this.character.pos.z - _pz) > this.city.HALF) {
+        this.rig.wrapSnap(this.character.pos);
+      }
     }
     // breadcrumb trail for the live map (~7 points/s, capped at ~90s of walk)
     this._trailT += dt;
