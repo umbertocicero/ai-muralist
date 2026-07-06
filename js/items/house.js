@@ -3,6 +3,11 @@ import { CONFIG } from '../config.js';
 import { toonMat, inkedMesh, addInk } from '../toon.js';
 import { GLASS } from './materials.js';
 
+// Ink for roof board-lines added as CHILDREN of a roof mesh (see makeGableRoof):
+// a child inherits the roof's exact spherify — position, tilt AND the y-stretch —
+// so the strokes stay glued to the slope instead of sphere-projecting off it.
+const ROOFLINE_MAT = new THREE.LineBasicMaterial({ color: '#2a2824' });
+
 // ===========================================================================
 //  House — everything that belongs to a building: window/shutter geometry for
 //  the town-wide instancing, roofs (gable / hip / tiles / corrugated), wood
@@ -169,7 +174,20 @@ export function makeGableRoof(ctx, { cx, cz, hw, hd, rot, H }) {
   // ridge beam
   const ridge = inkedMesh(new THREE.BoxGeometry(0.1, 0.12, len), '#1a1814', { k: 1.06, cast: false });
   ridge.position.set(cx, H + rh, cz); ridge.rotation.y = rot; ctx.scene.add(ridge);
-  makeRoofTiles(ctx, { cx, cz, rot, H, hw, hd, hip: false, rh, halfSpan, len });
+  // slope board-lines, laid in the roof's OWN local frame and parented to the
+  // roof mesh — they inherit its spherify (incl. the y-stretch) and so ride the
+  // slopes exactly, instead of drifting off as sphere-projected strokes (the
+  // "wrong boards"). ly = rh·(1-t) puts each line on the pitch at its x.
+  const pos = [];
+  const N = 5, zEdge = len / 2 - 0.25;
+  for (let s = -1; s <= 1; s += 2)
+    for (let i = 1; i < N; i++) {
+      const t = i / N, lx = s * t * halfSpan, ly = rh * (1 - t) + 0.05;
+      pos.push(lx, ly, -zEdge,  lx, ly, zEdge);
+    }
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  roof.add(new THREE.LineSegments(tg, ROOFLINE_MAT));
 }
 
 // Parallel tile/ridge strokes down a pitched roof (batched ink strokes).

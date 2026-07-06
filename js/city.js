@@ -679,7 +679,6 @@ export class City {
       this._gableRoof(cx, cz, hw, hd, rot, H);
     } else if (roll < 0.62) {
       this._hipRoof(cx, cz, hw * 2, hd * 2, H, rot);
-      this._roofTiles(cx, cz, rot, H + 0.05, hw, hd, true);
     } else {
       const cap = inkedMesh(new THREE.BoxGeometry(hw * 2 + 0.3, 0.36, hd * 2 + 0.3), '#cdcbc7', { k: 1.02 });
       cap.position.set(cx, H + 0.18, cz); cap.rotation.y = rot;
