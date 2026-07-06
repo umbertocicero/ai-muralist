@@ -3,21 +3,24 @@ import { CONFIG } from './config.js';
 import { clamp, lerpAngle } from './helpers.js';
 import { planetPoint, PLANET_R } from './planet.js';
 
-const _WORLD_UP = new THREE.Vector3(0, 1, 0);
-
 // ===========================================================================
-//  Camera rig — Apple-grade feel, Google-Street-View navigation.
+//  Camera rig — Google-Earth navigation on a little planet.
 //
-//  • ORBIT  : drag (or one finger) rotates around the focus, with momentum
-//             that decays smoothly after you let go. Orbiting keeps the focus
-//             centred, so it keeps following KAI.
+//  • PAN    : one finger, or a plain left-drag, GRABS the globe and drags it —
+//             the point under your finger stays under your finger (a true
+//             grab-and-drag, gain derived from the view geometry), with inertia
+//             so a flick keeps the planet gliding. Panning moves the look-point
+//             off KAI (the "Follow KAI" button brings it back).
+//  • ROTATE / TILT : two-finger TWIST spins the compass and a two-finger
+//             vertical drag tilts the view; on desktop a right / middle / shift /
+//             ctrl-drag does the same. These only re-orient around the centre, so
+//             the shot keeps framing KAI while you look around him.
 //  • ZOOM   : wheel / pinch eases the distance toward a target (never a hard
-//             jump) and zooms *toward the cursor* when you've taken manual
-//             control, the way Apple Maps / trackpad pinch behaves.
-//  • PAN    : two-finger drag, or shift / middle-drag, slides the focus along
-//             the ground.
-//  • TRAVEL : double-click / double-tap the pavement to glide to that spot,
-//             like clicking the arrows in Street View. Won't enter buildings.
+//             jump) and zooms *toward the cursor / pinch* the way Google Earth /
+//             Maps do.
+//  • FLY-TO : double-click / double-tap the ground to glide the view there;
+//             repeat toward the top of the screen to sail over the horizon and
+//             right around the planet.
 //
 //  Everything is frame-rate independent (exponential smoothing on dt).
 // ===========================================================================
@@ -37,6 +40,7 @@ export class CameraRig {
     this.targetRadius = CONFIG.camRadius;
 
     this.velAz = 0; this.velPolar = 0;            // orbit momentum
+    this.velPan = new THREE.Vector3();            // pan (grab-drag) inertia — a tangent world velocity
     // pivot = the look-at point, a world point ON the little planet
     this.R           = PLANET_R;
     this.pivot       = planetPoint(CONFIG.charStart.x, CONFIG.camLookY, CONFIG.charStart.z, new THREE.Vector3(), this.R);
@@ -67,13 +71,19 @@ export class CameraRig {
     // the world turns. Set by the app each frame (null = no spin).
     this.worldQuat = null;
     this._pw = new THREE.Vector3(); this._invQ = new THREE.Quaternion(); this._camL = new THREE.Vector3();
+    this._panStep = new THREE.Vector3();          // scratch: this-frame pan delta (world tangent)
+    this._panFlick = new THREE.Vector3();         // scratch: candidate release velocity for the fling
+    this._panN = new THREE.Vector3();             // scratch: sphere normal for re-tangenting the glide
+    this._panAxis = new THREE.Vector3();          // scratch: geodesic rotation axis for the grab
+    this._panQ = new THREE.Quaternion();          // scratch: geodesic rotation for the grab
+    this._tanHalfFov = Math.tan(THREE.MathUtils.degToRad(CONFIG.camFov) / 2);   // pan gain ← view geometry
     this._cineN = null;            // slot normal the paint-cam frames from behind
     this._cineSide = 0;            // shoulder offset (rad) for the paint-cam
     this._cineAdmire = false;      // true = admiring a finished mural (frames itself; no occlusion-lift)
     this._snapBehind = false;      // reattach → snap straight behind KAI next frame
     this._offAxis = false;         // user has orbited/panned off the follow axis
     this._ptrs  = new Map();                       // active pointers
-    this._mode  = null;                            // 'orbit' | 'pan'
+    this._mode  = null;                            // 'pan' | 'orbit' | 'gesture'
     this._last  = { x: 0, y: 0, t: 0, dx: 0, dy: 0 };
     this._pinch = 0;
     this._lastTapT = 0;
@@ -83,10 +93,10 @@ export class CameraRig {
   }
 
   // ---- input -------------------------------------------------------------
-  //  Touch:  one finger drags to spin/tilt the globe (with a fling), two fingers
-  //  pinch to zoom (into the spot between them), twist to spin, and slide up/down
-  //  to tilt. A clean tap = nothing; a clean double-tap glides there. A small
-  //  dead-zone means a tap never accidentally drops the follow-cam.
+  //  Google-Earth mapping. One finger / plain drag = PAN (grab the globe and drag
+  //  it, with a fling). Two fingers = pinch-zoom + twist-rotate + vertical-drag
+  //  tilt; a right / middle / shift / ctrl drag orbits the same way on desktop. A
+  //  clean tap does nothing; a clean double-tap flies the view to that spot.
   _bind() {
     const el = this.canvas;
     const MOVE_EPS = 6;   // px before a touch counts as a drag (not a tap)
@@ -97,18 +107,21 @@ export class CameraRig {
       this._idle = 0;
       this._cine = null;   // user takes over → stop auto-watching the mural
       if (this._ptrs.size === 1) {
-        this._mode = (e.shiftKey || e.button === 1) ? 'pan' : 'orbit';
+        // Plain drag GRABS + pans the globe (Google Earth); a modifier drag
+        // (right / middle / shift / ctrl) orbits — rotate the compass + tilt.
+        const orbitMod = e.button === 2 || e.button === 1 || e.shiftKey || e.ctrlKey;
+        this._mode = orbitMod ? 'orbit' : 'pan';
         this._last = { x: e.clientX, y: e.clientY, t: performance.now(), dx: 0, dy: 0, dt: 0 };
-        this.velAz = this.velPolar = 0;
+        this.velAz = this.velPolar = 0; this.velPan.set(0, 0, 0);
         this._moved = false;
         this._downT = performance.now();
       } else if (this._ptrs.size === 2) {
-        this._mode = 'pinch';
+        this._mode = 'gesture';         // pinch-zoom + twist-rotate + two-finger tilt
         this._pinch    = this._pairDist();
         this._pinchMid = this._pairMid();
         this._pinchAng = this._pairAngle();
-        this._moved = true;            // a two-finger gesture is never a tap
-        this.velAz = this.velPolar = 0;
+        this._moved = true;             // a two-finger gesture is never a tap
+        this.velAz = this.velPolar = 0; this.velPan.set(0, 0, 0);
       }
     });
 
@@ -118,33 +131,41 @@ export class CameraRig {
       p.x = e.clientX; p.y = e.clientY;
       this._idle = 0;
 
-      if (this._mode === 'orbit') {
+      if (this._mode === 'pan' || this._mode === 'orbit') {
         const dx = e.clientX - this._last.x, dy = e.clientY - this._last.y;
         if (!this._moved && Math.abs(dx) + Math.abs(dy) > MOVE_EPS) this._moved = true;
-        // Orbiting does NOT drop the follow — you look around KAI and it eases
-        // back behind him when you let go. Only double-tap (travel) detaches.
-        if (this._moved) this._orbit(dx, dy);
         const now = performance.now(), dt = Math.max(1, now - this._last.t) / 1000;
+        if (this._moved) {
+          if (this._mode === 'pan') {
+            this._pan(dx, dy);
+            this._panFlick.copy(this._panStep).multiplyScalar(1 / dt);  // remember for the release fling
+          } else {
+            this._orbit(dx, dy);   // modifier drag = look around KAI (keeps the follow)
+          }
+        }
         this._last = { x: e.clientX, y: e.clientY, t: now, dx, dy, dt };
-      } else if (this._mode === 'pan') {
-        this._orbit(e.clientX - this._last.x, e.clientY - this._last.y);
-        this._last.x = e.clientX; this._last.y = e.clientY;
-      } else if (this._mode === 'pinch') {
-        const d = this._pairDist(), mid = this._pairMid();
+      } else if (this._mode === 'gesture') {
+        const d = this._pairDist(), mid = this._pairMid(), ang = this._pairAngle();
         if (this._pinch > 0) this._applyZoom(this._pinch / d, mid.x, mid.y);   // pinch → zoom into the spot
-        // two-finger swipe → drag the world: the look-point slides OPPOSITE the
-        // swipe, so the planet rotates under your fingers (grab-and-spin).
-        this._dragWorld(mid.x - this._pinchMid.x, mid.y - this._pinchMid.y);
-        this._pinch = d; this._pinchMid = mid;
+        let dA = ang - this._pinchAng; dA = Math.atan2(Math.sin(dA), Math.cos(dA));
+        this.azimuth -= dA;                                                    // twist → rotate the compass
+        this.polar = clamp(this.polar - (mid.y - this._pinchMid.y) * CONFIG.camDragSensitivity * 0.9,
+                           CONFIG.camPolarMin, CONFIG.camPolarMax);            // two-finger vertical → tilt
+        this._offAxis = true;   // re-oriented off the behind-KAI axis → show "Follow KAI"
+        this._pinch = d; this._pinchMid = mid; this._pinchAng = ang;
       }
     });
 
     const end = e => {
       if (!this._ptrs.has(e.pointerId)) return;
-      // fling: turn the last drag delta into orbit momentum
-      if (this._mode === 'orbit' && this._moved && this._last.dt && (performance.now() - this._last.t) < 90) {
-        this.velAz    = -this._last.dx * CONFIG.camDragSensitivity / this._last.dt;
-        this.velPolar =  this._last.dy * CONFIG.camDragSensitivity * 0.7 / this._last.dt;
+      // fling: turn the last drag into momentum — pan glides the globe, orbit spins it
+      if (this._moved && this._last.dt && (performance.now() - this._last.t) < 90) {
+        if (this._mode === 'pan') {
+          this.velPan.copy(this._panFlick);
+        } else if (this._mode === 'orbit') {
+          this.velAz    = -this._last.dx * CONFIG.camDragSensitivity / this._last.dt;
+          this.velPolar =  this._last.dy * CONFIG.camDragSensitivity * 0.7 / this._last.dt;
+        }
       }
       // clean touch tap → double-tap glides there (single tap does nothing)
       if (e.pointerType === 'touch' && this._ptrs.size === 1 && !this._moved &&
@@ -154,7 +175,7 @@ export class CameraRig {
         this._lastTapT = now;
       }
       this._ptrs.delete(e.pointerId);
-      this._mode = this._ptrs.size >= 2 ? 'pinch' : (this._ptrs.size === 1 ? 'orbit' : null);
+      this._mode = this._ptrs.size >= 2 ? 'gesture' : (this._ptrs.size === 1 ? 'pan' : null);
       if (this._ptrs.size >= 1) {
         const [only] = this._ptrs.values();
         this._last = { x: only.x, y: only.y, t: performance.now(), dx: 0, dy: 0, dt: 0 };
@@ -165,6 +186,9 @@ export class CameraRig {
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
 
+    // right-drag orbits → suppress the browser context menu over the canvas
+    el.addEventListener('contextmenu', e => e.preventDefault());
+
     el.addEventListener('wheel', e => {
       e.preventDefault();
       this._idle = 0;
@@ -172,7 +196,7 @@ export class CameraRig {
       this._applyZoom(1 + e.deltaY * CONFIG.camZoomStep, e.clientX, e.clientY);
     }, { passive: false });
 
-    // Desktop: double-click the ground to glide there
+    // Desktop: double-click the ground to fly there
     el.addEventListener('dblclick', e => this._travel(e.clientX, e.clientY));
   }
 
@@ -245,25 +269,63 @@ export class CameraRig {
     }
   }
 
-  // Two-finger swipe = drag the planet: slide the look-point across the surface
-  // OPPOSITE the swipe (so the world rotates under your fingers). Leaves the
-  // follow (you're exploring) and keeps the pivot exactly on the sphere.
-  _dragWorld(dmx, dmy) {
-    if (!dmx && !dmy) return;
+  // PAN = grab the globe and drag it (Google Earth). The look-point slides across
+  // the surface OPPOSITE the drag, so the spot under your finger stays under it.
+  // The gain comes from the VIEW GEOMETRY — the pivot sits ~renderEff from the
+  // camera and the frame spans 2·renderEff·tan(fov/2) world units over the canvas
+  // height — so a pixel of drag maps to exactly that many world units and the grab
+  // tracks the finger instead of drifting. The applied step is stashed in
+  // `_panStep` so a release can turn it into an inertial fling. Leaves the follow.
+  _pan(dpx, dpy) {
+    if (!dpx && !dpy) return;
     this._detach();
-    // work in the rig's un-spun frame: bring the (world-space) camera position
-    // back through the planet spin so it matches this.pivot's frame.
+    // Screen axes in WORLD space are the camera's own right (matrix col 0) and up
+    // (col 1). Use THOSE — not world-Y — so the drag stays glued to the screen no
+    // matter how the local surface normal (the camera's up) has rolled as the
+    // look-point roamed off the pole. Bring them (and the camera position) into the
+    // rig's un-spun frame and flatten onto the sphere's tangent plane at the pivot.
     this._camL.copy(this.camera.position);
-    if (this.worldQuat) this._camL.applyQuaternion(this._invQ.copy(this.worldQuat).invert());
-    const fwd   = this._t.copy(this.pivot).sub(this._camL).normalize();
-    const right = this._b.crossVectors(fwd, _WORLD_UP).normalize();
-    const up    = this._off.crossVectors(right, fwd).normalize();
-    const k = this._renderEff * 0.0016 + 0.02;     // farther out → faster traverse
-    this.pivotTarget
-      .addScaledVector(right, -dmx * k)
-      .addScaledVector(up,     dmy * k)
-      .setLength(this.R + CONFIG.camLookY);
-    this._clampPivot(this.pivotTarget);   // stay over the town, never onto the far side
+    const e = this.camera.matrixWorld.elements;
+    this._t.set(e[0], e[1], e[2]);        // camera right → screen +x
+    this._off.set(e[4], e[5], e[6]);      // camera up    → screen +y
+    if (this.worldQuat) {
+      this._invQ.copy(this.worldQuat).invert();
+      this._camL.applyQuaternion(this._invQ);
+      this._t.applyQuaternion(this._invQ);
+      this._off.applyQuaternion(this._invQ);
+    }
+    const f = this._panN.copy(this.pivotTarget).sub(this._camL).normalize();  // view dir
+    const n = this._pw.copy(this.pivotTarget).normalize();                    // surface normal
+    this._t.addScaledVector(n,  -this._t.dot(n));
+    this._off.addScaledVector(n, -this._off.dot(n));
+    // world units per screen pixel at the pivot's depth, per axis. A tangent axis
+    // that runs nearly ALONG the view foreshortens (covers more ground per pixel),
+    // so boost its gain by 1/sin(angle to the view) — exact grab, any tilt.
+    const H = this.canvas.clientHeight || 1;
+    const base = 2 * this._renderEff * this._tanHalfFov / H;
+    const gain = (u) => {
+      const L = u.length(); if (L < 1e-6) return 0;
+      u.multiplyScalar(1 / L);
+      return base / Math.sqrt(Math.max(0.04, 1 - u.dot(f) * u.dot(f)));   // 1/sin, capped ×5
+    };
+    const gx = gain(this._t), gy = gain(this._off);
+    this._panStep.copy(this._t).multiplyScalar(-dpx * gx).addScaledVector(this._off, dpy * gy);
+    // Move the look-point along the drag GEODESIC (a rotation about the sphere
+    // centre), not a straight tangent hop + renormalise. On this tiny planet the
+    // curvature is large, and only the geodesic keeps the grabbed point glued to
+    // the finger when you drag sideways (a straight step drifts off the latitude).
+    const arc = this._panStep.length();
+    if (arc < 1e-9) return;
+    // axis ⟂ to the normal and the drag; cross+normalise cancels the magnitude, so
+    // _panStep is left intact as the tangential displacement for the release fling.
+    this._panAxis.crossVectors(n, this._panStep).normalize();
+    this._panQ.setFromAxisAngle(this._panAxis, arc / (this.R + CONFIG.camLookY));
+    this.pivotTarget.applyQuaternion(this._panQ);
+    this._clampPivot(this.pivotTarget);   // stay on the roamable sphere
+    // A grab is direct manipulation — the globe tracks the finger 1:1 with no
+    // rubber-banding, so move the eased look-point straight to the target too
+    // (the follow/travel easing still applies when the rig drives itself).
+    this.pivot.copy(this.pivotTarget);
   }
 
   // double-tap the globe to glide the look-point there (Google-Earth style)
@@ -310,7 +372,7 @@ export class CameraRig {
     this.ui.cameraFollowing = true;
     this.targetRadius = CONFIG.camRadius;
     planetPoint(charPos.x, CONFIG.camLookY, charPos.z, this.pivotTarget, this.R);
-    this.velAz = 0;
+    this.velAz = 0; this.velPan.set(0, 0, 0);
     this._idle = 999;       // settle straight behind KAI right away
     this._snapBehind = true; // …and lock the azimuth this very frame (no swing)
     this._offAxis = false;   // back on the follow axis → hide the Follow button
@@ -337,7 +399,7 @@ export class CameraRig {
   resetView(charPos) {
     this.polar = this._renderPolar = CONFIG.camPolar;
     this.targetRadius = this.radius = this._renderEff = CONFIG.camRadius;
-    this.velAz = this.velPolar = 0;
+    this.velAz = this.velPolar = 0; this.velPan.set(0, 0, 0);
     this._cine = null;
     if (this.following) {
       this.reattach(charPos);            // already on KAI → just re-lock behind him
@@ -465,6 +527,19 @@ export class CameraRig {
       this.velAz *= decay; this.velPolar *= decay;
       if (Math.abs(this.velAz) < 1e-4) this.velAz = 0;
       if (Math.abs(this.velPolar) < 1e-4) this.velPolar = 0;
+    }
+
+    // pan inertia (when not actively panning): flick the globe and it keeps
+    // gliding, decaying smoothly — the Google-Earth "throw the planet" feel. Keep
+    // the velocity tangent to the sphere as the pivot moves so it glides along the
+    // surface instead of drilling through it.
+    if ((this._mode !== 'pan' || this._ptrs.size === 0) && this.velPan.lengthSq() > 1e-6) {
+      this.pivotTarget.addScaledVector(this.velPan, dt).setLength(this.R + CONFIG.camLookY);
+      this._clampPivot(this.pivotTarget);
+      this._panN.copy(this.pivotTarget).normalize();
+      this.velPan.addScaledVector(this._panN, -this.velPan.dot(this._panN));
+      this.velPan.multiplyScalar(Math.exp(-dt / CONFIG.camInertiaTau));
+      if (this.velPan.lengthSq() < 1e-6) this.velPan.set(0, 0, 0);
     }
 
     // eased zoom + pivot follow
