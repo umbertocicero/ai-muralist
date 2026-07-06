@@ -103,6 +103,7 @@ export class LiveLink {
       case 'hello':
         this.connected = true; this.everConnected = true;
         console.info(`[live] connected · worker build ${msg.build} · needWorld ${msg.needWorld}`);
+        this._sendMode();                       // tell the server demo vs AI (always)
         if (msg.needWorld) this._sendModel();
         if (msg.kay) this._applyKay(msg.kay);
         break;
@@ -126,11 +127,19 @@ export class LiveLink {
     if (k.state !== this._prevState) { this.onState?.(k.state, this._prevState); this._prevState = k.state; }
   }
 
+  // Report the site's resolved mode so the server knows whether to paint
+  // procedurally (demo) or call Anthropic. Sent on every connect (works even when
+  // the DO already has the world model, i.e. needWorld=false).
+  _sendMode() {
+    if (!this._ws) return;
+    try { this._ws.send(JSON.stringify({ type: 'mode', demo: CONFIG.mode === 'demo' })); } catch {}
+  }
+
   _sendModel() {
     if (this._modelSent || !this._ws) return;
     this._modelSent = true;
     const model = buildWorldModel(this.city);
-    this._ws.send(JSON.stringify({ type: 'world', worldKey: this.worldKey, model }));
+    this._ws.send(JSON.stringify({ type: 'world', worldKey: this.worldKey, model, demo: CONFIG.mode === 'demo' }));
     console.info(`[live] uploaded world model: ${model.walls.length} walls, ${model.cols}×${model.rows} grid`);
   }
 

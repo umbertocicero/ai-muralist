@@ -9,6 +9,7 @@
 // Deploy: `wrangler deploy` · Secret: `wrangler secret put ANTHROPIC_API_KEY`
 
 import { KaySim } from './js/sim.mjs';
+import { demoSVG, DEMO_THOUGHTS } from './js/demo.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -274,6 +275,7 @@ export class KayDO {
     this.sessions = new Set();     // open WebSockets (presence + broadcast)
     this.sim      = null;
     this.worldKey = null;
+    this.demo     = false;         // site demo mode → procedural murals, no Anthropic call
     this._loaded  = false;
     this._generating = false;      // an AI paint is in flight (guards double-start)
     this._lastTick = null;
@@ -287,6 +289,7 @@ export class KayDO {
     if (this._loaded) return;
     this._loaded = true;
     this.worldKey = (await this.storage.get('worldKey')) ?? null;
+    this.demo     = (await this.storage.get('demo')) ?? false;
     const model = await this.storage.get('model');
     if (model) {
       this.sim = new KaySim(model, pacing(this.env));
@@ -341,16 +344,32 @@ export class KayDO {
   async _onMessage(ws, ev) {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
+    // The site's demo/AI mode (from the client's resolved CONFIG.mode). In demo
+    // mode Kay paints procedural murals and never calls Anthropic.
+    if (msg.type === 'mode') {
+      this.demo = !!msg.demo;
+      await this.storage.put('demo', this.demo);
+      return;
+    }
     if (msg.type === 'world' && !this.sim) {
       const model = decodeModel(msg.model);
       if (!model) { this._send(ws, { type: 'error', message: 'bad world model' }); return; }
       if (Number.isInteger(msg.worldKey)) this.worldKey = msg.worldKey;
+      if (typeof msg.demo === 'boolean') { this.demo = msg.demo; await this.storage.put('demo', this.demo); }
       this.sim = new KaySim(model, pacing(this.env));
       await this.storage.put('model', model);
       await this.storage.put('worldKey', this.worldKey);
       await this._reconcilePainted();
       await this._ensureTicking();
     }
+  }
+
+  // Whether to paint procedurally instead of calling Anthropic: forced by env,
+  // forced when no site key is configured, or the client-reported demo mode.
+  _isDemo() {
+    if (this.env.KAY_DEMO === 'true') return true;
+    if (!this.env.ANTHROPIC_API_KEY) return true;
+    return this.demo;
   }
 
   async _ensureTicking() {
@@ -392,38 +411,41 @@ export class KayDO {
     await this.storage.setAlarm(now + TICK_MS);
   }
 
-  // Kay reached a wall → imagine + paint it. Calls Anthropic with the SITE key
-  // (he runs autonomously, no visitor key), stores the piece in D1 (same table
-  // as the client save path), broadcasts it to every browser, and releases Kay
-  // to finish his brush stroke. Any failure just skips the wall (retried later).
+  // Kay reached a wall → imagine + paint it. In DEMO mode he paints a procedural
+  // mural (no Anthropic call); otherwise he calls Anthropic with the SITE key (he
+  // runs autonomously, no visitor key). Either way the piece is stored in D1 (same
+  // table as the client save path) and broadcast to every browser, then Kay is
+  // released to finish his brush stroke. Any failure just skips the wall (retried).
   async _paintWall(wall) {
     try {
-      const key = this.env.ANTHROPIC_API_KEY;
-      if (!key) {
-        this._paintError('server has no ANTHROPIC_API_KEY — Kay can only paint with the site key. Run: wrangler secret put ANTHROPIC_API_KEY');
-        this.sim.paintFailed();
-        return;
-      }
       const index = this.sim.muralCount;
-      const { text } = buildMuralPrompt(wall, index);
-      const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: this.env.KAY_MODEL || KAY_MODEL_DEFAULT,
-          max_tokens: 2048, temperature: 1,
-          messages: [{ role: 'user', content: text }],
-        }),
-      });
-      const data = await upstream.json();
-      if (!upstream.ok || data.error) {
-        throw new Error(`Anthropic ${upstream.status}: ${data?.error?.message || 'api_error'}`);
+      let svg, thought;
+
+      if (this._isDemo()) {
+        const PW = 512, PH = Math.round(512 * (wall.wallH / wall.wallW));
+        svg     = demoSVG(PW, PH, index);
+        thought = DEMO_THOUGHTS[index % DEMO_THOUGHTS.length];
+      } else {
+        const { text } = buildMuralPrompt(wall, index);
+        const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': this.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({
+            model: this.env.KAY_MODEL || KAY_MODEL_DEFAULT,
+            max_tokens: 2048, temperature: 1,
+            messages: [{ role: 'user', content: text }],
+          }),
+        });
+        const data = await upstream.json();
+        if (!upstream.ok || data.error) {
+          throw new Error(`Anthropic ${upstream.status}: ${data?.error?.message || 'api_error'}`);
+        }
+        const parsed = parseMural(data?.content?.[0]?.text);
+        svg = parsed.svg; thought = parsed.thought;
       }
-      const raw = data?.content?.[0]?.text;
-      const parsed = parseMural(raw);
-      const svg = parsed.svg;
+
       if (!svg || svg.length > 60_000 || SVG_FORBIDDEN.test(svg) || !svg.trimStart().startsWith('<svg')) {
-        throw new Error('model returned no usable SVG');
+        throw new Error('no usable SVG');
       }
       const style = STYLE_NAMES[index % STYLE_NAMES.length];
 
@@ -433,18 +455,18 @@ export class KayDO {
           `INSERT OR IGNORE INTO murals (world, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
         ).bind(this.worldKey, r3(wall.px), r3(wall.py), r3(wall.pz), r3(wall.nx), r3(wall.nz),
-               r3(wall.wallW), r3(wall.wallH), style, parsed.thought ?? null, svg, 'kay-server').run();
+               r3(wall.wallW), r3(wall.wallH), style, thought ?? null, svg, 'kay-server').run();
       }
 
-      this.sim.paintDone({ svg, thought: parsed.thought });
-      console.log(`[KayDO] painted wall ${wall.id} · ${style} · mural #${index} · world ${this.worldKey}`);
+      this.sim.paintDone({ svg, thought });
+      console.log(`[KayDO] painted wall ${wall.id} · ${style} · mural #${index} · world ${this.worldKey}${this._isDemo() ? ' · demo' : ''}`);
       // Broadcast in the SAME shape the client's mural-apply expects (mirrors a
       // /murals row): the browser matches it to the wall slot by anchor.
       this._broadcast({
         type: 'mural',
         px: wall.px, py: wall.py, pz: wall.pz, nx: wall.nx, nz: wall.nz,
         wall_w: wall.wallW, wall_h: wall.wallH,
-        style, thought: parsed.thought ?? null, svg, user_id: 'kay-server',
+        style, thought: thought ?? null, svg, user_id: 'kay-server',
       });
     } catch (e) {
       this._paintError('paint failed — ' + (e?.message || e));

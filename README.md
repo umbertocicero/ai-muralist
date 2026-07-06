@@ -302,6 +302,13 @@ wrangler deploy                 # applies the [[migrations]] tag = "v1" (KayDO)
 wrangler secret put ANTHROPIC_API_KEY   # the server now paints autonomously
 ```
 
+**Demo mode works too** — in demo mode (`config.yaml: mode: demo`) the server
+paints **procedural** murals and never calls Anthropic, so no key/credits are
+needed. The client reports its mode to the server on connect; the server also
+falls back to procedural if `ANTHROPIC_API_KEY` is unset, or if you force it with
+`KAY_DEMO=true`. So an Anthropic error like *"credit balance is too low"* only
+appears when you're actually in AI mode with a keyed-but-empty account.
+
 Pace/cost knobs (optional `vars`/secrets; Kay bills the site key continuously
 while anyone is connected): `KAY_COOLDOWN_MIN` (default 20 s) and
 `KAY_COOLDOWN_RANGE` (default 20 s) set the steady gap between murals;
