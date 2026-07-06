@@ -725,13 +725,20 @@ export class City {
       { nlx: 1, nlz: 0, half: hw, len: hd },
       { nlx: -1, nlz: 0, half: hw, len: hd },
     ];
+    // Same curvature factor the collision uses (see _curveK): the rendered wall
+    // sits further out in flat space the closer to the rim, so the stand point
+    // must stand off from that EFFECTIVE face — otherwise it lands inside the
+    // (now curvature-inflated) collision box and KAI can never reach the wall.
+    const k = this._curveKraw(cx, cz, hw, hd);
     for (const f of faces) {
       const fc = this._toWorld(cx, cz, rot, f.nlx * f.half, f.nlz * f.half);
       const n  = this._dir(rot, f.nlx, f.nlz);
-      const ap = { x: fc.x + n.x * CONFIG.approachOffset, z: fc.z + n.z * CONFIG.approachOffset };
+      const apOff = (f.half + CONFIG.approachOffset) * k - f.half;   // stand a real 1.5 m off the rendered wall
+      const ap = { x: fc.x + n.x * apOff, z: fc.z + n.z * apOff };
       if (this.isColliding(ap.x, ap.z)) continue;   // wall faces a building → skip
       this.wallSlots.push({
         px: fc.x, py, pz: fc.z, nx: n.x, nz: n.z,
+        ax: ap.x, az: ap.z,                          // curvature-corrected stand point
         wallW: Math.min(f.len * 1.4, 4.4), wallH: wh,
         buildingIdx: idx, used: false, mesh: null,
       });
@@ -995,7 +1002,8 @@ export class City {
       const dx = wd(x - b.cx), dz = wd(z - b.cz);
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
-      if (Math.abs(lx) < b.hw + r + pad && Math.abs(lz) < b.hd + r + pad) return true;
+      const k = this._curveK(b);
+      if (Math.abs(lx) < b.hw * k + r + pad && Math.abs(lz) < b.hd * k + r + pad) return true;
     }
     // round props: poles, trees, bushes, water towers
     for (const o of this.colliders) {
@@ -1007,9 +1015,30 @@ export class City {
       const dx = wd(x - b.cx), dz = wd(z - b.cz);
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
-      if (Math.abs(lx) < b.hw + r && Math.abs(lz) < b.hd + r) return true;
+      const k = this._curveK(b);
+      if (Math.abs(lx) < b.hw * k + r && Math.abs(lz) < b.hd * k + r) return true;
     }
     return false;
+  }
+
+  // Curvature footprint factor for a flat OBB. Buildings/fences render as RIGID
+  // boxes tangent to the planet at their centre; the azimuth-equidistant wrap
+  // preserves distances FROM the pole but compresses spans ACROSS it by sinθ/θ,
+  // so a flat point that clears the flat hw×hd can still map INSIDE the rendered
+  // wall the further the block sits from the pole (θ = arc distance to the pole).
+  // Scaling the flat half-extents by θ/sinθ makes the flat collision line up with
+  // where the wall actually is — killing the "walks through the corner" clip. The
+  // factor is 1 at the pole and grows toward the town's rim; cached per box.
+  _curveK(b) {
+    return b._k ?? (b._k = this._curveKraw(b.cx, b.cz, b.hw, b.hd));
+  }
+  // θ/sinθ for a box at (cx,cz) with half-extents (hw,hd). Uses the box's OUTER
+  // reach (centre distance + its own half-diagonal): the far corner sits at a
+  // larger θ than the centre and compresses hardest, so sizing to it keeps even
+  // big blocks on the rim clip-free. 1 at the pole, growing toward the rim.
+  _curveKraw(cx, cz, hw, hd) {
+    const theta = (Math.hypot(cx, cz) + Math.hypot(hw, hd)) / this.R;
+    return theta > 1e-3 ? theta / Math.sin(Math.min(theta, Math.PI - 0.05)) : 1;
   }
 
   // returns roof height at (x,z) inside a footprint, else 0 — for camera collision
@@ -1093,6 +1122,9 @@ export class City {
   }
 
   approachPoint(slot) {
+    // Prefer the curvature-corrected stand point baked in at generation; fall back
+    // to the plain offset for any slot made without one.
+    if (slot.ax !== undefined) return { x: slot.ax, z: slot.az };
     return { x: slot.px + slot.nx * CONFIG.approachOffset, z: slot.pz + slot.nz * CONFIG.approachOffset };
   }
   isApproachFree(slot) { const p = this.approachPoint(slot); return !this.isColliding(p.x, p.z); }
