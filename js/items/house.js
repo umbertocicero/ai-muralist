@@ -179,12 +179,22 @@ export function makeRoofTiles(ctx, { cx, cz, rot, H, hw, hd, hip, rh = 0, halfSp
     ctx._roofSeg.push(a.x, H + ly0, a.z, b.x, H + ly1, b.z);
   };
   if (hip) {
-    // a few rings parallel to the eaves
+    // Eave-parallel rings up the pyramid. The hip cone is a 4-sided pyramid
+    // rotated 45°, so in this frame its base is an AXIS-ALIGNED square of half-
+    // side dia/√2 (dia matches makeHipRoof). The old rings used ±hw / ±hd, which
+    // on a long plot ran WIDER than that square — the front/back lines poked out
+    // past the roof ("board lines sticking out"). Draw a square ring inset just
+    // inside the pyramid face instead, so every line stays on the roof.
+    const oh = 0.4;
+    const dia = Math.hypot(hw * 2 + oh * 2, hd * 2 + oh * 2) * 0.5;
+    const hs0 = (dia / Math.SQRT2) * 0.9;              // pyramid half-side at the base, inset
     const rH = 0.9 + Math.min(hw * 2, hd * 2) * 0.13;
     for (let i = 1; i <= 3; i++) {
-      const t = i / 4, e = (1 - t);
-      line(-hw * e, rH * t + 0.06, -hd * e, hw * e, rH * t + 0.06, -hd * e);
-      line(-hw * e, rH * t + 0.06,  hd * e, hw * e, rH * t + 0.06,  hd * e);
+      const t = i / 4, e = 1 - t, y = rH * t + 0.06, hs = hs0 * e;
+      line(-hs, y, -hs,  hs, y, -hs);   // front + back + the two sides → a full ring
+      line(-hs, y,  hs,  hs, y,  hs);
+      line(-hs, y, -hs, -hs, y,  hs);
+      line( hs, y, -hs,  hs, y,  hs);
     }
   } else {
     // gable: lines along the ridge on both slopes
