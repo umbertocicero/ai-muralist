@@ -47,9 +47,10 @@ function run(sim, { steps, dt = 0.1, onPick } = {}) {
     const sig = sim.step(dt);
     maxMove = Math.max(maxMove, Math.hypot(sim.x - bx, sim.z - bz));
     if (sig && sig.paint) sim.paintDone({ svg: '<svg/>', thought: 't' });
-    // a WANDERING → MOVING_TO_WALL edge means a wall was just chosen
+    // a WANDERING → MOVING_TO_WALL edge means a wall was just chosen — _pickWall
+    // ran from Kay's position AFTER this frame's wander-step, i.e. sim.x/sim.z now.
     if (before === SIM_STATE.WANDERING && sim.state === SIM_STATE.MOVING_TO_WALL)
-      onPick?.(sim.byId.get(sim.targetId), bx, bz);
+      onPick?.(sim.byId.get(sim.targetId), sim.x, sim.z);
     if (sim.allPainted()) return { maxMove, done: true, steps: i + 1 };
   }
   return { maxMove, done: sim.allPainted(), steps };
@@ -73,10 +74,13 @@ const check = (name, fn) => {
   const res = run(sim, {
     steps: 40000, dt,
     onPick: (wall, fromX, fromZ) => {
-      // reconstruct the candidate set the sim chose from: unpainted + approach-free
+      // reconstruct the exact pool _pickWall chose from: unpainted + approach-free,
+      // minus walls currently deferred (given up on) unless every free wall is deferred.
       const free = model.walls.filter((w) => !sim.painted.has(w.id) && !sim.blocked(w.ax, w.az));
-      free.sort((a, b) => ((a.px - fromX) ** 2 + (a.pz - fromZ) ** 2) - ((b.px - fromX) ** 2 + (b.pz - fromZ) ** 2));
-      const nearestK = new Set(free.slice(0, sim.cfg.nearK).map((w) => w.id));
+      let pool = free.filter((w) => (sim._defer.get(w.id) ?? 0) <= sim.simTime);
+      if (!pool.length) pool = free;
+      pool.sort((a, b) => ((a.px - fromX) ** 2 + (a.pz - fromZ) ** 2) - ((b.px - fromX) ** 2 + (b.pz - fromZ) ** 2));
+      const nearestK = new Set(pool.slice(0, sim.cfg.nearK).map((w) => w.id));
       picks.push({ wallId: wall.id, inNearestK: nearestK.has(wall.id) });
     },
   });

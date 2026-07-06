@@ -112,6 +112,9 @@ export class LiveLink {
       case 'mural':
         this._applyMural(msg);
         break;
+      case 'notice':   // server-side status the user should see (e.g. why Kay can't paint)
+        console.warn('[live] Kay:', msg.message);
+        break;
       case 'error':
         console.warn('[live] server:', msg.message);
         break;

@@ -89,7 +89,10 @@ export class KaySim {
     this.nav = {};                // persistent steering state (heading + side)
 
     this.targetId = null;
-    this.timers = { cooldown: this._cooldown(), move: 0, think: 0, paint: 0, admire: 0 };
+    // First wall is chosen almost immediately (fast feedback that Kay is alive /
+    // that painting works); the steady cooldown only kicks in AFTER the first
+    // mural, so token pacing is unchanged for the long run.
+    this.timers = { cooldown: 3, move: 0, think: 0, paint: 0, admire: 0 };
     this.wander = this._randomReachable();
     this._paintPending = false;   // the DO is generating an SVG right now
     this._paintResult  = null;    // { svg, thought } once ready

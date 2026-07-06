@@ -399,7 +399,11 @@ export class KayDO {
   async _paintWall(wall) {
     try {
       const key = this.env.ANTHROPIC_API_KEY;
-      if (!key) { this.sim.paintFailed(); return; }
+      if (!key) {
+        this._paintError('server has no ANTHROPIC_API_KEY — Kay can only paint with the site key. Run: wrangler secret put ANTHROPIC_API_KEY');
+        this.sim.paintFailed();
+        return;
+      }
       const index = this.sim.muralCount;
       const { text } = buildMuralPrompt(wall, index);
       const upstream = await fetch('https://api.anthropic.com/v1/messages', {
@@ -412,12 +416,14 @@ export class KayDO {
         }),
       });
       const data = await upstream.json();
-      if (data.error) throw new Error(data.error.message || 'api_error');
+      if (!upstream.ok || data.error) {
+        throw new Error(`Anthropic ${upstream.status}: ${data?.error?.message || 'api_error'}`);
+      }
       const raw = data?.content?.[0]?.text;
       const parsed = parseMural(raw);
       const svg = parsed.svg;
       if (!svg || svg.length > 60_000 || SVG_FORBIDDEN.test(svg) || !svg.trimStart().startsWith('<svg')) {
-        throw new Error('bad_svg');
+        throw new Error('model returned no usable SVG');
       }
       const style = STYLE_NAMES[index % STYLE_NAMES.length];
 
@@ -431,6 +437,7 @@ export class KayDO {
       }
 
       this.sim.paintDone({ svg, thought: parsed.thought });
+      console.log(`[KayDO] painted wall ${wall.id} · ${style} · mural #${index} · world ${this.worldKey}`);
       // Broadcast in the SAME shape the client's mural-apply expects (mirrors a
       // /murals row): the browser matches it to the wall slot by anchor.
       this._broadcast({
@@ -439,11 +446,20 @@ export class KayDO {
         wall_w: wall.wallW, wall_h: wall.wallH,
         style, thought: parsed.thought ?? null, svg, user_id: 'kay-server',
       });
-    } catch {
+    } catch (e) {
+      this._paintError('paint failed — ' + (e?.message || e));
       this.sim.paintFailed();
     } finally {
       this._generating = false;
     }
+  }
+
+  // Surface a paint failure both in `wrangler tail` (console) and in every
+  // connected browser's console (a `notice` the client logs) — so "Kay isn't
+  // painting" is never a silent mystery again.
+  _paintError(message) {
+    console.warn('[KayDO]', message);
+    this._broadcast({ type: 'notice', level: 'error', message });
   }
 
   _send(ws, obj) { try { ws.send(JSON.stringify(obj)); } catch { this.sessions.delete(ws); } }
