@@ -10,12 +10,33 @@
 
 import { KaySim } from './js/sim.mjs';
 import { demoSVG, DEMO_THOUGHTS } from './js/demo.js';
+import { verifyGoogleIdToken, isOwner, makeGoogleJwksFetcher } from './js/google-verify.mjs';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, x-user-api-key',
+  'Access-Control-Allow-Headers': 'Content-Type, x-user-api-key, Authorization',
 };
+
+// ---- Owner authentication --------------------------------------------------
+// Privileged actions (wipe murals, change the shared demo/AI mode) require a
+// Google ID token that (a) verifies against Google's public keys and (b) belongs
+// to an email in OWNER_EMAILS. The JWKS is fetched+cached at module scope.
+const getGoogleJwks = makeGoogleJwksFetcher();
+async function verifyOwnerToken(token, env) {
+  if (!token || !env.GOOGLE_CLIENT_ID) return null;
+  try {
+    const payload = await verifyGoogleIdToken(token, { clientId: env.GOOGLE_CLIENT_ID, getJwks: getGoogleJwks });
+    return isOwner(payload.email, env.OWNER_EMAILS) ? payload.email : null;
+  } catch {
+    return null;
+  }
+}
+function bearerToken(request) {
+  const h = request.headers.get('Authorization') || '';
+  const m = /^Bearer\s+(.+)$/i.exec(h);
+  return m ? m[1].trim() : null;
+}
 
 const RATE_LIMIT_MS = 8_000;      // max 1 request / 8s per IP
 const MAX_BODY_BYTES = 16_000;    // reject oversized payloads early
@@ -157,9 +178,14 @@ async function handleMurals(request, env) {
   }
 
   // DELETE /murals?world=<seed>  → wipe this world's shared canvas (the Settings
-  // "DELETE MURALS" reset). Scoped to one world, so it can't touch archived
-  // rows saved under other seeds / town builds.
+  // "DELETE MURALS" reset). OWNER ONLY: requires a valid Google ID token for an
+  // OWNER_EMAILS account. Scoped to one world, so it can't touch archived rows
+  // saved under other seeds / town builds.
   if (request.method === 'DELETE') {
+    const owner = await verifyOwnerToken(bearerToken(request), env);
+    if (!owner) {
+      return json({ error: { type: 'auth_error', message: 'Sign in as the owner to delete murals' } }, 401);
+    }
     const world = parseInt(new URL(request.url).searchParams.get('world') ?? '', 10);
     if (!Number.isFinite(world)) {
       return json({ error: { type: 'invalid_request_error', message: 'Missing ?world=<seed>' } }, 400);
@@ -344,18 +370,24 @@ export class KayDO {
   async _onMessage(ws, ev) {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
-    // The site's demo/AI mode (from the client's resolved CONFIG.mode). In demo
-    // mode Kay paints procedural murals and never calls Anthropic.
+    // The shared demo/AI mode. OWNER ONLY — the message must carry a Google ID
+    // token for an OWNER_EMAILS account, else it's ignored (the baseline still
+    // comes from KAY_DEMO / stored state). This is why any visitor's local mode
+    // setting can't flip the shared Kay.
     if (msg.type === 'mode') {
+      const owner = await verifyOwnerToken(msg.token, this.env);
+      if (!owner) { this._send(ws, { type: 'notice', level: 'error', message: 'Sign in as the owner to change the mode' }); return; }
       this.demo = !!msg.demo;
       await this.storage.put('demo', this.demo);
+      console.log(`[KayDO] mode set to ${this.demo ? 'demo' : 'AI'} by ${owner}`);
       return;
     }
     if (msg.type === 'world' && !this.sim) {
       const model = decodeModel(msg.model);
       if (!model) { this._send(ws, { type: 'error', message: 'bad world model' }); return; }
       if (Number.isInteger(msg.worldKey)) this.worldKey = msg.worldKey;
-      if (typeof msg.demo === 'boolean') { this.demo = msg.demo; await this.storage.put('demo', this.demo); }
+      // NB: demo is NOT taken from the (unauthenticated) world upload — only from
+      // KAY_DEMO / stored state / an authenticated `mode` message.
       this.sim = new KaySim(model, pacing(this.env));
       await this.storage.put('model', model);
       await this.storage.put('worldKey', this.worldKey);

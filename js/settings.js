@@ -66,12 +66,17 @@ export async function applySettings(CONFIG) {
   const saveMurals = (user.saveMurals ?? site.save_murals ?? true) !== false;
   // live shared Kay: site yaml > default ON (only takes effect with a workerUrl)
   const live = (site.live ?? CONFIG.live ?? true) !== false;
+  // owner login (Google) — both public; site yaml only (never a visitor override)
+  const googleClientId = site.google_client_id ?? CONFIG.googleClientId ?? null;
+  const ownerEmail     = site.owner_email ?? CONFIG.ownerEmail ?? null;
 
-  CONFIG.workerUrl  = workerUrl || null;
-  CONFIG.model      = model;
-  CONFIG.mode       = mode;
-  CONFIG.userApiKey = apiKey;
-  CONFIG.saveMurals = saveMurals;
-  CONFIG.live       = live;
-  return { workerUrl: CONFIG.workerUrl, apiKey, model, mode, saveMurals, live };
+  CONFIG.workerUrl      = workerUrl || null;
+  CONFIG.model          = model;
+  CONFIG.mode           = mode;
+  CONFIG.userApiKey     = apiKey;
+  CONFIG.saveMurals     = saveMurals;
+  CONFIG.live           = live;
+  CONFIG.googleClientId = googleClientId || null;
+  CONFIG.ownerEmail     = ownerEmail || null;
+  return { workerUrl: CONFIG.workerUrl, apiKey, model, mode, saveMurals, live, googleClientId, ownerEmail };
 }

@@ -21,3 +21,12 @@ worker_url: https://ai-muralist-proxy.ucicero.workers.dev
 # shares, who picks and paints walls himself and freezes when nobody's watching.
 # false = the old per-browser local Kay.
 # live: true
+
+# Owner login (Google Sign-In) — restrict privileged actions (delete murals,
+# change the shared demo/AI mode) to you. Both values are PUBLIC. Create an OAuth
+# 2.0 "Web application" Client ID in Google Cloud Console (add your site to the
+# Authorized JavaScript origins) and paste it here. The ENFORCED allowlist is the
+# Worker's OWNER_EMAILS var — this owner_email only decides which controls show.
+# Leave unset to keep the app fully open (no login, admin controls hidden).
+# google_client_id: 1234567890-abc.apps.googleusercontent.com
+# owner_email: you@gmail.com

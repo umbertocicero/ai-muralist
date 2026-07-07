@@ -1,4 +1,5 @@
 import { CONFIG } from './config.js';
+import { getToken, onAuthChange } from './auth.js';
 
 // ===========================================================================
 //  LiveLink — the browser's window onto the ONE shared, server-authoritative
@@ -77,7 +78,13 @@ export class LiveLink {
     this._seq = 0;
   }
 
-  start() { this._connect(); return this; }
+  start() {
+    // Re-report mode when the owner signs in/out, so their (authenticated) mode
+    // choice takes effect immediately.
+    onAuthChange(() => { if (this.connected) this._sendMode(); });
+    this._connect();
+    return this;
+  }
 
   _connect() {
     if (this._closed) return;
@@ -132,7 +139,9 @@ export class LiveLink {
   // the DO already has the world model, i.e. needWorld=false).
   _sendMode() {
     if (!this._ws) return;
-    try { this._ws.send(JSON.stringify({ type: 'mode', demo: CONFIG.mode === 'demo' })); } catch {}
+    // The server only honours this from an owner token; a visitor's token is
+    // null/non-owner and is ignored, so their local mode can't flip shared Kay.
+    try { this._ws.send(JSON.stringify({ type: 'mode', demo: CONFIG.mode === 'demo', token: getToken() })); } catch {}
   }
 
   _sendModel() {

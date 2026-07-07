@@ -8,6 +8,7 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:install": "playwright install",
-    "test:sim": "node tests/sim.test.mjs"
+    "test:sim": "node tests/sim.test.mjs",
+    "test:auth": "node tests/google-verify.test.mjs"
   }
 }

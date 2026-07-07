@@ -328,6 +328,43 @@ npm run test:sim   # continuity (no teleport) · proximity · full coverage · r
 
 ---
 
+### 9 · (Optional) Owner login — restrict admin actions to you (Google)
+
+By default the app is fully open. Enable **Google Sign-In** to make the
+destructive/shared actions — **deleting murals** and **changing the shared
+demo/AI mode** — owner-only. Everyone else can only watch.
+
+How it works: the browser signs in with Google and gets an **ID token**; the
+Worker **verifies** it (RS256 against Google's public keys, checks issuer /
+audience / expiry / `email_verified`) and matches the email against an allowlist.
+The client only hides controls — the Worker enforces every privileged request, so
+it can't be bypassed from the console. The pure verifier is proven by a
+network-free test:
+
+```bash
+npm run test:auth   # signature · aud · expiry · email_verified · forged-payload · allowlist
+```
+
+Setup:
+
+1. **Google Cloud Console** → APIs & Services → Credentials → *Create OAuth client
+   ID* → **Web application**. Under *Authorized JavaScript origins* add every URL
+   the app is served from (e.g. `https://ai-muralist.pages.dev`, and
+   `http://localhost:8000` for local dev). Copy the **Client ID**.
+2. `config.yaml` (both PUBLIC): `google_client_id:` and `owner_email:` (the email
+   whose controls show in the UI).
+3. Worker vars (dashboard or `wrangler.toml [vars]`): `GOOGLE_CLIENT_ID` (same
+   value — used to check the token's audience) and `OWNER_EMAILS`
+   (comma-separated allowlist — **this is the enforced list**).
+4. Redeploy the Worker + Pages.
+
+Leave `google_client_id` unset to keep the app open (login hidden, no gating).
+Note: with login on, the shared demo/AI baseline comes from the Worker's
+`KAY_DEMO` var (or the owner toggling it after sign-in) — a visitor's local mode
+can no longer flip the shared Kay.
+
+---
+
 ## Deploy from GitHub Codespaces / CI (API token)
 
 `wrangler login` doesn't work in Codespaces — its OAuth flow redirects to `localhost:8976` on your browser's machine, not the container.

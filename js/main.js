@@ -13,6 +13,7 @@ import { Persistence }   from './persistence.js';
 import { LiveLink }      from './live.js';
 import { RemoteDriver }  from './remote-driver.js';
 import { applySettings } from './settings.js';
+import { initAuth, getToken } from './auth.js';
 import { placeOnPlanet, planetPoint, PLANET_R } from './planet.js';
 
 import BootScreen    from '../components/BootScreen.js';
@@ -179,8 +180,9 @@ class App {
       this.persistence.restore(this.city, this.factory, this.agent, ui)
         .catch(e => console.warn('[persist] restore failed:', e.message))
         .finally(() => { this.agent.holdPainting = false; });
-      // Settings "DELETE MURALS" → wipe this world's shared canvas.
-      ui.onDeleteMurals = () => this.persistence.deleteAll();
+      // Settings "DELETE MURALS" → wipe this world's shared canvas. OWNER ONLY:
+      // pass the signed-in owner's Google token; the Worker verifies + enforces.
+      ui.onDeleteMurals = () => this.persistence.deleteAll(getToken());
     }
 
     // ── Live shared Kay ────────────────────────────────────────────────────
@@ -396,6 +398,7 @@ createApp(VueRoot).mount('#ui-root');
 applySettings(CONFIG)
   .catch(() => {})           // settings are best-effort; defaults always work
   .then(() => {
+    initAuth().catch(() => {});   // Google sign-in (no-op unless googleClientId is set)
     try {
       new App();
     } catch (e) {

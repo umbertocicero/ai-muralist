@@ -12,6 +12,13 @@ export const CONFIG = {
   // false (config.yaml: live: false) to force the old per-browser local Kay.
   live: true,
 
+  // Owner login (Google Sign-In). Both are PUBLIC (safe in the frontend): the
+  // client id enables the sign-in button, ownerEmail decides which controls to
+  // SHOW. Real enforcement is the Worker's OWNER_EMAILS + token verification.
+  // Auth is disabled (all admin UI hidden) when googleClientId is null.
+  googleClientId: null,   // config.yaml: google_client_id: <...>.apps.googleusercontent.com
+  ownerEmail:     null,   // config.yaml: owner_email: you@gmail.com
+
   // The city generator's seed — ALSO the persistence "world" key: saved murals
   // are stored under this number and re-attached to the identical town it
   // generates. Changing it starts a fresh town with a fresh (empty) mural set.

@@ -75,9 +75,13 @@ export class Persistence {
   }
 
   // Wipe this world's shared canvas (the Settings "DELETE MURALS" reset).
-  // Resolves to the number deleted, or throws so the caller can report failure.
-  async deleteAll() {
-    const res = await fetch(`${this.url}?world=${this.world}`, { method: 'DELETE' });
+  // OWNER ONLY: the Worker requires a Google ID token (passed here as `token`)
+  // for an OWNER_EMAILS account, else it answers 401. Resolves to the number
+  // deleted, or throws so the caller can report failure.
+  async deleteAll(token) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(`${this.url}?world=${this.world}`, { method: 'DELETE', headers });
+    if (res.status === 401) throw new Error('not authorised — sign in as the owner');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()).deleted ?? 0;
   }
