@@ -123,5 +123,26 @@ const check = (name, fn) => {
   });
 }
 
+// ── 5: stuck-escape — trapped in an isolated pocket, he relocates out ─────────
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const s = model.cellSize;
+  // Wall Kay into a 1-cell pocket at spawn: block all 8 neighbours of (0,0).
+  for (const [dx, dz] of [[s, 0], [-s, 0], [0, s], [0, -s], [s, s], [s, -s], [-s, s], [-s, -s]])
+    model.cells[model.cellOf(dx, dz)] = 1;
+  model.cells[model.cellOf(0, 0)] = 0;   // the pocket itself stays free
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5, stuckSeconds: 3 }, mulberry32(9));
+
+  // Confirm he really is boxed in at the start, then run past stuckSeconds.
+  const trappedAtStart = sim._steer(10, 0, sim.cfg.moveSpeed * 0.1) === false;
+  run(sim, { steps: 120, dt: 0.1 });     // 12 s ≫ stuckSeconds
+  check('5. stuck-escape — a trapped Kay relocates to an open street', () => {
+    assert(trappedAtStart, 'test setup failed: Kay was not actually boxed in');
+    assert(Math.hypot(sim.x, sim.z) > 1.0, `Kay never left the pocket (at ${sim.x.toFixed(2)},${sim.z.toFixed(2)})`);
+    assert(!sim.blocked(sim.x, sim.z), 'Kay relocated onto a blocked cell');
+    assert(sim._openNeighbors(sim.x, sim.z) >= 5, 'Kay relocated into another cramped spot');
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);

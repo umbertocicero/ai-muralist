@@ -36,8 +36,9 @@ export const SIM_STATUS = {
 };
 
 export const DEFAULT_SIM_CFG = {
-  moveSpeed:      3.2,   // m/s
+  moveSpeed:      2.6,   // m/s — a stroll (was 3.2; read as too fast / slidey)
   charRadius:     0.4,
+  stuckSeconds:   6,     // no net progress this long → relocate out of the trap
   arriveWall:     0.5,   // reached the approach point
   arriveWander:   0.8,   // reached a stroll target
   // Kay PAINTS (hand moving) for the WHOLE creation: at least paintMinSeconds
@@ -93,6 +94,9 @@ export class KaySim {
     this.nav = {};                // persistent steering state (heading + side)
 
     this.targetId = null;
+    // Stuck watchdog: sample position every stuckSeconds; if he's made almost no
+    // net progress AND he's in a cramped spot, he's trapped → relocate.
+    this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z;
     // First wall is chosen almost immediately (fast feedback that Kay is alive /
     // that painting works); the steady cooldown only kicks in AFTER the first
     // mural, so token pacing is unchanged for the long run.
@@ -227,6 +231,45 @@ export class KaySim {
     this._returnToWander();
   }
 
+  // How many of the 8 grid neighbours are walkable — an "openness" score.
+  _openNeighbors(x, z) {
+    const s = this.model.cellSize;
+    let n = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]])
+      if (!this.blocked(x + dx * s, z + dz * s)) n++;
+    return n;
+  }
+
+  // Nearest genuinely-open spot (free + surrounded by free) via an outward spiral
+  // — so an escape is a short hop onto the street, not a jump across the map.
+  _nearestOpen(x, z) {
+    const s = this.model.cellSize;
+    for (let r = 1; r < 60; r++) {
+      const steps = r * 8;
+      for (let a = 0; a < steps; a++) {
+        const ang = (a / steps) * Math.PI * 2;
+        const px = x + Math.cos(ang) * r * s;
+        const pz = z + Math.sin(ang) * r * s;
+        if (!this.blocked(px, pz) && this._openNeighbors(px, pz) >= 5) return { x: px, z: pz };
+      }
+    }
+    return null;
+  }
+
+  // Escape a trap: teleport to the nearest open street, drop the current target
+  // (revisit later), and start wandering again. The client snaps to the new spot
+  // (RemoteDriver's teleport guard), so it reads as a jump-cut, not a slide.
+  _relocate() {
+    const p = this._nearestOpen(this.x, this.z) || this._randomReachable();
+    this.x = p.x; this.z = p.z;
+    this.nav = {};
+    if (this.targetId != null) { this._defer.set(this.targetId, this.simTime + this.cfg.deferSeconds); this.targetId = null; }
+    this.wander = this._randomReachable();
+    this.timers.cooldown = Math.min(this.timers.cooldown, 2);
+    this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z;
+    this._setState(SIM_STATE.WANDERING);
+  }
+
   // ── DO callbacks for the async paint ────────────────────────────────────────
   paintDone(result) { this._paintResult = result; this._paintPending = false; }
   paintFailed()     { this._paintResult = null;   this._paintPending = false; }
@@ -236,6 +279,21 @@ export class KaySim {
   step(dt) {
     this.simTime += dt;
     const step = this.cfg.moveSpeed * dt;
+
+    // Stuck watchdog — only while he's meant to be moving. Every stuckSeconds,
+    // if he's covered almost no ground AND he's wedged somewhere cramped (few
+    // open grid neighbours — a pocket or a dead-end alley), pop him out. Gating
+    // on "cramped" means honest open-street wandering never false-triggers.
+    const movingState = this.state === SIM_STATE.WANDERING || this.state === SIM_STATE.MOVING_TO_WALL
+                     || this.state === SIM_STATE.CONTEMPLATING;
+    if (movingState) {
+      this._stuckT += dt;
+      if (this._stuckT >= this.cfg.stuckSeconds) {
+        const net = Math.hypot(this.x - this._probeX, this.z - this._probeZ);
+        this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z;
+        if (net < 1.5 && this._openNeighbors(this.x, this.z) < 6) { this._relocate(); return null; }
+      }
+    } else { this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z; }
 
     switch (this.state) {
       case SIM_STATE.WANDERING: {

@@ -16,9 +16,13 @@ import { getToken, onAuthChange } from './auth.js';
 // coarse walkability grid sampled from city.isColliding (already body-inflated),
 // plus the full wall catalogue with pre-computed approach points. The grid rides
 // the wire as base64 (1 byte/cell) to keep the one-time upload small.
+// Bump when the model's shape/resolution changes — must match worker.js
+// MODEL_VERSION so a DO caching an older grid discards it and re-requests one.
+export const MODEL_VERSION = 2;
+
 export function buildWorldModel(city) {
   const half     = city.HALF;
-  const cellSize = 0.75;
+  const cellSize = 0.5;   // finer than before (0.75) → narrow alleys stay open
   const cols = Math.ceil((half * 2) / cellSize);
   const rows = cols;
   const cells = new Uint8Array(cols * rows);
@@ -52,6 +56,7 @@ export function buildWorldModel(city) {
   let bin = '';
   for (let i = 0; i < cells.length; i++) bin += String.fromCharCode(cells[i]);
   return {
+    version: MODEL_VERSION,
     half, cellSize, cols, rows, cellsB64: btoa(bin),
     spawn: { x: city.spawn.x, z: city.spawn.z }, walls,
   };

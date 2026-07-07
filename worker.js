@@ -280,11 +280,15 @@ function handleLive(request, env) {
 // Pacing / tick knobs. All optional env overrides so a deployment can slow Kay
 // down (token cost) without a code change. TICK_MS drives the alarm loop.
 const TICK_MS = 100;
+// Bump when the uploaded world model's shape/resolution changes, so a DO holding
+// an older cached model discards it and asks the next client to re-upload.
+const MODEL_VERSION = 2;
 const KAY_MODEL_DEFAULT = 'claude-sonnet-4-6';
 const STYLE_NAMES = ['Ukiyo-e', 'Sumi-e', 'Manga', 'Woodblock', 'Anime', 'Kirie', 'Wabi-sabi', 'Kanji'];
 const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
 function pacing(env) {
   return {
+    moveSpeed:       envNum(env.KAY_SPEED, 2.6),      // stroll speed (m/s)
     paintMinSeconds: envNum(env.KAY_PAINT, 3.0),      // min spray time (demo shows a few s)
     paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
     admireSeconds:   envNum(env.KAY_ADMIRE, 3.0),
@@ -317,7 +321,9 @@ export class KayDO {
     this.worldKey = (await this.storage.get('worldKey')) ?? null;
     this.demo     = (await this.storage.get('demo')) ?? false;
     const model = await this.storage.get('model');
-    if (model) {
+    // Ignore a cached model from an older MODEL_VERSION (e.g. the coarser grid) —
+    // leaving sim null makes the next client re-upload the current one.
+    if (model && model.version === MODEL_VERSION) {
       this.sim = new KaySim(model, pacing(this.env));
       const saved = await this.storage.get('sim');
       if (saved) this.sim.hydrate(saved);
@@ -545,7 +551,8 @@ function decodeModel(m) {
       wallW: +w.wallW, wallH: +w.wallH, ax: +w.ax, az: +w.az,
     }));
     if (walls.some((w) => ![w.px, w.pz, w.nx, w.nz, w.ax, w.az, w.wallW, w.wallH].every(Number.isFinite))) return null;
-    return { half: +m.half, cellSize: +m.cellSize, cols, rows, cells,
+    return { version: Number.isInteger(m.version) ? m.version : 0,
+             half: +m.half, cellSize: +m.cellSize, cols, rows, cells,
              spawn: { x: +m.spawn.x, z: +m.spawn.z }, walls };
   } catch { return null; }
 }

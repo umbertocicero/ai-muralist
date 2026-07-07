@@ -21,41 +21,50 @@ export class RemoteDriver {
     this.city = city;
     this.char = character;
     this.ui   = ui;
-    // Snapshot interpolation buffer: render ~DELAY in the past, smoothly
-    // interpolating between the two most recent server positions. This turns the
-    // 10 Hz (and jittery-alarm) stream into fluid motion with no rubber-banding.
-    this.DELAY = 0.15;         // seconds of buffered latency (imperceptible)
-    this._prev = null;         // {x,z,t}
-    this._cur  = null;
-    this._ref  = null;         // identity of the last-seen snapshot (LiveLink replaces it per message)
+    // Client-side extrapolation: track the latest snapshot + a smoothed server
+    // VELOCITY, and render continuous motion at that measured speed. This is
+    // robust to the DO's jittery 10 Hz alarm (no stop-and-go / slides) and stops
+    // cleanly when the server stops.
+    this._cur = null;          // {x,z,t} latest snapshot
+    this._ref = null;          // identity of the last-seen snapshot object
+    this._vx = null; this._vz = null;   // smoothed server velocity (m/s)
     this._rx = null; this._rz = null;   // rendered position
   }
 
-  // Per-frame: place Kay by SNAPSHOT INTERPOLATION (not a chase-lerp toward the
-  // latest point, which lagged and stuttered), then play the state's animation.
   update(dt, t, kay) {
     if (!kay) { this.char.idle(t); this.char.sync(); return; }
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 
     // A new snapshot arrived (LiveLink swaps the object each message).
     if (kay !== this._ref) {
-      this._ref  = kay;
-      this._prev = this._cur || { x: kay.x, z: kay.z, t: now - 0.1 };
-      this._cur  = { x: kay.x, z: kay.z, t: now };
+      this._ref = kay;
+      const prev = this._cur;
+      this._cur = { x: kay.x, z: kay.z, t: now };
+      if (prev && this._cur.t > prev.t) {
+        const jump = Math.hypot(this._cur.x - prev.x, this._cur.z - prev.z);
+        if (jump > 5) {                                   // a _relocate teleport → snap, no slide
+          this._rx = kay.x; this._rz = kay.z; this._vx = 0; this._vz = 0;
+        } else {
+          const d = this._cur.t - prev.t;
+          const vx = (this._cur.x - prev.x) / d, vz = (this._cur.z - prev.z) / d;
+          const s = this._vx == null ? 1 : 0.35;          // EMA smooth (kills alarm jitter)
+          this._vx = this._vx == null ? vx : this._vx + (vx - this._vx) * s;
+          this._vz = this._vz == null ? vz : this._vz + (vz - this._vz) * s;
+        }
+      }
     }
     if (this._rx == null) { this._rx = kay.x; this._rz = kay.z; }
 
-    // Target = the position at (now - DELAY), interpolated between prev→cur and
-    // CLAMPED to cur (never extrapolate past it → no overshoot when he stops).
+    const moving = kay.state === S.WANDERING || kay.state === S.MOVING_TO_WALL || kay.state === S.CONTEMPLATING;
+    // Target = the extrapolated authoritative position (only while moving; when
+    // painting/admiring he's meant to be still, so track the exact point).
     let tx = kay.x, tz = kay.z;
-    if (this._prev && this._cur && this._cur.t > this._prev.t) {
-      const span = this._cur.t - this._prev.t;
-      const f = Math.max(0, Math.min(1, (now - this.DELAY - this._prev.t) / span));
-      tx = this._prev.x + (this._cur.x - this._prev.x) * f;
-      tz = this._prev.z + (this._cur.z - this._prev.z) * f;
+    if (moving && this._cur && this._vx != null) {
+      const ahead = Math.min(now - this._cur.t, 0.4);     // cap so a stalled stream can't fly off
+      tx = this._cur.x + this._vx * ahead;
+      tz = this._cur.z + this._vz * ahead;
     }
-    // A light critically-damped follow irons out any residual steps.
-    const a = 1 - Math.exp(-dt * 16);
+    const a = 1 - Math.exp(-dt * 8);                       // gentle correction toward the target
     this._rx += (tx - this._rx) * a;
     this._rz += (tz - this._rz) * a;
     this.char.pos.x = this._rx;
