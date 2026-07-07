@@ -293,7 +293,7 @@ const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? 
 function pacing(env) {
   return {
     moveSpeed:       envNum(env.KAY_SPEED, 2.6),      // stroll speed (m/s)
-    paintMinSeconds: envNum(env.KAY_PAINT, 3.0),      // min spray time (demo shows a few s)
+    paintMinSeconds: envNum(env.KAY_PAINT, 5.0),      // min spray time (demo shows a few s)
     paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
     admireSeconds:   envNum(env.KAY_ADMIRE, 3.0),
     cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 6),
