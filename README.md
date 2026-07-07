@@ -309,9 +309,14 @@ falls back to procedural if `ANTHROPIC_API_KEY` is unset, or if you force it wit
 `KAY_DEMO=true`. So an Anthropic error like *"credit balance is too low"* only
 appears when you're actually in AI mode with a keyed-but-empty account.
 
+Kay moves with purpose — he routes to the nearest un-painted wall by grid
+pathfinding (BFS + line-of-sight smoothing) and walks straight there; the gap
+between murals is spent traveling + a short pause sizing up the wall, never
+wandering aimlessly.
+
 Pace/cost knobs (optional `vars`/secrets; Kay bills the site key continuously
-while anyone is connected): `KAY_COOLDOWN_MIN` (default 20 s) and
-`KAY_COOLDOWN_RANGE` (default 20 s) set the steady gap between murals;
+while anyone is connected): `KAY_COOLDOWN_MIN` (default 6 s) and
+`KAY_COOLDOWN_RANGE` (default 6 s) set the steady gap between murals;
 `KAY_SPEED` (stroll speed m/s, default 2.6), `KAY_PAINT` (min spray seconds,
 default 3), `KAY_PAINT_MAX` (cap while an AI mural is still generating, default
 45), `KAY_ADMIRE`, and `KAY_MODEL` (default `claude-sonnet-4-6`) tune the rest.

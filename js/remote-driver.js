@@ -12,8 +12,9 @@ import { CONFIG } from './config.js';
 // The server sends `state` as a plain string; we match those literals here so
 // the browser never has to import the server-only sim module.
 const S = {
-  WANDERING: 'WANDERING', MOVING_TO_WALL: 'MOVING_TO_WALL', THINKING: 'THINKING',
+  SEEKING: 'SEEKING', MOVING_TO_WALL: 'MOVING_TO_WALL', OBSERVE: 'OBSERVE',
   PAINTING: 'PAINTING', ADMIRING: 'ADMIRING', CONTEMPLATING: 'CONTEMPLATING',
+  WANDERING: 'WANDERING',   // legacy
 };
 
 export class RemoteDriver {
@@ -55,7 +56,7 @@ export class RemoteDriver {
     }
     if (this._rx == null) { this._rx = kay.x; this._rz = kay.z; }
 
-    const moving = kay.state === S.WANDERING || kay.state === S.MOVING_TO_WALL || kay.state === S.CONTEMPLATING;
+    const moving = kay.state === S.MOVING_TO_WALL || kay.state === S.WANDERING;
     // Target = the extrapolated authoritative position (only while moving; when
     // painting/admiring he's meant to be still, so track the exact point).
     let tx = kay.x, tz = kay.z;
@@ -72,11 +73,10 @@ export class RemoteDriver {
     this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
 
     switch (kay.state) {
-      case S.WANDERING:
-      case S.MOVING_TO_WALL: this.char.walk(t); break;
-      case S.CONTEMPLATING:  this.char.walk(t, 0.6); break;
-      case S.PAINTING:       this.char.paint(t); break;   // hand moving the whole creation
-      default:               this.char.idle(t); break;    // ADMIRING
+      case S.MOVING_TO_WALL:
+      case S.WANDERING:      this.char.walk(t); break;      // the only walking state now
+      case S.PAINTING:       this.char.paint(t); break;     // hand moving the whole creation
+      default:               this.char.idle(t); break;      // SEEKING / OBSERVE / ADMIRING / CONTEMPLATING
     }
     // Keep the spray onomatopoeia popping while he paints (long AI creations too).
     if (kay.state === S.PAINTING) {
@@ -92,11 +92,12 @@ export class RemoteDriver {
   onState(state, prev, kay) {
     const slot = kay && kay.targetId != null ? this.city.wallSlots[kay.targetId] : null;
 
-    // PAINTING now begins the moment Kay reaches the wall (and runs through the
-    // whole generation): frame the wall, a brief impact flash, spray SFX.
-    if (state === S.PAINTING) { if (slot) this.ui.onPaintBegin?.(slot); this._flashPulse(); this._popSfx(); }
+    // Frame the wall the moment he ARRIVES (OBSERVE, or PAINTING if he skipped
+    // the pause). PAINTING also flashes + sprays. ADMIRING zooms the mural.
+    if ((state === S.OBSERVE || state === S.PAINTING) && prev === S.MOVING_TO_WALL && slot) this.ui.onPaintBegin?.(slot);
+    if (state === S.PAINTING) { this._flashPulse(); this._popSfx(); }
     if (state === S.ADMIRING) { this.ui.flashActive = false; if (slot) this.ui.onAdmire?.(slot); }
-    if (state === S.WANDERING && (prev === S.ADMIRING || prev === S.PAINTING)) {
+    if (state === S.SEEKING && (prev === S.ADMIRING || prev === S.PAINTING || prev === S.OBSERVE)) {
       this.ui.flashActive = false;
       this.ui.thoughtVisible = false;
       this.ui.onPaintEnd?.();                                             // rise + resume follow

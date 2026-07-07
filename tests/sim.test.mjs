@@ -47,9 +47,9 @@ function run(sim, { steps, dt = 0.1, onPick } = {}) {
     const sig = sim.step(dt);
     maxMove = Math.max(maxMove, Math.hypot(sim.x - bx, sim.z - bz));
     if (sig && sig.paint) sim.paintDone({ svg: '<svg/>', thought: 't' });
-    // a WANDERING → MOVING_TO_WALL edge means a wall was just chosen — _pickWall
-    // ran from Kay's position AFTER this frame's wander-step, i.e. sim.x/sim.z now.
-    if (before === SIM_STATE.WANDERING && sim.state === SIM_STATE.MOVING_TO_WALL)
+    // a SEEKING → MOVING_TO_WALL edge means a wall was just chosen + routed to;
+    // _pickWall ran from Kay's current cell (he doesn't move during SEEKING).
+    if (before === SIM_STATE.SEEKING && sim.state === SIM_STATE.MOVING_TO_WALL)
       onPick?.(sim.byId.get(sim.targetId), sim.x, sim.z);
     if (sim.allPainted()) return { maxMove, done: true, steps: i + 1 };
   }
@@ -133,9 +133,9 @@ const check = (name, fn) => {
   model.cells[model.cellOf(0, 0)] = 0;   // the pocket itself stays free
   const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5, stuckSeconds: 3 }, mulberry32(9));
 
-  // Confirm he really is boxed in at the start, then run past stuckSeconds.
-  const trappedAtStart = sim._steer(10, 0, sim.cfg.moveSpeed * 0.1) === false;
-  run(sim, { steps: 120, dt: 0.1 });     // 12 s ≫ stuckSeconds
+  // Confirm he really is boxed in at the start (no route out of the pocket).
+  const trappedAtStart = sim._findPath(0, 0, 10, 0) === null;
+  run(sim, { steps: 200, dt: 0.1 });
   check('5. stuck-escape — a trapped Kay relocates to an open street', () => {
     assert(trappedAtStart, 'test setup failed: Kay was not actually boxed in');
     assert(Math.hypot(sim.x, sim.z) > 1.0, `Kay never left the pocket (at ${sim.x.toFixed(2)},${sim.z.toFixed(2)})`);

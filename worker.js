@@ -292,8 +292,8 @@ function pacing(env) {
     paintMinSeconds: envNum(env.KAY_PAINT, 3.0),      // min spray time (demo shows a few s)
     paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
     admireSeconds:   envNum(env.KAY_ADMIRE, 3.0),
-    cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 20),
-    cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 20),
+    cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 6),
+    cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 6),
   };
 }
 

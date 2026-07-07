@@ -1,65 +1,65 @@
 // Kay's authoritative simulation — PURE logic, no three.js / DOM / Worker APIs.
 //
-// This is the single source of truth for how Kay moves and chooses walls. It is
-// imported by BOTH the Cloudflare Durable Object (server, js worker bundle) and
-// the Node test (tests/sim.test.mjs), so the behaviour the test proves is the
-// exact behaviour the server runs. The browser never imports it — the client
-// only builds the world MODEL (grid + wall catalogue) and renders whatever the
-// server broadcasts.
+// Single source of truth for how Kay moves and chooses walls. Imported by BOTH
+// the Cloudflare Durable Object (server) and the Node test (tests/sim.test.mjs),
+// so the behaviour the test proves is exactly what the server runs. The browser
+// never imports it — the client only builds the world MODEL (grid + wall
+// catalogue) and renders whatever the server broadcasts.
 //
-// Design goals (from the task):
-//   • CONTINUOUS movement, NEVER toroidal — the world edge is a wall Kay bounces
-//     off, so there is no "Pac-Man" teleport to the far side of the map.
-//   • wall order is RANDOM but PROXIMITY-first — always a nearby wall, and a wall
-//     Kay fails to reach is DEFERRED and retried later (never abandoned).
-//   • ALL walls are equal — no "best wall" / frontage preference.
-//
-// The state machine mirrors js/agent.js so the on-screen character animates the
-// same way; the difference is that here it runs once, on the server.
+// MOVEMENT MODEL — purposeful, not aimless:
+//   • Kay always has a GOAL: the nearest un-painted wall.
+//   • He walks a real ROUTE to it — BFS pathfinding over the walkability grid,
+//     then follows the waypoints in clean straight segments (with line-of-sight
+//     smoothing so he cuts corners instead of stair-stepping). No random meander,
+//     no lateral wiggle, no wandering to nowhere.
+//   • CONTINUOUS, never toroidal (the world edge is solid — no "Pac-Man" jump).
+//   • Wall order is RANDOM but PROXIMITY-first; an unreachable wall is deferred
+//     and revisited later. ALL walls are equal (no "best wall").
+//   • The gap between murals is spent traveling to the next wall + a short pause
+//     "sizing it up" (OBSERVE) — purposeful, never a stroll to a random point.
 
 export const SIM_STATE = {
+  SEEKING:        'SEEKING',         // choosing the next wall + routing to it
+  MOVING_TO_WALL: 'MOVING_TO_WALL',  // walking the route
+  OBSERVE:        'OBSERVE',         // stood at the wall, sizing it up (paces murals)
+  PAINTING:       'PAINTING',        // spraying (whole creation)
+  ADMIRING:       'ADMIRING',        // looking at the finished mural
+  CONTEMPLATING:  'CONTEMPLATING',   // every reachable wall painted
+  // legacy (only ever seen in old persisted state on hydrate):
   WANDERING:      'WANDERING',
-  MOVING_TO_WALL: 'MOVING_TO_WALL',
   THINKING:       'THINKING',
-  PAINTING:       'PAINTING',
-  ADMIRING:       'ADMIRING',
-  CONTEMPLATING:  'CONTEMPLATING',
 };
 
 export const SIM_STATUS = {
-  WANDERING:      'wandering the streets',
-  MOVING_TO_WALL: 'approaching a blank wall',
-  THINKING:       'imagining a mural',
+  SEEKING:        'choosing the next wall',
+  MOVING_TO_WALL: 'walking to a blank wall',
+  OBSERVE:        'sizing up the wall',
   PAINTING:       'painting…',
   ADMIRING:       'admiring the finished mural',
   CONTEMPLATING:  'every wall is painted · contemplating',
+  WANDERING:      'walking the streets',
+  THINKING:       'imagining a mural',
 };
 
 export const DEFAULT_SIM_CFG = {
-  moveSpeed:      2.6,   // m/s — a stroll (was 3.2; read as too fast / slidey)
+  moveSpeed:      2.6,   // m/s — a stroll
   charRadius:     0.4,
-  stuckSeconds:   6,     // no net progress this long → relocate out of the trap
   arriveWall:     0.5,   // reached the approach point
-  arriveWander:   0.8,   // reached a stroll target
+  arriveWaypoint: 0.05,  // treated as "on" a route waypoint
   // Kay PAINTS (hand moving) for the WHOLE creation: at least paintMinSeconds
-  // (so demo murals, generated instantly, still show a few seconds of spraying)
-  // and up to paintMaxSeconds while the AI is still generating — so the hand
-  // moves the entire time an AI mural is being made.
+  // (demo murals generate instantly but still show a few seconds of spraying) and
+  // up to paintMaxSeconds while an AI mural is still generating.
   paintMinSeconds: 3.0,
-  paintMaxSeconds: 45,   // safety cap if generation hangs
-  admireSeconds:  3.0,
-  cooldownMin:    20,    // steady pace: wander this long between murals…
-  cooldownRange:  20,    // …+ up to this much (→ 20-40s), bounds token spend
-  reachTimeout:   12,    // give up on a wall Kay can't path to in this many s…
-  deferSeconds:   35,    // …and don't retry it for this long (revisit later)
-  nearK:          6,     // pick randomly among the K nearest free walls
+  paintMaxSeconds: 45,
+  admireSeconds:   3.0,
+  cooldownMin:     6,    // gap between murals (travel + OBSERVE pause counts toward it)
+  cooldownRange:   6,    // → 6-12 s; bounds token spend
+  reachTimeout:    30,   // safety: abandon a route that somehow overruns this
+  deferSeconds:    35,   // don't retry an unreachable wall for this long
+  nearK:           6,    // pick randomly among the K nearest free walls
 };
 
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-
-// Small seedable PRNG (mulberry32) so the test is reproducible; the server just
-// passes Math.random.
+// Small seedable PRNG (mulberry32) so the test is reproducible; the server passes Math.random.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -73,9 +73,8 @@ export function mulberry32(seed) {
 export class KaySim {
   // model: { half, spawn:{x,z}, cellSize, cols, rows, cells:Uint8Array(cols*rows),
   //          walls:[{ id, px,py,pz, nx,nz, wallW,wallH, ax,az }] }
-  //   cells[gz*cols+gx] !== 0  ⇒ blocked. The client guarantees every wall's
-  //   approach cell and Kay's spawn cell are carved FREE, so a wall is never
-  //   structurally unreachable at its approach.
+  //   cells[gz*cols+gx] !== 0  ⇒ blocked. The client carves every wall's approach
+  //   cell and Kay's spawn cell FREE, so a wall is reachable at its approach.
   constructor(model, cfg = {}, rng = Math.random) {
     this.model = model;
     this.cfg   = { ...DEFAULT_SIM_CFG, ...cfg };
@@ -91,40 +90,43 @@ export class KaySim {
     this.x = model.spawn.x;
     this.z = model.spawn.z;
     this.facing = 0;              // heading angle (dir = {x:sin, z:cos})
-    this.nav = {};                // persistent steering state (heading + side)
 
     this.targetId = null;
-    // Stuck watchdog: sample position every stuckSeconds; if he's made almost no
-    // net progress AND he's in a cramped spot, he's trapped → relocate.
-    this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z;
-    // First wall is chosen almost immediately (fast feedback that Kay is alive /
-    // that painting works); the steady cooldown only kicks in AFTER the first
-    // mural, so token pacing is unchanged for the long run.
-    this.timers = { cooldown: 3, move: 0, paint: 0, admire: 0 };
-    this.wander = this._randomReachable();
+    this._path = null;            // array of {x,z} waypoints to the current wall
+    this._pi = 0;                 // current waypoint index
+    this._pathFails = 0;          // consecutive routing failures (→ relocate if boxed)
+    this._cooldownLeft = 3;       // first mural comes quickly, then the steady gap
+    this.timers = { move: 0, paint: 0, admire: 0, idle: 0 };
     this._paintPending = false;   // the DO is generating an SVG right now
     this._paintResult  = null;    // { svg, thought } once ready
 
-    this._setState(SIM_STATE.WANDERING);
+    this._setState(SIM_STATE.SEEKING);
   }
 
-  _setState(s) { this.state = s; this.status = SIM_STATUS[s]; }
+  _setState(s) { this.state = s; this.status = SIM_STATUS[s] ?? this.status; }
   _cooldown()  { return this.cfg.cooldownMin + this.rng() * this.cfg.cooldownRange; }
 
-  // ── Grid collision (no wrap: out of bounds is solid) ─────────────────────────
-  // The grid the client uploads is sampled through city.isColliding, which
-  // ALREADY inflates every obstacle by Kay's body radius (+overhang pad). So a
-  // set cell means "a body-sized Kay collides here" and we test just the cell he
-  // stands in — re-inflating here would seal the town's narrow lanes. `extra` is
-  // accepted for call-site symmetry with city.isColliding but isn't needed.
-  blocked(x, z, _extra = 0) {
+  // ── Grid ─────────────────────────────────────────────────────────────────────
+  // A set cell means "a body-sized Kay collides here" (the client samples the grid
+  // through city.isColliding, which already inflates obstacles by his radius), so
+  // we test just the cell he's in. Out of bounds is solid — no wrap.
+  blocked(x, z) {
     const { half, cellSize, cols, rows, cells } = this.model;
-    if (x < -half || x > half || z < -half || z > half) return true;   // world edge = solid
+    if (x < -half || x > half || z < -half || z > half) return true;
     const gx = ((x + half) / cellSize) | 0;
     const gz = ((z + half) / cellSize) | 0;
     if (gx < 0 || gz < 0 || gx >= cols || gz >= rows) return true;
     return cells[gz * cols + gx] !== 0;
   }
+  _cellFree(gx, gz) {
+    const { cols, rows, cells } = this.model;
+    if (gx < 0 || gz < 0 || gx >= cols || gz >= rows) return false;
+    return cells[gz * cols + gx] === 0;
+  }
+  _gx(x) { return clampI(((x + this.model.half) / this.model.cellSize) | 0, 0, this.model.cols - 1); }
+  _gz(z) { return clampI(((z + this.model.half) / this.model.cellSize) | 0, 0, this.model.rows - 1); }
+  _cx(gx) { return -this.model.half + (gx + 0.5) * this.model.cellSize; }
+  _cz(gz) { return -this.model.half + (gz + 0.5) * this.model.cellSize; }
 
   _randomReachable() {
     const h = this.model.half;
@@ -136,102 +138,117 @@ export class KaySim {
     return { x: this.model.spawn.x, z: this.model.spawn.z };
   }
 
-  // Free = not yet painted AND its approach is walkable right now. Among those,
-  // prefer walls NOT currently deferred (recently given up on); if every free
-  // wall is deferred, retry them anyway so Kay always makes progress.
+  // ── Wall choice — nearest free wall, with a little randomness ─────────────────
   _freeWalls() {
     return this.walls.filter((w) => !this.painted.has(w.id) && !this.blocked(w.ax, w.az));
   }
-
   _pickWall(fromX, fromZ) {
     const free = this._freeWalls();
-    if (!free.length) return null;                       // nothing reachable → contemplate
+    if (!free.length) return null;
     let pool = free.filter((w) => (this._defer.get(w.id) ?? 0) <= this.simTime);
     if (!pool.length) pool = free;                       // all deferred → allow retry
     pool.sort((a, b) =>
       ((a.px - fromX) ** 2 + (a.pz - fromZ) ** 2) - ((b.px - fromX) ** 2 + (b.pz - fromZ) ** 2));
-    const k = Math.min(pool.length, this.cfg.nearK);     // random among the K nearest
+    const k = Math.min(pool.length, this.cfg.nearK);
     return pool[(this.rng() * k) | 0];
   }
-
   hasFreeReachable() { return this._freeWalls().length > 0; }
   allPainted()       { return this.walls.every((w) => this.painted.has(w.id)); }
 
-  // ── Local pilot — continuous, grid-guarded, NO toroidal wrap ─────────────────
-  // Ported/trimmed from city.steer (js/city.js): whiskers ahead + at ±24°, a
-  // persistent heading turned toward the target at a limited rate, side
-  // hysteresis to round obstacles, and an anti-pirouette that bails on a closed
-  // orbit. All distances are PLAIN (never _wrapDelta) so Kay never Pac-Mans.
-  // Returns true if he advanced, false if boxed in / spinning (caller re-plans).
-  _steer(tx, tz, step) {
-    const st = this.nav;
-    const dt = Math.max(step / this.cfg.moveSpeed, 1e-4);
-    const dx = tx - this.x, dz = tz - this.z;
-    const distT = Math.hypot(dx, dz);
-    const prevH = st.h;
+  // ── Pathfinding — BFS over the grid (8-connected, no corner cutting) ─────────
+  // Returns waypoints (cell centres, last one is the exact approach point), or null.
+  _findPath(sx, sz, tx, tz) {
+    const { cols, rows } = this.model;
+    const sgx = this._gx(sx), sgz = this._gz(sz);
+    const tgx = this._gx(tx), tgz = this._gz(tz);
+    if (!this._cellFree(sgx, sgz) || !this._cellFree(tgx, tgz)) return null;
+    const start = sgz * cols + sgx, goal = tgz * cols + tgx;
+    if (start === goal) return [{ x: tx, z: tz }];
 
-    st.bias = clamp((st.bias ?? 0) + (this.rng() - 0.5) * 2.4 * dt, -0.6, 0.6);
-    st.bias *= Math.max(0, 1 - 0.25 * dt);
-    const desired = Math.atan2(dx, dz) + st.bias * clamp((distT - 2) / 6, 0, 1);
-    let h = st.h ?? desired;
-
-    const freeAt = (a, d) => !this.blocked(this.x + Math.sin(a) * d, this.z + Math.cos(a) * d, 0.14);
-    const nearF = freeAt(h, 0.8), farF = freeAt(h, 1.7);
-    const leftF = freeAt(h + 0.42, 1.15), rightF = freeAt(h - 0.42, 1.15);
-
-    if (!nearF || !farF) {
-      if (!st.side) st.side = leftF === rightF ? (freeAt(h + 1.0, 1.3) ? 1 : -1) : (leftF ? 1 : -1);
-    } else if (st.side && leftF && rightF) {
-      st.side = 0;
-    }
-
-    let turn = clamp(wrapAngle(desired - h), -2.4 * dt, 2.4 * dt);
-    if (st.side) { if (!farF) turn += st.side * 2.2 * dt; if (!nearF) turn += st.side * 4.5 * dt; }
-    if (!leftF)  turn -= 2.6 * dt;
-    if (!rightF) turn += 2.6 * dt;
-    h = wrapAngle(h + clamp(turn, -5.0 * dt, 5.0 * dt));
-
-    const side = st.side || 1;
-    for (let k = 0; k < 10; k++) {
-      const a = wrapAngle(h + side * k * 0.22);
-      const nx = this.x + Math.sin(a) * step, nz = this.z + Math.cos(a) * step;
-      if (!this.blocked(nx, nz, 0.14)) {
-        this.x = nx; this.z = nz; st.h = a; this.facing = a;
-        // anti-pirouette: sum signed heading change, zero it on real headway;
-        // a full turn with no headway back near where the loop began ⇒ bail.
-        if (st.tx !== tx || st.tz !== tz) { st.tx = tx; st.tz = tz; st.best = distT; st.spin = 0; st.loopX = this.x; st.loopZ = this.z; }
-        else if (distT < (st.best ?? Infinity) - 0.05) { st.best = distT; st.spin = 0; st.loopX = this.x; st.loopZ = this.z; }
-        if (prevH !== undefined) {
-          st.spin = (st.spin ?? 0) + wrapAngle(a - prevH);
-          if (Math.abs(st.spin) >= 2 * Math.PI) {
-            if (Math.hypot(st.loopX - this.x, st.loopZ - this.z) < 2.0) {
-              st.h = undefined; st.side = 0; st.spin = 0; st.bias = 0;
-              return false;                              // closed loop → re-plan
-            }
-            st.spin = 0; st.loopX = this.x; st.loopZ = this.z;
-          }
-        }
-        return true;
+    const prev = new Int32Array(cols * rows).fill(-1);
+    prev[start] = start;
+    const q = new Int32Array(cols * rows);
+    let head = 0, tail = 0;
+    q[tail++] = start;
+    const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    let found = false;
+    while (head < tail) {
+      const cur = q[head++];
+      if (cur === goal) { found = true; break; }
+      const gx = cur % cols, gz = (cur / cols) | 0;
+      for (const [dx, dz] of NB) {
+        const ngx = gx + dx, ngz = gz + dz;
+        if (!this._cellFree(ngx, ngz)) continue;
+        if (dx && dz && (!this._cellFree(gx + dx, gz) || !this._cellFree(gx, gz + dz))) continue; // no corner cut
+        const ni = ngz * cols + ngx;
+        if (prev[ni] !== -1) continue;
+        prev[ni] = cur;
+        q[tail++] = ni;
       }
     }
-    st.h = undefined; st.side = 0; st.spin = 0;           // boxed in → re-plan
-    return false;
+    if (!found) return null;
+
+    const cells = [];
+    for (let c = goal; c !== start; c = prev[c]) cells.push(c);
+    cells.push(start);
+    cells.reverse();
+    const wp = cells.map((c) => ({ x: this._cx(c % cols), z: this._cz((c / cols) | 0) }));
+    wp[wp.length - 1] = { x: tx, z: tz };   // finish at the exact approach point
+    return wp;
   }
 
-  _faceWall(w) { this.facing = Math.atan2(-w.nx, -w.nz); }   // turn to face the wall
+  // Is the straight segment clear of obstacles? (line-of-sight for path smoothing)
+  _lineClear(x0, z0, x1, z1) {
+    const d = Math.hypot(x1 - x0, z1 - z0);
+    const n = Math.max(1, Math.ceil(d / (this.model.cellSize * 0.5)));
+    for (let i = 0; i <= n; i++) {
+      const f = i / n;
+      if (this.blocked(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f)) return false;
+    }
+    return true;
+  }
 
-  _returnToWander() {
-    this.wander = this._randomReachable();
-    this._setState(SIM_STATE.WANDERING);
+  // Advance along the route this frame. String-pulls to the farthest visible
+  // waypoint (smooth diagonal, no stair-step), steps toward it, sets facing.
+  // Returns true once he's arrived at the final waypoint (the approach point).
+  _followPath(step) {
+    const wp = this._path;
+    if (!wp || !wp.length) return true;
+    while (this._pi < wp.length - 1 && this._lineClear(this.x, this.z, wp[this._pi + 1].x, wp[this._pi + 1].z)) this._pi++;
+    let tgt = wp[this._pi];
+    let dx = tgt.x - this.x, dz = tgt.z - this.z, d = Math.hypot(dx, dz);
+    while (d < this.cfg.arriveWaypoint && this._pi < wp.length - 1) {
+      this._pi++; tgt = wp[this._pi]; dx = tgt.x - this.x; dz = tgt.z - this.z; d = Math.hypot(dx, dz);
+    }
+    if (d > 1e-4) {
+      const s = Math.min(step, d);
+      this.x += (dx / d) * s; this.z += (dz / d) * s;
+      this.facing = Math.atan2(dx / d, dz / d);
+    }
+    const last = wp[wp.length - 1];
+    return this._pi >= wp.length - 1 && Math.hypot(last.x - this.x, last.z - this.z) < this.cfg.arriveWall;
+  }
+
+  _faceWall(w) { this.facing = Math.atan2(-w.nx, -w.nz); }
+
+  _toSeeking() { this._path = null; this._pi = 0; this._setState(SIM_STATE.SEEKING); }
+
+  _beginPaint(w) {
+    this._faceWall(w);
+    this.timers.paint = 0;
+    this._paintPending = true;
+    this._paintResult  = null;
+    this._setState(SIM_STATE.PAINTING);
+    return { paint: w };
   }
 
   _giveUpTarget() {
     if (this.targetId != null) this._defer.set(this.targetId, this.simTime + this.cfg.deferSeconds);
     this.targetId = null;
-    this._returnToWander();
+    this._toSeeking();
   }
 
-  // How many of the 8 grid neighbours are walkable — an "openness" score.
+  // ── Trap escape (safety net; pathfinding makes this rare) ────────────────────
   _openNeighbors(x, z) {
     const s = this.model.cellSize;
     let n = 0;
@@ -239,106 +256,83 @@ export class KaySim {
       if (!this.blocked(x + dx * s, z + dz * s)) n++;
     return n;
   }
-
-  // Nearest genuinely-open spot (free + surrounded by free) via an outward spiral
-  // — so an escape is a short hop onto the street, not a jump across the map.
   _nearestOpen(x, z) {
     const s = this.model.cellSize;
-    for (let r = 1; r < 60; r++) {
+    for (let r = 1; r < 80; r++) {
       const steps = r * 8;
       for (let a = 0; a < steps; a++) {
         const ang = (a / steps) * Math.PI * 2;
-        const px = x + Math.cos(ang) * r * s;
-        const pz = z + Math.sin(ang) * r * s;
+        const px = x + Math.cos(ang) * r * s, pz = z + Math.sin(ang) * r * s;
         if (!this.blocked(px, pz) && this._openNeighbors(px, pz) >= 5) return { x: px, z: pz };
       }
     }
     return null;
   }
-
-  // Escape a trap: teleport to the nearest open street, drop the current target
-  // (revisit later), and start wandering again. The client snaps to the new spot
-  // (RemoteDriver's teleport guard), so it reads as a jump-cut, not a slide.
   _relocate() {
     const p = this._nearestOpen(this.x, this.z) || this._randomReachable();
     this.x = p.x; this.z = p.z;
-    this.nav = {};
     if (this.targetId != null) { this._defer.set(this.targetId, this.simTime + this.cfg.deferSeconds); this.targetId = null; }
-    this.wander = this._randomReachable();
-    this.timers.cooldown = Math.min(this.timers.cooldown, 2);
-    this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z;
-    this._setState(SIM_STATE.WANDERING);
+    this._pathFails = 0;
+    this._toSeeking();
   }
 
   // ── DO callbacks for the async paint ────────────────────────────────────────
   paintDone(result) { this._paintResult = result; this._paintPending = false; }
   paintFailed()     { this._paintResult = null;   this._paintPending = false; }
 
-  // ── One tick. Returns { paint: wall } exactly once, when generation should
-  // start; the DO then calls paintDone/paintFailed. Otherwise returns null. ─────
+  // ── One tick. Returns { paint: wall } exactly once (when generation should
+  // start); the DO then calls paintDone/paintFailed. Otherwise null. ────────────
   step(dt) {
     this.simTime += dt;
     const step = this.cfg.moveSpeed * dt;
 
-    // Stuck watchdog — only while he's meant to be moving. Every stuckSeconds,
-    // if he's covered almost no ground AND he's wedged somewhere cramped (few
-    // open grid neighbours — a pocket or a dead-end alley), pop him out. Gating
-    // on "cramped" means honest open-street wandering never false-triggers.
-    const movingState = this.state === SIM_STATE.WANDERING || this.state === SIM_STATE.MOVING_TO_WALL
-                     || this.state === SIM_STATE.CONTEMPLATING;
-    if (movingState) {
-      this._stuckT += dt;
-      if (this._stuckT >= this.cfg.stuckSeconds) {
-        const net = Math.hypot(this.x - this._probeX, this.z - this._probeZ);
-        this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z;
-        if (net < 1.5 && this._openNeighbors(this.x, this.z) < 6) { this._relocate(); return null; }
-      }
-    } else { this._stuckT = 0; this._probeX = this.x; this._probeZ = this.z; }
-
     switch (this.state) {
-      case SIM_STATE.WANDERING: {
-        this.timers.cooldown -= dt;
-        const moved = this._steer(this.wander.x, this.wander.z, step);
-        if (!moved || Math.hypot(this.wander.x - this.x, this.wander.z - this.z) < this.cfg.arriveWander)
-          this.wander = this._randomReachable();
-        if (this.timers.cooldown <= 0) {
-          const w = this._pickWall(this.x, this.z);
-          if (w) { this.targetId = w.id; this.timers.move = 0; this.nav = {}; this._setState(SIM_STATE.MOVING_TO_WALL); }
-          else if (!this.hasFreeReachable()) this._setState(SIM_STATE.CONTEMPLATING);
-          else this.timers.cooldown = 2;                 // reachable walls exist but all deferred; retry soon
+      case SIM_STATE.SEEKING: {
+        if (this.blocked(this.x, this.z)) { this._relocate(); return null; }   // drifted into a wall
+        const w = this._pickWall(this.x, this.z);
+        if (!w) { if (!this.hasFreeReachable()) this._setState(SIM_STATE.CONTEMPLATING); return null; }
+        const path = this._findPath(this.x, this.z, w.ax, w.az);
+        if (path) {
+          this.targetId = w.id; this._path = path; this._pi = 0; this._pathFails = 0;
+          this.timers.move = 0; this._setState(SIM_STATE.MOVING_TO_WALL);
+        } else {
+          this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);          // unreachable → skip a while
+          if (++this._pathFails > 12 && this._openNeighbors(this.x, this.z) < 6) this._relocate();
         }
         return null;
       }
 
       case SIM_STATE.MOVING_TO_WALL: {
         this.timers.move += dt;
+        this._cooldownLeft = Math.max(0, this._cooldownLeft - dt);   // travel counts toward the gap
         const w = this.byId.get(this.targetId);
-        if (!w) { this._giveUpTarget(); return null; }
-        const moved = this._steer(w.ax, w.az, step);
-        if (Math.hypot(w.ax - this.x, w.az - this.z) < this.cfg.arriveWall) {
-          // Arrived → start PAINTING immediately (hand moving) and kick off the
-          // generation. Kay keeps spraying the whole time the SVG is being made.
+        if (!w) { this._toSeeking(); return null; }
+        const arrived = this._followPath(step);
+        if (arrived) {
           this._faceWall(w);
-          this.timers.paint  = 0;
-          this._paintPending = true;
-          this._paintResult  = null;
-          this._setState(SIM_STATE.PAINTING);
-          return { paint: w };                           // ← DO kicks off generation here
+          if (this._cooldownLeft > 0) { this.timers.idle = 0; this._setState(SIM_STATE.OBSERVE); return null; }
+          return this._beginPaint(w);
         }
-        if (!moved || this.timers.move > this.cfg.reachTimeout) this._giveUpTarget();
+        if (this.timers.move > this.cfg.reachTimeout) this._giveUpTarget();       // safety
+        return null;
+      }
+
+      case SIM_STATE.OBSERVE: {
+        const w = this.byId.get(this.targetId);
+        if (!w) { this._toSeeking(); return null; }
+        this._faceWall(w);
+        this._cooldownLeft = Math.max(0, this._cooldownLeft - dt);
+        if (this._cooldownLeft <= 0) return this._beginPaint(w);
         return null;
       }
 
       case SIM_STATE.PAINTING: {
         this.timers.paint += dt;
         if (this._paintPending) {
-          // still generating — keep the hand moving, but bail if it hangs
           if (this.timers.paint > this.cfg.paintMaxSeconds) { this._paintPending = false; this._giveUpTarget(); }
           return null;
         }
-        // generation finished (or failed)
         if (!(this._paintResult && this._paintResult.svg)) { this._giveUpTarget(); return null; }
-        // keep spraying until the minimum paint time so it always reads as painting
         if (this.timers.paint > this.cfg.paintMinSeconds) {
           this.painted.add(this.targetId);
           this._defer.delete(this.targetId);
@@ -353,25 +347,22 @@ export class KaySim {
         this.timers.admire += dt;
         if (this.timers.admire > this.cfg.admireSeconds) {
           this.targetId = null;
-          this.timers.cooldown = this._cooldown();       // steady pace before the next
-          this._returnToWander();
+          this._cooldownLeft = this._cooldown();      // steady pace before the next
+          this._toSeeking();
         }
         return null;
       }
 
       case SIM_STATE.CONTEMPLATING: {
-        this.timers.cooldown -= dt;
-        const moved = this._steer(this.wander.x, this.wander.z, step * 0.6);
-        if (!moved || Math.hypot(this.wander.x - this.x, this.wander.z - this.z) < this.cfg.arriveWander)
-          this.wander = this._randomReachable();
-        if (this.timers.cooldown <= 0) {
-          this.timers.cooldown = this._cooldown();
-          if (this.hasFreeReachable()) this._setState(SIM_STATE.WANDERING);   // a deferred wall came back
-        }
+        this.timers.idle += dt;
+        if (this.timers.idle > 3) { this.timers.idle = 0; if (this.hasFreeReachable()) this._toSeeking(); }
         return null;
       }
+
+      default:                                       // legacy state from old persistence
+        this._toSeeking();
+        return null;
     }
-    return null;
   }
 
   // ── Broadcast payload (small; sent to browsers each tick) ────────────────────
@@ -382,31 +373,25 @@ export class KaySim {
   // ── Persistence to Durable Object storage (survives eviction while frozen) ───
   serialize() {
     return {
-      x: this.x, z: this.z, facing: this.facing, state: this.state,
-      targetId: this.targetId, muralCount: this.muralCount, simTime: this.simTime,
-      timers: this.timers, nav: this.nav, wander: this.wander,
+      x: this.x, z: this.z, facing: this.facing, muralCount: this.muralCount, simTime: this.simTime,
+      cooldownLeft: this._cooldownLeft,
       painted: [...this.painted], defer: [...this._defer],
-      paintPending: this._paintPending, paintResult: this._paintResult,
     };
   }
 
   hydrate(s) {
     if (!s) return this;
-    this.x = s.x; this.z = s.z; this.facing = s.facing; this.state = s.state;
-    this.status = SIM_STATUS[s.state] ?? this.status;
-    this.targetId = s.targetId; this.muralCount = s.muralCount ?? 0; this.simTime = s.simTime ?? 0;
-    this.timers = s.timers ?? this.timers; this.nav = s.nav ?? {}; this.wander = s.wander ?? this.wander;
+    this.x = s.x ?? this.x; this.z = s.z ?? this.z; this.facing = s.facing ?? 0;
+    this.muralCount = s.muralCount ?? 0; this.simTime = s.simTime ?? 0;
+    this._cooldownLeft = s.cooldownLeft ?? 0;
     this.painted = new Set(s.painted ?? []);
     this._defer  = new Map(s.defer ?? []);
-    // A paint that was mid-flight when the DO was evicted can't be resumed →
-    // drop it so THINKING doesn't hang forever; the wall stays free.
-    this._paintPending = false;
-    this._paintResult  = null;
-    if (this.state === SIM_STATE.THINKING || this.state === SIM_STATE.PAINTING) {
-      if (this.targetId != null) this._defer.set(this.targetId, this.simTime);
-      this.targetId = null;
-      this._setState(SIM_STATE.WANDERING);
-    }
+    // Routes and in-flight paints don't survive an eviction — just re-decide.
+    this.targetId = null; this._path = null; this._pi = 0;
+    this._paintPending = false; this._paintResult = null;
+    this._setState(SIM_STATE.SEEKING);
     return this;
   }
 }
+
+function clampI(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
