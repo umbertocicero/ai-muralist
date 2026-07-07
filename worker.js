@@ -285,11 +285,11 @@ const STYLE_NAMES = ['Ukiyo-e', 'Sumi-e', 'Manga', 'Woodblock', 'Anime', 'Kirie'
 const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
 function pacing(env) {
   return {
-    thinkSeconds:  envNum(env.KAY_THINK, 2.0),
-    paintSeconds:  envNum(env.KAY_PAINT, 2.2),
-    admireSeconds: envNum(env.KAY_ADMIRE, 3.0),
-    cooldownMin:   envNum(env.KAY_COOLDOWN_MIN, 20),
-    cooldownRange: envNum(env.KAY_COOLDOWN_RANGE, 20),
+    paintMinSeconds: envNum(env.KAY_PAINT, 3.0),      // min spray time (demo shows a few s)
+    paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
+    admireSeconds:   envNum(env.KAY_ADMIRE, 3.0),
+    cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 20),
+    cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 20),
   };
 }
 

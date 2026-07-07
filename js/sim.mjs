@@ -40,8 +40,12 @@ export const DEFAULT_SIM_CFG = {
   charRadius:     0.4,
   arriveWall:     0.5,   // reached the approach point
   arriveWander:   0.8,   // reached a stroll target
-  thinkSeconds:   2.0,   // idle before the SVG is ready (also waits on the AI)
-  paintSeconds:   2.2,
+  // Kay PAINTS (hand moving) for the WHOLE creation: at least paintMinSeconds
+  // (so demo murals, generated instantly, still show a few seconds of spraying)
+  // and up to paintMaxSeconds while the AI is still generating — so the hand
+  // moves the entire time an AI mural is being made.
+  paintMinSeconds: 3.0,
+  paintMaxSeconds: 45,   // safety cap if generation hangs
   admireSeconds:  3.0,
   cooldownMin:    20,    // steady pace: wander this long between murals…
   cooldownRange:  20,    // …+ up to this much (→ 20-40s), bounds token spend
@@ -92,7 +96,7 @@ export class KaySim {
     // First wall is chosen almost immediately (fast feedback that Kay is alive /
     // that painting works); the steady cooldown only kicks in AFTER the first
     // mural, so token pacing is unchanged for the long run.
-    this.timers = { cooldown: 3, move: 0, think: 0, paint: 0, admire: 0 };
+    this.timers = { cooldown: 3, move: 0, paint: 0, admire: 0 };
     this.wander = this._randomReachable();
     this._paintPending = false;   // the DO is generating an SVG right now
     this._paintResult  = null;    // { svg, thought } once ready
@@ -254,30 +258,30 @@ export class KaySim {
         if (!w) { this._giveUpTarget(); return null; }
         const moved = this._steer(w.ax, w.az, step);
         if (Math.hypot(w.ax - this.x, w.az - this.z) < this.cfg.arriveWall) {
+          // Arrived → start PAINTING immediately (hand moving) and kick off the
+          // generation. Kay keeps spraying the whole time the SVG is being made.
           this._faceWall(w);
-          this.timers.think = 0;
+          this.timers.paint  = 0;
           this._paintPending = true;
           this._paintResult  = null;
-          this._setState(SIM_STATE.THINKING);
-          return { paint: w };                           // ← DO kicks off the AI here
+          this._setState(SIM_STATE.PAINTING);
+          return { paint: w };                           // ← DO kicks off generation here
         }
         if (!moved || this.timers.move > this.cfg.reachTimeout) this._giveUpTarget();
         return null;
       }
 
-      case SIM_STATE.THINKING: {
-        this.timers.think += dt;
-        // hold until the minimum think time has passed AND the SVG is in
-        if (this.timers.think > this.cfg.thinkSeconds && !this._paintPending) {
-          if (this._paintResult && this._paintResult.svg) { this._setState(SIM_STATE.PAINTING); this.timers.paint = 0; }
-          else this._giveUpTarget();                     // generation failed → skip, retry later
-        }
-        return null;
-      }
-
       case SIM_STATE.PAINTING: {
         this.timers.paint += dt;
-        if (this.timers.paint > this.cfg.paintSeconds) {
+        if (this._paintPending) {
+          // still generating — keep the hand moving, but bail if it hangs
+          if (this.timers.paint > this.cfg.paintMaxSeconds) { this._paintPending = false; this._giveUpTarget(); }
+          return null;
+        }
+        // generation finished (or failed)
+        if (!(this._paintResult && this._paintResult.svg)) { this._giveUpTarget(); return null; }
+        // keep spraying until the minimum paint time so it always reads as painting
+        if (this.timers.paint > this.cfg.paintMinSeconds) {
           this.painted.add(this.targetId);
           this._defer.delete(this.targetId);
           this.muralCount++;

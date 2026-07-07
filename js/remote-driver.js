@@ -21,25 +21,59 @@ export class RemoteDriver {
     this.city = city;
     this.char = character;
     this.ui   = ui;
+    // Snapshot interpolation buffer: render ~DELAY in the past, smoothly
+    // interpolating between the two most recent server positions. This turns the
+    // 10 Hz (and jittery-alarm) stream into fluid motion with no rubber-banding.
+    this.DELAY = 0.15;         // seconds of buffered latency (imperceptible)
+    this._prev = null;         // {x,z,t}
+    this._cur  = null;
+    this._ref  = null;         // identity of the last-seen snapshot (LiveLink replaces it per message)
+    this._rx = null; this._rz = null;   // rendered position
   }
 
-  // Per-frame: ease the character toward the latest server position (10Hz →
-  // 60fps) and play the state's animation. A plain lerp — the server never
-  // wraps, so there is no seam to jump.
+  // Per-frame: place Kay by SNAPSHOT INTERPOLATION (not a chase-lerp toward the
+  // latest point, which lagged and stuttered), then play the state's animation.
   update(dt, t, kay) {
     if (!kay) { this.char.idle(t); this.char.sync(); return; }
-    const a = 1 - Math.exp(-dt * 10);
-    this.char.pos.x += (kay.x - this.char.pos.x) * a;
-    this.char.pos.z += (kay.z - this.char.pos.z) * a;
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+
+    // A new snapshot arrived (LiveLink swaps the object each message).
+    if (kay !== this._ref) {
+      this._ref  = kay;
+      this._prev = this._cur || { x: kay.x, z: kay.z, t: now - 0.1 };
+      this._cur  = { x: kay.x, z: kay.z, t: now };
+    }
+    if (this._rx == null) { this._rx = kay.x; this._rz = kay.z; }
+
+    // Target = the position at (now - DELAY), interpolated between prev→cur and
+    // CLAMPED to cur (never extrapolate past it → no overshoot when he stops).
+    let tx = kay.x, tz = kay.z;
+    if (this._prev && this._cur && this._cur.t > this._prev.t) {
+      const span = this._cur.t - this._prev.t;
+      const f = Math.max(0, Math.min(1, (now - this.DELAY - this._prev.t) / span));
+      tx = this._prev.x + (this._cur.x - this._prev.x) * f;
+      tz = this._prev.z + (this._cur.z - this._prev.z) * f;
+    }
+    // A light critically-damped follow irons out any residual steps.
+    const a = 1 - Math.exp(-dt * 16);
+    this._rx += (tx - this._rx) * a;
+    this._rz += (tz - this._rz) * a;
+    this.char.pos.x = this._rx;
+    this.char.pos.z = this._rz;
     this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
 
     switch (kay.state) {
       case S.WANDERING:
       case S.MOVING_TO_WALL: this.char.walk(t); break;
       case S.CONTEMPLATING:  this.char.walk(t, 0.6); break;
-      case S.PAINTING:       this.char.paint(t); break;
-      default:               this.char.idle(t); break;   // THINKING / ADMIRING
+      case S.PAINTING:       this.char.paint(t); break;   // hand moving the whole creation
+      default:               this.char.idle(t); break;    // ADMIRING
     }
+    // Keep the spray onomatopoeia popping while he paints (long AI creations too).
+    if (kay.state === S.PAINTING) {
+      this._sfxT = (this._sfxT ?? 0) + dt;
+      if (this._sfxT > 1.8) { this._sfxT = 0; this._popSfx(); }
+    } else this._sfxT = 0;
     this.char.sync();
   }
 
@@ -49,14 +83,23 @@ export class RemoteDriver {
   onState(state, prev, kay) {
     const slot = kay && kay.targetId != null ? this.city.wallSlots[kay.targetId] : null;
 
-    if (state === S.THINKING && slot) this.ui.onPaintBegin?.(slot);      // frame the wall
-    if (state === S.PAINTING) { this.ui.flashActive = true; this._popSfx(); }
+    // PAINTING now begins the moment Kay reaches the wall (and runs through the
+    // whole generation): frame the wall, a brief impact flash, spray SFX.
+    if (state === S.PAINTING) { if (slot) this.ui.onPaintBegin?.(slot); this._flashPulse(); this._popSfx(); }
     if (state === S.ADMIRING) { this.ui.flashActive = false; if (slot) this.ui.onAdmire?.(slot); }
-    if (state === S.WANDERING && (prev === S.ADMIRING || prev === S.THINKING || prev === S.PAINTING)) {
+    if (state === S.WANDERING && (prev === S.ADMIRING || prev === S.PAINTING)) {
       this.ui.flashActive = false;
       this.ui.thoughtVisible = false;
       this.ui.onPaintEnd?.();                                             // rise + resume follow
     }
+  }
+
+  // A short orange impact flash (not a held veil — painting can now last the
+  // whole AI generation).
+  _flashPulse() {
+    this.ui.flashActive = true;
+    if (this._flashT) clearTimeout(this._flashT);
+    this._flashT = setTimeout(() => { this.ui.flashActive = false; }, 600);
   }
 
   // A manga onomatopoeia over the wall as the stroke lands (mirrors Agent._popSfx).

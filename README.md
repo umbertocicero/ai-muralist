@@ -312,8 +312,10 @@ appears when you're actually in AI mode with a keyed-but-empty account.
 Pace/cost knobs (optional `vars`/secrets; Kay bills the site key continuously
 while anyone is connected): `KAY_COOLDOWN_MIN` (default 20 s) and
 `KAY_COOLDOWN_RANGE` (default 20 s) set the steady gap between murals;
-`KAY_THINK` / `KAY_PAINT` / `KAY_ADMIRE` and `KAY_MODEL` (default
-`claude-sonnet-4-6`) tune the rest.
+`KAY_PAINT` (min spray seconds, default 3), `KAY_PAINT_MAX` (cap while an AI
+mural is still generating, default 45), `KAY_ADMIRE`, and `KAY_MODEL` (default
+`claude-sonnet-4-6`) tune the rest. Kay paints (hand moving) for the WHOLE
+creation — a few seconds in demo, the entire AI call in AI mode.
 
 Turn it off without removing the binding via `config.yaml`: `live: false`
 (each browser falls back to its own local Kay). Without the `KAY` binding the
