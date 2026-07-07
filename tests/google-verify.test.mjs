@@ -80,10 +80,11 @@ await check('bad issuer is rejected', async () => {
 });
 
 await check('tampered signature is rejected', async () => {
-  let tok = await makeToken();
-  // flip the last char of the signature segment
+  const tok = await makeToken();
+  // flip the FIRST char of the signature (top 6 bits of byte 0 → always alters
+  // the bytes; the last char can fall on padding bits and be a no-op flip).
   const parts = tok.split('.');
-  parts[2] = parts[2].slice(0, -1) + (parts[2].slice(-1) === 'A' ? 'B' : 'A');
+  parts[2] = (parts[2][0] === 'A' ? 'B' : 'A') + parts[2].slice(1);
   assert.ok(await rejects(verifyGoogleIdToken(parts.join('.'), { clientId: CLIENT_ID, getJwks })));
 });
 

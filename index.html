@@ -258,6 +258,25 @@
     transition: background 0.2s, color 0.2s;
   }
   #settings-btn:hover { background: #4a5a66; color: #fff; }
+
+  /* ── Login control (Google sign-in) — top-left column under Settings ─────── */
+  #login-ctl {
+    position: fixed; z-index: 12; pointer-events: auto;
+    top: 202px; left: 18px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  #login-ctl .lc-gsi { min-height: 30px; }
+  #login-ctl .lc-pic { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid #4a5a66; }
+  #login-ctl .lc-who { font-family: 'Courier New', monospace; line-height: 1.15; }
+  #login-ctl .lc-name { font-size: 10px; color: #1a1a1a; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #login-ctl .lc-role { font-size: 9px; letter-spacing: 2px; color: #ff6b35; font-weight: bold; }
+  #login-ctl .lc-out {
+    padding: 5px 9px; background: rgba(245, 240, 230, 0.92);
+    border: 1.5px solid #4a5a66; border-radius: 2px;
+    font-family: 'Courier New', monospace; font-size: 9px; letter-spacing: 1px;
+    color: #4a5a66; cursor: pointer; transition: background 0.2s, color 0.2s;
+  }
+  #login-ctl .lc-out:hover { background: #4a5a66; color: #fff; }
   #settings-panel {
     position: fixed; z-index: 27; pointer-events: auto;
     top: 160px; left: 66px;

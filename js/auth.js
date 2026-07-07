@@ -76,7 +76,9 @@ export async function initAuth() {
       cancel_on_tap_outside: true,
     });
     auth.ready = true;
-    try { window.google.accounts.id.prompt(); } catch {}   // silent One Tap if possible
+    // NB: we deliberately do NOT call prompt() (One Tap). It runs on FedCM and
+    // spams "FedCM get() rejects with NetworkError" when the browser blocks
+    // third-party sign-in. Sign-in is via the explicit rendered button instead.
     notify();
   } catch (e) {
     console.warn('[auth]', e.message);
@@ -88,7 +90,6 @@ export function renderSignInButton(el) {
   if (!auth.ready || !el) return;
   try {
     window.google.accounts.id.renderButton(el, { theme: 'outline', size: 'medium', type: 'standard', shape: 'rectangular' });
-    window.google.accounts.id.prompt();
   } catch (e) { console.warn('[auth] render button:', e.message); }
 }
 

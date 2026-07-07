@@ -1,6 +1,6 @@
 import { loadUserSettings, saveUserSettings } from '../js/settings.js';
 import { CONFIG } from '../js/config.js';
-import { auth, renderSignInButton, signOut } from '../js/auth.js';
+import { auth, signOut } from '../js/auth.js';
 
 // ===========================================================================
 //  Settings panel — a ⚙ button opening a small paper card where the VISITOR
@@ -42,18 +42,8 @@ export default {
     // Admin controls (MODE, DELETE) are visible when auth is OFF (open app) or
     // when the signed-in user is the owner. The Worker enforces regardless.
     canAdmin()  { return !auth.enabled || auth.isOwner; },
-    authReady() { return auth.ready; },
-    signedIn()  { return !!auth.user; },
-  },
-  watch: {
-    open()      { this.$nextTick(() => this._renderSignIn()); },
-    authReady() { this.$nextTick(() => this._renderSignIn()); },
-    signedIn()  { this.$nextTick(() => this._renderSignIn()); },
   },
   methods: {
-    _renderSignIn() {
-      if (auth.enabled && !auth.user && this.$refs.gsi) renderSignInButton(this.$refs.gsi);
-    },
     doSignOut() { signOut(); },
     apply() {
       const s = {};
@@ -93,10 +83,7 @@ export default {
           <span class="s-note">signed in as {{ auth.user.email }}<template v-if="auth.isOwner"> · owner</template></span>
           <button class="s-btn ghost" @click="doSignOut">SIGN OUT</button>
         </template>
-        <template v-else>
-          <div ref="gsi" class="s-gsi"></div>
-          <span class="s-note">sign in with Google to manage this world</span>
-        </template>
+        <span v-else class="s-note">sign in with the Google button (top-left) to manage this world</span>
       </div>
 
       <template v-if="canAdmin">

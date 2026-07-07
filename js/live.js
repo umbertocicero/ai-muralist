@@ -139,9 +139,13 @@ export class LiveLink {
   // the DO already has the world model, i.e. needWorld=false).
   _sendMode() {
     if (!this._ws) return;
-    // The server only honours this from an owner token; a visitor's token is
-    // null/non-owner and is ignored, so their local mode can't flip shared Kay.
-    try { this._ws.send(JSON.stringify({ type: 'mode', demo: CONFIG.mode === 'demo', token: getToken() })); } catch {}
+    // Only the OWNER may set the shared mode, so only bother the server when
+    // actually signed in — a not-signed-in visitor would just get rejected
+    // (that's the noisy "Sign in as the owner" notice). The owner's mode is
+    // (re)sent on sign-in via onAuthChange.
+    const token = getToken();
+    if (!token) return;
+    try { this._ws.send(JSON.stringify({ type: 'mode', demo: CONFIG.mode === 'demo', token })); } catch {}
   }
 
   _sendModel() {

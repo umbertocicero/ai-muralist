@@ -361,9 +361,22 @@ Setup:
 4. Redeploy the Worker + Pages.
 
 Leave `google_client_id` unset to keep the app open (login hidden, no gating).
-Note: with login on, the shared demo/AI baseline comes from the Worker's
-`KAY_DEMO` var (or the owner toggling it after sign-in) — a visitor's local mode
-can no longer flip the shared Kay.
+
+Sign in from the **Google button on the HUD (top-left)**; the ⚙ Settings panel
+shows your status but the button is the entry point.
+
+Two gotchas this commonly trips on:
+
+- **`Error retrieving a token` / FedCM `NetworkError`** at sign-in means the
+  page's exact origin isn't in the OAuth client's *Authorized JavaScript
+  origins* (add e.g. `https://ai-muralist.pages.dev` — no trailing slash), **or**
+  the browser is blocking third-party sign-in (allow it via the icon left of the
+  URL bar). The app no longer auto-fires One Tap, so these only surface on an
+  actual sign-in attempt.
+- **Keeping demo mode without signing in:** the shared baseline comes from the
+  Worker var **`KAY_DEMO=true`** (a visitor's local mode can't flip the shared
+  Kay any more). Set it, or sign in as the owner and pick *demo* — either way it
+  persists. Without it, and with an AI key that has no credits, Kay can't paint.
 
 ---
 

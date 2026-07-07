@@ -29,6 +29,7 @@ import SfxOverlay    from '../components/SfxOverlay.js';
 import FollowButton  from '../components/FollowButton.js';
 import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
+import LoginButton   from '../components/LoginButton.js';
 
 const DAY = new THREE.Color(CONFIG.sky);
 const col = new THREE.Color();
@@ -70,7 +71,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay, LoginButton },
   setup() {
     return { ui };
   },
@@ -99,6 +100,7 @@ const VueRoot = {
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" :tail-angle="ui.tailAngle" :tail-up="ui.tailUp" />
     <FollowButton  :visible="!ui.cameraFollowing" @follow="onFollow" />
     <ResetButton   :visible="ui.viewTilted" @reset="onReset" />
+    <LoginButton />
   `,
 };
 
