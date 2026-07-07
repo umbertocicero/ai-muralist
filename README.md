@@ -285,13 +285,15 @@ becomes a single, server-authoritative entity instead:
 
 - **One shared position** — the server owns Kay's `(x, z)`; every browser connects
   over a WebSocket (`<workerUrl>/live`) and renders the *same* Kay.
-- **Runs only while someone's watching** — the simulation ticks in memory (a
-  `setTimeout` loop kept alive by the open WebSocket, so ticks aren't billed as
-  Durable Object requests) while ≥1 browser is connected, and **freezes** the
-  moment the last one leaves; it resumes from the same spot on reconnect. Alarms
-  are used only as a ~30 s keep-alive (with a fallback that drives the sim
-  directly if a runtime doesn't fire timers), which keeps a busy world well
-  inside the DO free tier. Kay's state persists to DO storage every ~30 s.
+- **Runs only while someone's watching, and stays cheap** — the server advances
+  Kay **coarsely** (an alarm every ~2 s) and **hibernates** in between (the
+  WebSocket Hibernation API means it isn't billed while asleep), so a busy world
+  sits far inside the DO free tier. Smoothness doesn't depend on that slow tick:
+  when Kay heads to a wall the server sends the **route** (pre-simplified
+  waypoints) and each **browser walks it locally at 60 fps** at Kay's speed,
+  nudging only toward the server's occasional position keyframe. The world
+  **freezes** (no alarm reschedule) the moment the last browser leaves and
+  resumes from the same spot; Kay's state persists to DO storage every ~30 s.
 - **The server picks and paints** — Kay chooses the next wall himself (random but
   **nearest-first**, so he never jumps across town; a wall he can't reach is
   deferred and revisited later — **no wall is "better"**), calls Anthropic with

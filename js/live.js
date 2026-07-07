@@ -74,6 +74,7 @@ export class LiveLink {
     this.everConnected = false;   // ever completed a handshake (→ take over from local Kay)
     this.kay = null;              // latest server snapshot {x,z,facing,state,status,muralCount}
     this.onState = null;          // (newState, prevState) — main.js drives the camera off this
+    this.onRoute = null;          // (route) — main.js hands it to the RemoteDriver to walk locally
 
     this._ws = null;
     this._prevState = null;
@@ -118,9 +119,13 @@ export class LiveLink {
         this._sendMode();                       // tell the server demo vs AI (always)
         if (msg.needWorld) this._sendModel();
         if (msg.kay) this._applyKay(msg.kay);
+        if (msg.route) this.onRoute?.(msg.route);   // mid-walk joiner resumes the route
         break;
       case 'kay':
         this._applyKay(msg);
+        break;
+      case 'route':                             // Kay set off toward a new wall
+        this.onRoute?.(msg);
         break;
       case 'mural':
         this._applyMural(msg);

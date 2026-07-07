@@ -277,12 +277,14 @@ function handleLive(request, env) {
   return env.KAY.get(id).fetch(request);
 }
 
-// Pacing / tick knobs. All optional env overrides so a deployment can slow Kay
-// down (token cost) without a code change. TICK_MS drives the alarm loop.
-const TICK_MS = 100;          // in-memory sim tick (NOT billed — see _tick)
-const KEEPALIVE_MS = 30_000;  // alarm cadence when the in-memory loop is healthy
-const LOOP_PROBE_MS = 3_000;  // first alarm after a connect — checks the loop is really ticking
-const FALLBACK_MS = 500;      // if timers don't fire in this runtime, tick from the alarm instead
+// Pacing knobs. All optional env overrides so a deployment can slow Kay down
+// (token cost) without a code change.
+// Kay ticks COARSELY on the server (an alarm every SIM_STEP_MS) and HIBERNATES in
+// between — browsers animate the walk smoothly on their side from the broadcast
+// route, so the server doesn't need a fast heartbeat. This keeps the DO cheap:
+// ~1 request / 2 s and near-zero billable duration (it sleeps between alarms).
+const SIM_STEP_MS = 2000;
+const FIRST_TICK_MS = 300;    // first tick shortly after a connect, so Kay sets off promptly
 const PERSIST_MS = 30_000;    // how often to snapshot sim state to storage
 // Bump when the uploaded world model's shape/resolution changes, so a DO holding
 // an older cached model discards it and asks the next client to re-upload.
@@ -306,19 +308,23 @@ export class KayDO {
     this.state    = state;
     this.env      = env;
     this.storage  = state.storage;
-    this.sessions = new Set();     // open WebSockets (presence + broadcast)
     this.sim      = null;
     this.worldKey = null;
     this.demo     = false;         // site demo mode → procedural murals, no Anthropic call
     this._loaded  = false;
     this._generating = false;      // an AI paint is in flight (guards double-start)
-    this._lastTick = null;
+    this._lastTick = null;         // wall-clock of the last advance (per live instance)
     this._lastPersist = 0;
-    this._looping = false;         // the in-memory tick loop is running
-    this._timer = null;            // its setTimeout handle
-    this._loopTicks = 0;           // counts in-memory ticks (alarm uses it to detect a stalled loop)
-    this._loopTicksSeen = 0;
-    this._lastAlarmAt = null;
+    this._routeSentFor = null;     // targetId whose route we've already broadcast
+  }
+
+  // Presence + broadcast go through the hibernation API's socket list, so they
+  // survive the object being evicted from memory between alarms.
+  _sockets() { return this.state.getWebSockets(); }
+  _send(ws, obj) { try { ws.send(JSON.stringify(obj)); } catch {} }
+  _broadcast(obj) {
+    const s = JSON.stringify(obj);
+    for (const ws of this._sockets()) { try { ws.send(s); } catch {} }
   }
 
   // Restore the simulation from storage on first touch (the DO may have been
@@ -367,24 +373,24 @@ export class KayDO {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    server.accept();
-    this.sessions.add(server);
-    server.addEventListener('message', (ev) => this._onMessage(server, ev));
-    const drop = () => { this.sessions.delete(server); };
-    server.addEventListener('close', drop);
-    server.addEventListener('error', drop);
+    // HIBERNATABLE accept: the object can be evicted from memory between alarms
+    // (no billing while asleep) and still keep this connection open.
+    this.state.acceptWebSocket(server);
 
     this._send(server, {
       type: 'hello', build: WORKER_BUILD, worldKey: this.worldKey,
       needWorld: !this.sim, kay: this.sim ? this.sim.snapshot() : null,
+      route: this.sim ? this.sim.currentRoute() : null,   // mid-walk joiner resumes the route
     });
-    await this._ensureRunning();      // first client → wake the tick loop
+    await this._ensureAlarm(FIRST_TICK_MS);   // first client → start the coarse tick
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async _onMessage(ws, ev) {
+  // Hibernation delivers socket messages here (not via addEventListener).
+  async webSocketMessage(ws, message) {
+    await this._ensureLoaded();
     let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
+    try { msg = JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message)); } catch { return; }
     // The shared demo/AI mode. OWNER ONLY — the message must carry a Google ID
     // token for an OWNER_EMAILS account, else it's ignored (the baseline still
     // comes from KAY_DEMO / stored state). This is why any visitor's local mode
@@ -407,9 +413,16 @@ export class KayDO {
       await this.storage.put('model', model);
       await this.storage.put('worldKey', this.worldKey);
       await this._reconcilePainted();
-      await this._ensureRunning();
+      await this._ensureAlarm(FIRST_TICK_MS);
     }
   }
+
+  // The last viewer leaving is detected by the next alarm (0 sockets → freeze),
+  // but snapshot immediately on close so a reconnect resumes from the exact spot.
+  async webSocketClose() {
+    if (this._sockets().length <= 1 && this.sim) { try { await this.storage.put('sim', this.sim.serialize()); } catch {} }
+  }
+  async webSocketError() { /* handled by the next alarm */ }
 
   // Whether to paint procedurally instead of calling Anthropic: forced by env,
   // forced when no site key is configured, or the client-reported demo mode.
@@ -419,100 +432,52 @@ export class KayDO {
     return this.demo;
   }
 
-  // Start ticking (if not already) + make sure the keep-alive alarm is armed.
-  // Called whenever a browser connects or uploads the world.
-  async _ensureRunning() {
+  async _ensureAlarm(ms = SIM_STEP_MS) {
     if (!this.sim) return;
-    this._startLoop();
-    if ((await this.storage.getAlarm()) == null) await this.storage.setAlarm(Date.now() + LOOP_PROBE_MS);
+    if ((await this.storage.getAlarm()) == null) await this.storage.setAlarm(Date.now() + ms);
   }
 
-  // The heartbeat runs IN MEMORY via setTimeout — NOT via alarms. An open
-  // (standard) WebSocket keeps the object alive, so these ticks fire without
-  // being billed as Durable Object requests (the old 100 ms alarm loop was
-  // ~10 requests/second → blew past the free tier). Alarms are used only as a
-  // 60 s keep-alive (see alarm()).
-  _startLoop() {
-    if (this._looping || !this.sim) return;
-    this._looping = true;
-    this._lastTick = Date.now();
-    this._scheduleTick();
-  }
-  _scheduleTick() {
-    if (this._timer) clearTimeout(this._timer);
-    this._timer = setTimeout(() => this._tick().catch(() => { this._scheduleTick(); }), TICK_MS);
-  }
-
-  async _tick() {
-    this._timer = null;
-    if (this.sessions.size === 0) {                 // last viewer gone → freeze
-      this._looping = false;
-      if (this.sim) await this.storage.put('sim', this.sim.serialize());
-      return;                                       // (no reschedule → loop stops)
-    }
-    this._loopTicks++;                              // proof the timer is firing (alarm checks this)
-    if (this.sim) {
-      const now = Date.now();
-      let dt = (now - (this._lastTick ?? now)) / 1000;
-      this._lastTick = now;
-      if (!(dt > 0)) dt = TICK_MS / 1000;
-      dt = Math.min(dt, 0.5);                       // clamp a long pause / jitter
-      const sig = this.sim.step(dt);
-      if (sig && sig.paint && !this._generating) {
-        this._generating = true;
-        // Fire-and-forget: the open WebSocket keeps the object alive to finish it.
-        // (No state.waitUntil here — we're in a timer callback, not a request.)
-        this._paintWall(sig.paint).catch(() => { this._generating = false; });
-      }
-      this._broadcast({ type: 'kay', ...this.sim.snapshot() });
-      if (now - this._lastPersist > PERSIST_MS) {
-        this._lastPersist = now;
-        await this.storage.put('sim', this.sim.serialize());
-      }
-    }
-    this._scheduleTick();
-  }
-
-  // Keep-alive alarm. While the in-memory loop is healthy this fires only ~every
-  // 30 s (≈1 request/30 s instead of the old ~10/second) — it just persists and
-  // confirms the loop is ticking. If timers AREN'T firing in this runtime (a
-  // stale _lastTick), it falls back to driving the sim from the alarm itself at
-  // FALLBACK_MS, so Kay can never freeze. Nobody connected → no reschedule → the
-  // world freezes and stops billing.
+  // The heartbeat — one coarse step every ~2 s, then the object HIBERNATES until
+  // the next alarm. sim.advance() sub-steps internally so the trajectory matches
+  // continuous ticking; browsers animate the walk smoothly in between from the
+  // broadcast route. Broadcasts: a fresh `route` whenever Kay heads to a new wall,
+  // and his authoritative `kay` keyframe (position + state) each tick. When nobody
+  // is connected it does NOT reschedule → the world freezes and stops billing.
   async alarm() {
     await this._ensureLoaded();
-    if (this.sessions.size === 0) {
-      this._looping = false;
+    if (this._sockets().length === 0) {             // nobody watching → freeze
       if (this.sim) await this.storage.put('sim', this.sim.serialize());
       return;
     }
+    if (!this.sim) { await this.storage.setAlarm(Date.now() + SIM_STEP_MS); return; }
+
     const now = Date.now();
-    // Did the in-memory loop actually tick since the previous alarm?
-    const loopHealthy = this._loopTicks > this._loopTicksSeen;
-    this._loopTicksSeen = this._loopTicks;
-    this._lastAlarmAt = this._lastAlarmAt ?? now;
+    // Real elapsed since the last advance; on the first tick after a hibernation
+    // wake (_lastTick lost) assume the scheduled interval.
+    let dt = this._lastTick ? (now - this._lastTick) / 1000 : SIM_STEP_MS / 1000;
+    this._lastTick = now;
+    dt = Math.min(Math.max(dt, 0.05), 6);
 
-    if (loopHealthy) {
-      this._startLoop();                            // idempotent — ensure it's running
-      if (this.sim) await this.storage.put('sim', this.sim.serialize());
-      this._lastAlarmAt = now;
-      await this.storage.setAlarm(now + KEEPALIVE_MS);
-      return;
+    const sig = this.sim.advance(dt);
+    if (sig && sig.paint && !this._generating) {
+      this._generating = true;
+      // Keep the object awake through the (possibly seconds-long) AI generation.
+      this.state.waitUntil(this._paintWall(sig.paint));
     }
 
-    // Timers aren't firing in this runtime → (re)start the loop AND tick from the
-    // alarm as a fallback (choppier, but Kay never freezes).
-    this._looping = false; this._startLoop();
-    if (this.sim) {
-      let dt = Math.min(Math.max((now - this._lastAlarmAt) / 1000, 0.01), 0.5);
-      this._lastTick = now;
-      const sig = this.sim.step(dt);
-      if (sig && sig.paint && !this._generating) { this._generating = true; this.state.waitUntil(this._paintWall(sig.paint)); }
-      this._broadcast({ type: 'kay', ...this.sim.snapshot() });
-      await this.storage.put('sim', this.sim.serialize());
+    // Broadcast a fresh route once per wall Kay starts walking to — from the
+    // START, so every client walks the whole path in lock-step (this coarse tick
+    // may already have advanced Kay several metres into it).
+    if (this.sim.state === 'MOVING_TO_WALL' && this.sim.targetId !== this._routeSentFor) {
+      const route = this.sim.currentRoute(true);
+      if (route) { this._broadcast({ type: 'route', ...route }); this._routeSentFor = this.sim.targetId; }
+    } else if (this.sim.state !== 'MOVING_TO_WALL') {
+      this._routeSentFor = null;
     }
-    this._lastAlarmAt = now;
-    await this.storage.setAlarm(now + FALLBACK_MS);
+    this._broadcast({ type: 'kay', ...this.sim.snapshot() });
+
+    if (now - this._lastPersist > PERSIST_MS) { this._lastPersist = now; await this.storage.put('sim', this.sim.serialize()); }
+    await this.storage.setAlarm(now + SIM_STEP_MS);
   }
 
   // Kay reached a wall → imagine + paint it. In DEMO mode he paints a procedural
@@ -586,12 +551,6 @@ export class KayDO {
   _paintError(message) {
     console.warn('[KayDO]', message);
     this._broadcast({ type: 'notice', level: 'error', message });
-  }
-
-  _send(ws, obj) { try { ws.send(JSON.stringify(obj)); } catch { this.sessions.delete(ws); } }
-  _broadcast(obj) {
-    const s = JSON.stringify(obj);
-    for (const ws of this.sessions) { try { ws.send(s); } catch { this.sessions.delete(ws); } }
   }
 }
 

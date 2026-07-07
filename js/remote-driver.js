@@ -1,12 +1,15 @@
 import { CONFIG } from './config.js';
 
 // ===========================================================================
-//  RemoteDriver — animates the on-screen Kay from the server's authoritative
-//  snapshots (LiveLink). It replaces the local Agent when a live server is
-//  connected: it never DECIDES anything, it just eases the body toward the
-//  broadcast position/heading, plays the matching animation, and fires the
-//  existing camera + FX hooks on server state transitions. Kay's brain lives in
-//  the Durable Object (js/sim.mjs); this is only his puppet.
+//  RemoteDriver — animates the on-screen Kay from the server.
+//
+//  The server (KayDO) is authoritative but ticks COARSELY (~every 2 s, then
+//  hibernates). To stay perfectly fluid the browser does the walking itself:
+//  when Kay heads to a wall the server sends the ROUTE (straight-line waypoints);
+//  this driver walks that route locally at 60 fps at the server's speed, and only
+//  nudges toward the server's occasional position keyframe to cancel drift. When
+//  Kay is still (painting / observing / admiring) it just eases to the server
+//  point. Kay's brain lives in the DO (js/sim.mjs); this is only his puppet.
 // ===========================================================================
 
 // The server sends `state` as a plain string; we match those literals here so
@@ -22,68 +25,86 @@ export class RemoteDriver {
     this.city = city;
     this.char = character;
     this.ui   = ui;
-    // Client-side extrapolation: track the latest snapshot + a smoothed server
-    // VELOCITY, and render continuous motion at that measured speed. This is
-    // robust to the DO's jittery 10 Hz alarm (no stop-and-go / slides) and stops
-    // cleanly when the server stops.
-    this._cur = null;          // {x,z,t} latest snapshot
-    this._ref = null;          // identity of the last-seen snapshot object
-    this._vx = null; this._vz = null;   // smoothed server velocity (m/s)
+    this._route = null;        // remaining waypoints [{x,z}] to walk
+    this._ri = 0;              // current waypoint index
+    this._speed = CONFIG.moveSpeed || 2.6;
+    this._facing = 0;
     this._rx = null; this._rz = null;   // rendered position
+  }
+
+  // A fresh route from the server: walk it locally from wherever Kay currently
+  // is. No snap — he re-syncs to the wall during each paint pause, so any small
+  // lag is absorbed there; the >8 m teleport guard in update() handles a relocate.
+  setRoute(route) {
+    if (!route || !Array.isArray(route.waypoints)) return;
+    this._route = route.waypoints;
+    this._ri = 0;
+    this._speed = route.speed || this._speed;
+    if (this._rx == null) { this._rx = route.x; this._rz = route.z; }
   }
 
   update(dt, t, kay) {
     if (!kay) { this.char.idle(t); this.char.sync(); return; }
-    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
-
-    // A new snapshot arrived (LiveLink swaps the object each message).
-    if (kay !== this._ref) {
-      this._ref = kay;
-      const prev = this._cur;
-      this._cur = { x: kay.x, z: kay.z, t: now };
-      if (prev && this._cur.t > prev.t) {
-        const jump = Math.hypot(this._cur.x - prev.x, this._cur.z - prev.z);
-        if (jump > 5) {                                   // a _relocate teleport → snap, no slide
-          this._rx = kay.x; this._rz = kay.z; this._vx = 0; this._vz = 0;
-        } else {
-          const d = this._cur.t - prev.t;
-          const vx = (this._cur.x - prev.x) / d, vz = (this._cur.z - prev.z) / d;
-          const s = this._vx == null ? 1 : 0.35;          // EMA smooth (kills alarm jitter)
-          this._vx = this._vx == null ? vx : this._vx + (vx - this._vx) * s;
-          this._vz = this._vz == null ? vz : this._vz + (vz - this._vz) * s;
-        }
-      }
-    }
     if (this._rx == null) { this._rx = kay.x; this._rz = kay.z; }
 
-    const moving = kay.state === S.MOVING_TO_WALL || kay.state === S.WANDERING;
-    // Target = the extrapolated authoritative position (only while moving; when
-    // painting/admiring he's meant to be still, so track the exact point).
-    let tx = kay.x, tz = kay.z;
-    if (moving && this._cur && this._vx != null) {
-      const ahead = Math.min(now - this._cur.t, 0.4);     // cap so a stalled stream can't fly off
-      tx = this._cur.x + this._vx * ahead;
-      tz = this._cur.z + this._vz * ahead;
+    const stillMoving = kay.state === S.MOVING_TO_WALL || kay.state === S.WANDERING;
+    // Always FINISH the route to the wall (regardless of the coarse server state),
+    // so he never snaps the last metre when the server declares arrival a tick
+    // early. NO correction toward the keyframe: client and server walk the same
+    // route at the same speed and track by construction (the keyframe is up to a
+    // tick old — pulling toward it would drag him backward).
+    const onRoute = this._route && this._ri < this._route.length;
+
+    if (onRoute) {
+      this._advanceRoute(dt);
+      this.char.faceDirection({ x: Math.sin(this._facing), z: Math.cos(this._facing) });
+    } else if (stillMoving) {
+      // Arrived, but the server hasn't advanced his state yet (≤ a tick) → HOLD.
+      this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
+    } else {
+      // A still state (OBSERVE/PAINTING/ADMIRING/SEEKING/…): keyframe is current
+      // now, so settle onto the exact authoritative point — but never faster than
+      // a walk, so even a rare 2 m gap eases smoothly instead of popping.
+      const a = 1 - Math.exp(-dt * 6);
+      let ex = (kay.x - this._rx) * a, ez = (kay.z - this._rz) * a;
+      const em = Math.hypot(ex, ez), cap = this._speed * dt;
+      if (em > cap) { ex *= cap / em; ez *= cap / em; }
+      this._rx += ex; this._rz += ez;
+      this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
     }
-    const a = 1 - Math.exp(-dt * 8);                       // gentle correction toward the target
-    this._rx += (tx - this._rx) * a;
-    this._rz += (tz - this._rz) * a;
+    // Teleport guard (a server _relocate): snap instead of sliding across town.
+    if (Math.hypot(this._rx - kay.x, this._rz - kay.z) > 8) { this._rx = kay.x; this._rz = kay.z; this._route = null; }
+
     this.char.pos.x = this._rx;
     this.char.pos.z = this._rz;
-    this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
 
-    switch (kay.state) {
-      case S.MOVING_TO_WALL:
-      case S.WANDERING:      this.char.walk(t); break;      // the only walking state now
-      case S.PAINTING:       this.char.paint(t); break;     // hand moving the whole creation
-      default:               this.char.idle(t); break;      // SEEKING / OBSERVE / ADMIRING / CONTEMPLATING
-    }
-    // Keep the spray onomatopoeia popping while he paints (long AI creations too).
+    if (onRoute)                       this.char.walk(t);   // actually walking a route
+    else if (kay.state === S.PAINTING) this.char.paint(t);  // hand moving the whole creation
+    else                               this.char.idle(t);   // arrived / SEEKING / OBSERVE / ADMIRING / CONTEMPLATING
+
     if (kay.state === S.PAINTING) {
       this._sfxT = (this._sfxT ?? 0) + dt;
       if (this._sfxT > 1.8) { this._sfxT = 0; this._popSfx(); }
     } else this._sfxT = 0;
     this.char.sync();
+  }
+
+  // Consume speed·dt of travel along the route, straight from waypoint to
+  // waypoint (they're pre-simplified server-side, so no grid needed here).
+  _advanceRoute(dt) {
+    const wp = this._route;
+    let remaining = this._speed * dt;
+    while (remaining > 1e-6 && this._ri < wp.length) {
+      const tgt = wp[this._ri];
+      const dx = tgt.x - this._rx, dz = tgt.z - this._rz, d = Math.hypot(dx, dz);
+      if (d < 1e-6) { this._ri++; continue; }
+      const s = Math.min(remaining, d);
+      this._rx += (dx / d) * s; this._rz += (dz / d) * s;
+      this._facing = Math.atan2(dx / d, dz / d);
+      remaining -= s;
+      if (s >= d - 1e-6) this._ri++;
+      else break;
+    }
   }
 
   // Server state edge → drive the camera (same hooks the Agent uses) and the

@@ -208,25 +208,75 @@ export class KaySim {
     return true;
   }
 
-  // Advance along the route this frame. String-pulls to the farthest visible
-  // waypoint (smooth diagonal, no stair-step), steps toward it, sets facing.
-  // Returns true once he's arrived at the final waypoint (the approach point).
+  // String-pull the raw BFS cells down to the fewest waypoints with clear
+  // line-of-sight between them → straight diagonal segments (no stair-step). Done
+  // ONCE when a route is created, so both the server AND the browser can walk the
+  // exact same segments (the client has no grid to smooth with).
+  _simplifyPath(wp) {
+    if (!wp || wp.length <= 2) return wp;
+    const out = [wp[0]];
+    let i = 0;
+    while (i < wp.length - 1) {
+      let j = wp.length - 1;
+      while (j > i + 1 && !this._lineClear(wp[i].x, wp[i].z, wp[j].x, wp[j].z)) j--;
+      out.push(wp[j]);
+      i = j;
+    }
+    return out;
+  }
+
+  // Consume a whole `step` of travel along the (already-simplified) route this
+  // call — walking straight from waypoint to waypoint, spilling leftover budget
+  // into the next segment. Works for a tiny 100 ms step OR a multi-second catch-up
+  // step (server ticks coarsely; see advance()). Returns true once he's at the
+  // final waypoint (the approach point).
   _followPath(step) {
     const wp = this._path;
     if (!wp || !wp.length) return true;
-    while (this._pi < wp.length - 1 && this._lineClear(this.x, this.z, wp[this._pi + 1].x, wp[this._pi + 1].z)) this._pi++;
-    let tgt = wp[this._pi];
-    let dx = tgt.x - this.x, dz = tgt.z - this.z, d = Math.hypot(dx, dz);
-    while (d < this.cfg.arriveWaypoint && this._pi < wp.length - 1) {
-      this._pi++; tgt = wp[this._pi]; dx = tgt.x - this.x; dz = tgt.z - this.z; d = Math.hypot(dx, dz);
-    }
-    if (d > 1e-4) {
-      const s = Math.min(step, d);
+    let remaining = step;
+    while (remaining > 1e-6 && this._pi < wp.length) {
+      const tgt = wp[this._pi];
+      const dx = tgt.x - this.x, dz = tgt.z - this.z, d = Math.hypot(dx, dz);
+      if (d < 1e-6) { this._pi++; continue; }
+      const s = Math.min(remaining, d);
       this.x += (dx / d) * s; this.z += (dz / d) * s;
       this.facing = Math.atan2(dx / d, dz / d);
+      remaining -= s;
+      if (s >= d - 1e-6) this._pi++;               // reached this waypoint → next
+      else break;                                  // out of step budget mid-segment
     }
     const last = wp[wp.length - 1];
-    return this._pi >= wp.length - 1 && Math.hypot(last.x - this.x, last.z - this.z) < this.cfg.arriveWall;
+    return Math.hypot(last.x - this.x, last.z - this.z) < this.cfg.arriveWall;
+  }
+
+  // The route to broadcast so browsers animate the walk locally. Two flavours:
+  //  · fromStart=true  → the FULL path from where the walk began. Used when Kay
+  //    picks a new wall: every client is at that start point, so they all walk the
+  //    identical path in lock-step (no snap — a coarse server tick may have run
+  //    several metres into the route within the same tick, ahead of the clients).
+  //  · fromStart=false → the REMAINING path + Kay's current position. Used in the
+  //    hello, so a browser joining mid-walk resumes from where Kay actually is.
+  currentRoute(fromStart = false) {
+    if (this.state !== SIM_STATE.MOVING_TO_WALL || !this._path || !this._path.length) return null;
+    const wp = fromStart ? this._path : this._path.slice(this._pi);
+    const o  = fromStart ? this._path[0] : { x: this.x, z: this.z };
+    return { targetId: this.targetId, speed: this.cfg.moveSpeed, x: o.x, z: o.z, waypoints: wp };
+  }
+
+  // Advance the sim by `elapsed` seconds using fixed 0.1 s sub-steps — so a coarse
+  // server tick (e.g. every 2 s, hibernating in between) produces exactly the same
+  // trajectory as continuous ticking. Returns a { paint } signal if one fired.
+  advance(elapsed) {
+    const SUB = 0.1;
+    let remaining = Math.max(0, elapsed);
+    let paintSig = null;
+    let guard = 4000;
+    while (remaining > 1e-6 && guard-- > 0) {
+      const sig = this.step(Math.min(SUB, remaining));
+      if (sig && sig.paint) paintSig = sig;
+      remaining -= SUB;
+    }
+    return paintSig;
   }
 
   _faceWall(w) { this.facing = Math.atan2(-w.nx, -w.nz); }
@@ -293,7 +343,7 @@ export class KaySim {
         if (!w) { if (!this.hasFreeReachable()) this._setState(SIM_STATE.CONTEMPLATING); return null; }
         const path = this._findPath(this.x, this.z, w.ax, w.az);
         if (path) {
-          this.targetId = w.id; this._path = path; this._pi = 0; this._pathFails = 0;
+          this.targetId = w.id; this._path = this._simplifyPath(path); this._pi = 0; this._pathFails = 0;
           this.timers.move = 0; this._setState(SIM_STATE.MOVING_TO_WALL);
         } else {
           this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);          // unreachable → skip a while

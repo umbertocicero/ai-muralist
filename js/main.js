@@ -201,6 +201,7 @@ class App {
       this.remote = new RemoteDriver(this.city, this.character, ui);
       this.live   = new LiveLink(CONFIG.workerUrl, this.city.worldKey, this.city, this.factory, ui);
       this.live.onState = (s, p) => this.remote.onState(s, p, this.live.kay);
+      this.live.onRoute = (route) => this.remote.setRoute(route);
       this.live.start();
       // If no live server answers within the grace window, run the local Kay.
       setTimeout(() => { if (!this.live.everConnected) this._offline = true; }, 8000);
