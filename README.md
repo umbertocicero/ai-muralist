@@ -285,9 +285,13 @@ becomes a single, server-authoritative entity instead:
 
 - **One shared position** — the server owns Kay's `(x, z)`; every browser connects
   over a WebSocket (`<workerUrl>/live`) and renders the *same* Kay.
-- **Runs only while someone's watching** — the simulation ticks on a Durable
-  Object alarm while ≥1 browser is connected, and **freezes** (stops the alarm)
-  the moment the last one leaves; it resumes from the same spot on reconnect.
+- **Runs only while someone's watching** — the simulation ticks in memory (a
+  `setTimeout` loop kept alive by the open WebSocket, so ticks aren't billed as
+  Durable Object requests) while ≥1 browser is connected, and **freezes** the
+  moment the last one leaves; it resumes from the same spot on reconnect. Alarms
+  are used only as a ~30 s keep-alive (with a fallback that drives the sim
+  directly if a runtime doesn't fire timers), which keeps a busy world well
+  inside the DO free tier. Kay's state persists to DO storage every ~30 s.
 - **The server picks and paints** — Kay chooses the next wall himself (random but
   **nearest-first**, so he never jumps across town; a wall he can't reach is
   deferred and revisited later — **no wall is "better"**), calls Anthropic with
