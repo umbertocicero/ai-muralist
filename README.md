@@ -318,7 +318,7 @@ Pace/cost knobs (optional `vars`/secrets; Kay bills the site key continuously
 while anyone is connected): `KAY_COOLDOWN_MIN` (default 6 s) and
 `KAY_COOLDOWN_RANGE` (default 6 s) set the steady gap between murals;
 `KAY_SPEED` (stroll speed m/s, default 2.6), `KAY_PAINT` (min spray seconds,
-default 3), `KAY_PAINT_MAX` (cap while an AI mural is still generating, default
+default 5), `KAY_PAINT_MAX` (cap while an AI mural is still generating, default
 45), `KAY_ADMIRE`, and `KAY_MODEL` (default `claude-sonnet-4-6`) tune the rest.
 Kay paints (hand moving) for the WHOLE creation — a few seconds in demo, the
 entire AI call in AI mode. If he ever wedges in a dead-end he pops back onto an
