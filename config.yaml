@@ -28,5 +28,5 @@ worker_url: https://ai-muralist-proxy.ucicero.workers.dev
 # Authorized JavaScript origins) and paste it here. The ENFORCED allowlist is the
 # Worker's OWNER_EMAILS var — this owner_email only decides which controls show.
 # Leave unset to keep the app fully open (no login, admin controls hidden).
-# google_client_id: 1234567890-abc.apps.googleusercontent.com
-# owner_email: you@gmail.com
+google_client_id: 770761258898-i54mo39rfc81l7djutddd0qhdej1co00.apps.googleusercontent.com
+owner_email: umbertocicero@gmail.com
