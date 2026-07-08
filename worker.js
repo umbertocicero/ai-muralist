@@ -339,13 +339,16 @@ export class KayDO {
     this.worldKey = (await this.storage.get('worldKey')) ?? null;
     this.demo     = (await this.storage.get('demo')) ?? false;
     const model = await this.storage.get('model');
-    // Ignore a cached model from an older MODEL_VERSION (e.g. the coarser grid) —
-    // leaving sim null makes the next client re-upload the current one.
     if (model && model.version === MODEL_VERSION) {
       this.sim = new KaySim(model, pacing(this.env));
       const saved = await this.storage.get('sim');
       if (saved) this.sim.hydrate(saved);
       await this._reconcilePainted();
+    } else if (model) {
+      // Model version mismatch — clear stale data so the client can upload fresh.
+      console.log(`[KayDO] discarding model version ${model.version} (expected ${MODEL_VERSION})`);
+      await this.storage.delete('model');
+      await this.storage.delete('sim');
     }
   }
 
@@ -436,7 +439,6 @@ export class KayDO {
   }
 
   async _ensureAlarm(ms = SIM_STEP_MS) {
-    if (!this.sim) return;
     if ((await this.storage.getAlarm()) == null) await this.storage.setAlarm(Date.now() + ms);
   }
 
@@ -448,11 +450,15 @@ export class KayDO {
   // is connected it does NOT reschedule → the world freezes and stops billing.
   async alarm() {
     await this._ensureLoaded();
-    if (this._sockets().length === 0) {             // nobody watching → freeze
+    const socketCount = this._sockets().length;
+    if (socketCount === 0) {             // nobody watching → freeze
       if (this.sim) await this.storage.put('sim', this.sim.serialize());
       return;
     }
-    if (!this.sim) { await this.storage.setAlarm(Date.now() + SIM_STEP_MS); return; }
+    if (!this.sim) {
+      console.log(`[KayDO] alarm: waiting for world model (${socketCount} socket${socketCount !== 1 ? 's' : ''})`);
+      await this.storage.setAlarm(Date.now() + SIM_STEP_MS); return;
+    }
 
     const now = Date.now();
     // Real elapsed since the last advance; on the first tick after a hibernation
