@@ -27,6 +27,7 @@ export class RemoteDriver {
     this.ui   = ui;
     this._route = null;        // remaining waypoints [{x,z}] to walk
     this._ri = 0;              // current waypoint index
+    this._routeTargetId = null; // the targetId the current route was issued for
     this._speed = CONFIG.moveSpeed || 2.6;
     this._facing = 0;
     this._rx = null; this._rz = null;   // rendered position
@@ -39,6 +40,7 @@ export class RemoteDriver {
     if (!route || !Array.isArray(route.waypoints)) return;
     this._route = route.waypoints;
     this._ri = 0;
+    this._routeTargetId = route.targetId ?? null;
     this._speed = route.speed || this._speed;
     if (this._rx == null) { this._rx = route.x; this._rz = route.z; }
   }
@@ -50,37 +52,55 @@ export class RemoteDriver {
     const stillMoving = kay.state === S.MOVING_TO_WALL || kay.state === S.WANDERING;
     // Always FINISH the route to the wall (regardless of the coarse server state),
     // so he never snaps the last metre when the server declares arrival a tick
-    // early. NO correction toward the keyframe: client and server walk the same
-    // route at the same speed and track by construction (the keyframe is up to a
-    // tick old — pulling toward it would drag him backward).
+    // early. While walking a route we take NO correction toward the keyframe:
+    // client and server walk the same route at the same speed and track by
+    // construction (the keyframe is up to a tick old — pulling toward it would
+    // drag him backward).
     const onRoute = this._route && this._ri < this._route.length;
+    // Did we actually receive a route for the wall he's currently heading to? If
+    // so, a brief HOLD once the route is finished is correct (the keyframe is a
+    // tick stale and would tug him back). If NOT — no route ever arrived for this
+    // target (a server that doesn't broadcast routes, or a dropped `route`
+    // packet) — we must fall back to tracking the authoritative keyframe, or he
+    // would stand frozen mid-street forever while the server reports him walking.
+    const arrivedOnRoute = stillMoving && !onRoute && this._routeTargetId === kay.targetId;
 
+    const px = this._rx, pz = this._rz;
     if (onRoute) {
       this._advanceRoute(dt);
       this.char.faceDirection({ x: Math.sin(this._facing), z: Math.cos(this._facing) });
-    } else if (stillMoving) {
-      // Arrived, but the server hasn't advanced his state yet (≤ a tick) → HOLD.
+    } else if (arrivedOnRoute) {
+      // Route walked to the wall; the server hasn't advanced his state yet → HOLD.
       this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
     } else {
-      // A still state (OBSERVE/PAINTING/ADMIRING/SEEKING/…): keyframe is current
-      // now, so settle onto the exact authoritative point — but never faster than
-      // a walk, so even a rare 2 m gap eases smoothly instead of popping.
+      // A still state (OBSERVE/PAINTING/ADMIRING/SEEKING/…) OR "moving" with no
+      // route to walk: settle onto the exact authoritative point — but never
+      // faster than a walk, so even a rare 2 m gap eases smoothly instead of
+      // popping. This is the safety net that keeps Kay from ever freezing.
       const a = 1 - Math.exp(-dt * 6);
       let ex = (kay.x - this._rx) * a, ez = (kay.z - this._rz) * a;
       const em = Math.hypot(ex, ez), cap = this._speed * dt;
       if (em > cap) { ex *= cap / em; ez *= cap / em; }
       this._rx += ex; this._rz += ez;
-      this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
+      // When tracking a moving keyframe, face the way he's actually going; when
+      // parked in a still state, honour the server's facing.
+      if (stillMoving && em > 1e-4) this.char.faceDirection({ x: ex, z: ez });
+      else                          this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
     }
     // Teleport guard (a server _relocate): snap instead of sliding across town.
-    if (Math.hypot(this._rx - kay.x, this._rz - kay.z) > 8) { this._rx = kay.x; this._rz = kay.z; this._route = null; }
+    if (Math.hypot(this._rx - kay.x, this._rz - kay.z) > 8) {
+      this._rx = kay.x; this._rz = kay.z; this._route = null; this._routeTargetId = null;
+    }
 
     this.char.pos.x = this._rx;
     this.char.pos.z = this._rz;
 
-    if (onRoute)                       this.char.walk(t);   // actually walking a route
-    else if (kay.state === S.PAINTING) this.char.paint(t);  // hand moving the whole creation
-    else                               this.char.idle(t);   // arrived / SEEKING / OBSERVE / ADMIRING / CONTEMPLATING
+    // "Walking" = advancing a route, or covering ground while tracking a moving
+    // keyframe — either way play the walk cycle so his feet aren't sliding.
+    const stepLen = Math.hypot(this._rx - px, this._rz - pz);
+    if (onRoute || (stillMoving && stepLen > 0.002)) this.char.walk(t);
+    else if (kay.state === S.PAINTING)               this.char.paint(t);  // hand moving the whole creation
+    else                                             this.char.idle(t);   // arrived / SEEKING / OBSERVE / ADMIRING / CONTEMPLATING
 
     if (kay.state === S.PAINTING) {
       this._sfxT = (this._sfxT ?? 0) + dt;
