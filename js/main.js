@@ -121,8 +121,10 @@ class App {
     // Camera
     this.camera = new THREE.PerspectiveCamera(CONFIG.camFov, innerWidth / innerHeight, 0.3, 340);
 
-    // Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Renderer. The scene is drawn into an MSAA offscreen target (MangaPost) and
+    // the default framebuffer only ever shows a full-screen quad, so it needs no
+    // stencil buffer. Ask the OS for the discrete GPU on hybrid-graphics laptops.
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: false, powerPreference: 'high-performance' });
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -221,8 +223,9 @@ class App {
       };
     }
 
-    // Fix the planet orientation (always day) and initialise sky/lights once.
-    this._lastSky = -1e9;
+    // Fix the planet orientation (always day) and initialise sky/lights ONCE.
+    // The sun is fixed and it is permanently daytime, so every value _updateSky
+    // computes is constant — it never needs to run again after this.
     this._updateSky();
 
     // Clock
@@ -378,9 +381,6 @@ class App {
     // Calm the sun white-out while the camera is admiring a mural, so the
     // artwork reads instead of half the frame blowing out to light.
     this.atmosphere.setDim(this.rig.watching ? 0.25 : 1);
-    // Tick the Tokyo clock in the UI ~3×/s (frame-rate independent).
-    const nowMs = performance.now();
-    if (nowMs - this._lastSky >= 330) { this._lastSky = nowMs; this._updateSky(); }
     this.atmosphere.update(dt, t, this.camera);
     if (ui.thoughtVisible) this._aimThoughtTail();
     this._fadeThought(dt);

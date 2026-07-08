@@ -2,11 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>AI Muralist — Autonomous Street Art</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>GraffitAI — Autonomous Street Art</title>
 <meta name="description" content="An autonomous AI agent wanders a tiny 3D city and paints murals generated in real time by Claude." />
-<meta property="og:title" content="AI Muralist" />
+<meta name="color-scheme" content="light" />
+<meta name="theme-color" content="#f8f6f2" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="GraffitAI" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="GraffitAI" />
 <meta property="og:description" content="An autonomous AI street artist painting murals in a tiny 3D city. Forever." />
+<meta name="twitter:card" content="summary" />
+
+<!-- Warm the CDN connection early, then preload the ES modules the app blocks
+     on (three + vue + the entry point) so they fetch in parallel instead of
+     waterfalling behind main.js's import graph. -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js" crossorigin />
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/vue@3.4.38/dist/vue.esm-browser.prod.js" crossorigin />
+<link rel="modulepreload" href="./js/main.js" />
 <script type="importmap">
 {
   "imports": {
@@ -369,6 +386,22 @@
     #gallery { top: calc(env(safe-area-inset-top, 0px) + 8px); bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
     #gallery-tab { padding: 10px 6px; }
     #gallery .g-thumb { width: 52px; height: 52px; flex: 0 0 52px; }
+  }
+
+  /* ── Accessibility: honour the OS "reduce motion" setting ─────────────────
+     The 3D world keeps rendering (that IS the app), but the decorative CSS
+     motion — the infinitely pulsing status dot, the SFX pop, the flash fade,
+     the drawer slides — is stilled/shortened for users prone to motion
+     sickness, and hover/focus transitions collapse to instant. */
+  @media (prefers-reduced-motion: reduce) {
+    #status .dot { animation: none; }
+    #sfx-layer .sfx { animation-duration: 0.01ms; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 </style>
 </head>
