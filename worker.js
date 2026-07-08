@@ -50,8 +50,11 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // ---- Mural persistence (D1) ------------------------------------------------
 // Build tag, returned by GET /murals and logged by the client at restore time:
 // makes "is the deployed Worker up to date?" answerable straight from the
-// browser console. Bump when the /murals contract or validation changes.
-const WORKER_BUILD = 4;
+// browser console. Bump when the /murals contract, validation, OR the live DO
+// protocol changes — build 5 is the first to broadcast `route` messages and the
+// hibernating in-memory tick, so a console still showing "build 4" means the
+// Worker predates client-side route animation and MUST be redeployed.
+const WORKER_BUILD = 5;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
