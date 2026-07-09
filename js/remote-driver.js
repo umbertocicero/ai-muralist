@@ -74,7 +74,28 @@ export class RemoteDriver {
       const d = (wp[i].x - this._rx) ** 2 + (wp[i].z - this._rz) ** 2;
       if (d < bestD) { bestD = d; best = i; }
     }
+    // OFF-route rejoin: the leg from here to that waypoint is improvised (not a
+    // server-validated segment), so make sure it doesn't cut through a building
+    // before walking it — try the nearest waypoint, then the route start. If
+    // both lines are blocked, snap onto the route: a one-frame pop beats Kay
+    // visibly walking through a wall (the map skips >5 m segments anyway).
+    if (this._lineWalkable(wp[best].x, wp[best].z)) return best;
+    if (this._lineWalkable(wp[0].x, wp[0].z))       return 0;
+    this._rx = wp[best].x; this._rz = wp[best].z;
     return best;
+  }
+
+  // Straight line from the rendered position to (x,z) stays on walkable ground?
+  // Samples city.isColliding (body-inflated) every ~0.5 m, like the server grid.
+  _lineWalkable(x, z) {
+    if (!this.city?.isColliding) return true;
+    const d = Math.hypot(x - this._rx, z - this._rz);
+    const n = Math.max(1, Math.ceil(d / 0.5));
+    for (let i = 1; i <= n; i++) {
+      const f = i / n;
+      if (this.city.isColliding(this._rx + (x - this._rx) * f, this._rz + (z - this._rz) * f)) return false;
+    }
+    return true;
   }
 
   update(dt, t, kay) {
