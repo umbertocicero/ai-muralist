@@ -49,11 +49,13 @@ export const DEFAULT_SIM_CFG = {
   // Kay PAINTS (hand moving) for the WHOLE creation: at least paintMinSeconds
   // (demo murals generate instantly but still show a few seconds of spraying) and
   // up to paintMaxSeconds while an AI mural is still generating.
-  paintMinSeconds: 3.0,
+  paintMinSeconds: 6.0,
   paintMaxSeconds: 45,
-  admireSeconds:   3.0,
-  cooldownMin:     6,    // gap between murals (travel + OBSERVE pause counts toward it)
-  cooldownRange:   6,    // → 6-12 s; bounds token spend
+  admireSeconds:   6.0,
+  // Unhurried pace: a mural roughly every half-minute, not a graffiti blitz —
+  // the gap is spent travelling + OBSERVE-ing the wall, so it reads as strolling.
+  cooldownMin:     18,   // gap between murals (travel + OBSERVE pause counts toward it)
+  cooldownRange:   14,   // → 18-32 s; also bounds token spend
   reachTimeout:    30,   // safety: abandon a route that somehow overruns this
   deferSeconds:    35,   // don't retry an unreachable wall for this long
   nearK:           6,    // pick randomly among the K nearest free walls
@@ -265,18 +267,24 @@ export class KaySim {
 
   // Advance the sim by `elapsed` seconds using fixed 0.1 s sub-steps — so a coarse
   // server tick (e.g. every 2 s, hibernating in between) produces exactly the same
-  // trajectory as continuous ticking. Returns a { paint } signal if one fired.
+  // trajectory as continuous ticking. Returns a { paint } and/or { routeStarted }
+  // signal if one fired. The loop BREAKS the moment a new route starts: the DO
+  // must broadcast that route from its true start, and consuming the rest of the
+  // coarse tick would walk Kay metres into it before any browser even knows the
+  // route exists — every client would then trail the keyframes by a whole tick
+  // (the "starts painting before he arrives" artefact).
   advance(elapsed) {
     const SUB = 0.1;
     let remaining = Math.max(0, elapsed);
-    let paintSig = null;
+    let out = null;
     let guard = 4000;
     while (remaining > 1e-6 && guard-- > 0) {
       const sig = this.step(Math.min(SUB, remaining));
-      if (sig && sig.paint) paintSig = sig;
+      if (sig && sig.paint) out = sig;
+      if (sig && sig.routeStarted) { out = { ...sig, ...(out ?? {}) }; break; }
       remaining -= SUB;
     }
-    return paintSig;
+    return out;
   }
 
   _faceWall(w) { this.facing = Math.atan2(-w.nx, -w.nz); }
@@ -345,6 +353,7 @@ export class KaySim {
         if (path) {
           this.targetId = w.id; this._path = this._simplifyPath(path); this._pi = 0; this._pathFails = 0;
           this.timers.move = 0; this._setState(SIM_STATE.MOVING_TO_WALL);
+          return { routeStarted: true };   // advance() breaks here → route broadcast from its true start
         } else {
           this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);          // unreachable → skip a while
           if (++this._pathFails > 12 && this._openNeighbors(this.x, this.z) < 6) this._relocate();

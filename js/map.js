@@ -96,11 +96,15 @@ export function drawLive(g, city, agent, trail, size, t = performance.now() / 10
   if (trail && trail.length >= 4) {
     const n = trail.length / 2;
     g.lineWidth = 3; g.lineJoin = g.lineCap = 'round';
-    const seam = city.HALF;   // a Pac-Man wrap jumps ~2·HALF between two breadcrumbs
+    // Breadcrumbs land ~7×/s while Kay walks ≤2.6 m/s, so consecutive points sit
+    // well under a metre apart. Any longer gap is a discontinuity (teleport
+    // guard, relocate, Pac-Man wrap) — drawing it would streak a straight line
+    // across the map through buildings, so skip the segment instead.
+    const JUMP = 5;
     for (let i = 1; i < n; i++) {
       const ax = trail[(i - 1) * 2], az = trail[(i - 1) * 2 + 1];
       const bx = trail[i * 2],       bz = trail[i * 2 + 1];
-      if (Math.abs(bx - ax) > seam || Math.abs(bz - az) > seam) continue;  // don't streak across a wrap
+      if (Math.abs(bx - ax) > JUMP || Math.abs(bz - az) > JUMP) continue;  // don't streak a jump
       g.strokeStyle = `rgba(255,107,53,${(0.08 + 0.72 * (i / n)).toFixed(3)})`;
       g.beginPath();
       g.moveTo(px(ax), pz(az));

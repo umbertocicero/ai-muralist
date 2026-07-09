@@ -20,6 +20,12 @@ import { getToken, onAuthChange } from './auth.js';
 // MODEL_VERSION so a DO caching an older grid discards it and re-requests one.
 export const MODEL_VERSION = 2;
 
+// Client revision, logged at connect next to the worker build: answers "is the
+// deployed FRONTEND stale?" straight from the console — several "still broken"
+// reports turned out to be an old Pages bundle talking to a fixed Worker.
+// Bump on any behavioural change in live.js / remote-driver.js / map.js.
+export const CLIENT_REV = 3;
+
 export function buildWorldModel(city) {
   const half     = city.HALF;
   const cellSize = 0.5;   // finer than before (0.75) → narrow alleys stay open
@@ -117,7 +123,7 @@ export class LiveLink {
     switch (msg.type) {
       case 'hello':
         this.connected = true; this.everConnected = true;
-        console.info(`[live] connected · worker build ${msg.build} · needWorld ${msg.needWorld}`);
+        console.info(`[live] connected · worker build ${msg.build} · client r${CLIENT_REV} · needWorld ${msg.needWorld}`);
         this._sendMode();                       // tell the server demo vs AI (always)
         if (msg.needWorld) this._sendModel();
         if (msg.kay) this._applyKay(msg.kay);
