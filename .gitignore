@@ -84,3 +84,12 @@ test-results
 *.log
 .playwright-mcp/page-*.yml
 .playwright-mcp/page-*.jpeg
+
+# Local wrangler dev state (miniflare D1/DO/KV data) — machine-local, never commit
+.wrangler/state/
+.wrangler/tmp/
+
+# node_modules: ignored going forward (wrangler/workerd ship >100MB binaries).
+# Files committed BEFORE this rule (@playwright/test) stay tracked — a gitignore
+# never untracks existing files.
+node_modules/
