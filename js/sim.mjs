@@ -348,6 +348,17 @@ export class KaySim {
         } else {
           this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);          // unreachable → skip a while
           if (++this._pathFails > 12 && this._openNeighbors(this.x, this.z) < 6) this._relocate();
+          // Routing keeps failing from an OPEN spot: Kay is standing on a
+          // walkable island disconnected from every wall (e.g. hydrated onto a
+          // spot the current grid can't route out of). _relocate() won't fire
+          // (his neighbours are open) and nothing else moves him → without this
+          // he'd re-fail forever, visibly frozen while the sim ticks fine.
+          // Jump home: the spawn cell is carved free by the model builder and
+          // is where every wall was reachable from when the world was uploaded.
+          else if (this._pathFails > 30) {
+            this.x = this.model.spawn.x; this.z = this.model.spawn.z;
+            this._pathFails = 0;
+          }
         }
         return null;
       }

@@ -56,7 +56,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Worker predates client-side route animation and MUST be redeployed. Build 6
 // makes the alarm heartbeat crash-proof + force-restarted on every connect, so a
 // console showing "build 5" or lower means Kay can still freeze permanently.
-const WORKER_BUILD = 6;
+// Build 7 adds GET /live?world=N diagnostics (plain browser tab, no WebSocket)
+// and self-heals a stale painted set: D1 is re-checked on every connect, every
+// 30 s while CONTEMPLATING, and on the owner's DELETE /murals wipe.
+const WORKER_BUILD = 7;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -196,6 +199,15 @@ async function handleMurals(request, env) {
       return json({ error: { type: 'invalid_request_error', message: 'Missing ?world=<seed>' } }, 400);
     }
     const res = await env.DB.prepare(`DELETE FROM murals WHERE world = ?1`).bind(world).run();
+    // Tell the live Kay of this world his painted memory is stale, so he starts
+    // repainting the blank walls immediately instead of contemplating a world he
+    // remembers as finished (the DO also self-heals every 30 s, this is just fast).
+    if (env.KAY) {
+      try {
+        await env.KAY.get(env.KAY.idFromName(String(world)))
+          .fetch('https://do/live?world=' + world, { method: 'DELETE' });
+      } catch { /* best-effort — the 30 s self-heal covers it */ }
+    }
     return json({ deleted: res?.meta?.changes ?? 0 });
   }
 
@@ -321,6 +333,7 @@ export class KayDO {
     this._lastTick = null;         // wall-clock of the last advance (per live instance)
     this._lastPersist = 0;
     this._routeSentFor = null;     // targetId whose route we've already broadcast
+    this._lastReconcile = 0;       // last painted-vs-D1 rebuild (CONTEMPLATING self-heal)
   }
 
   // Presence + broadcast go through the hibernation API's socket list, so they
@@ -371,13 +384,74 @@ export class KayDO {
     } catch { /* best-effort — worst case Kay revisits a painted wall (INSERT ignored) */ }
   }
 
+  // Throw away the sim's "already painted" belief and re-derive it from D1 (the
+  // only durable truth). Guards against the freeze where the owner wipes the
+  // murals table while this DO's stored sim still lists every wall as painted —
+  // hasFreeReachable() stays false and Kay CONTEMPLATES an actually-blank world
+  // forever. Rebuilding converges painted to D1, so wiped walls free up again.
+  async _rebuildPainted() {
+    if (!this.sim || !this.env.DB) return;
+    const before = this.sim.painted.size;
+    this.sim.painted.clear();
+    this.sim._defer.clear();
+    await this._reconcilePainted();
+    if (this.sim.painted.size !== before) {
+      console.log(`[KayDO] painted rebuilt from D1: ${before} → ${this.sim.painted.size} (world ${this.worldKey})`);
+      try { await this.storage.put('sim', this.sim.serialize()); } catch {}
+    }
+  }
+
+  // One-page health report for GET /live?world=N (no WebSocket): everything
+  // needed to answer "why isn't Kay moving?" from a plain browser tab.
+  async _diagnostics() {
+    const alarm = await this.storage.getAlarm();
+    let d1Murals = null;
+    if (this.env.DB && Number.isInteger(this.worldKey)) {
+      try {
+        d1Murals = (await this.env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM murals WHERE world = ?1`).bind(this.worldKey).first())?.n ?? null;
+      } catch {}
+    }
+    return {
+      build: WORKER_BUILD, worldKey: this.worldKey, demo: this._isDemo(),
+      sockets: this._sockets().length,
+      alarmInMs: alarm == null ? null : alarm - Date.now(),
+      d1Murals,
+      sim: this.sim ? {
+        state: this.sim.state, status: this.sim.status,
+        x: this.sim.x, z: this.sim.z, targetId: this.sim.targetId,
+        muralCount: this.sim.muralCount,
+        wallsTotal: this.sim.walls.length,
+        painted: this.sim.painted.size,
+        freeReachable: this.sim._freeWalls().length,
+        deferred: this.sim._defer.size,
+        cooldownLeft: this.sim._cooldownLeft,
+        pathFails: this.sim._pathFails,
+        generating: this._generating,
+      } : null,
+    };
+  }
+
   async fetch(request) {
     await this._ensureLoaded();
-    if (request.headers.get('Upgrade') !== 'websocket') {
-      return json({ error: { type: 'invalid_request_error', message: 'Expected WebSocket' } }, 426);
-    }
     const world = parseInt(new URL(request.url).searchParams.get('world') ?? '', 10);
     if (Number.isFinite(world) && this.worldKey == null) this.worldKey = world;
+
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      // DELETE → re-derive the painted set from D1. Fired by the owner's
+      // DELETE /murals wipe so Kay starts repainting the now-blank walls at
+      // once. Harmless if called publicly: rebuilding from D1 is idempotent —
+      // it can only converge painted to the truth, never fake it.
+      if (request.method === 'DELETE') {
+        await this._rebuildPainted();
+        return json({ ok: true, painted: this.sim ? this.sim.painted.size : null });
+      }
+      // Anything else (a plain GET in a browser tab) → read-only diagnostics.
+      // This is how "Kay isn't moving" gets debugged without wrangler access:
+      // GET <worker>/live?world=N shows the sim state, painted vs D1 counts,
+      // pathfinding failures and whether an alarm is pending.
+      return json(await this._diagnostics());
+    }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -397,6 +471,9 @@ export class KayDO {
     // REPLACES that wedged alarm with a fresh near-term one and the heartbeat
     // resumes. Without this, one bad tick could freeze Kay until a redeploy.
     await this.storage.setAlarm(Date.now() + FIRST_TICK_MS);
+    // Freshen painted from D1 in the background: if murals were wiped while this
+    // DO remembered its walls as painted, the next visitor un-freezes Kay.
+    this.state.waitUntil(this._rebuildPainted());
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -509,6 +586,15 @@ export class KayDO {
       this._routeSentFor = null;
     }
     this._broadcast({ type: 'kay', ...this.sim.snapshot() });
+
+    // CONTEMPLATING self-heal: "every wall painted" may be a stale belief (e.g.
+    // the murals table was wiped since). While he contemplates, re-derive the
+    // painted set from D1 every 30 s — if walls freed up, SEEKING resumes on its
+    // own within ~3 s (the sim re-checks hasFreeReachable while contemplating).
+    if (this.sim.state === 'CONTEMPLATING' && this.env.DB && now - this._lastReconcile > 30_000) {
+      this._lastReconcile = now;
+      await this._rebuildPainted();
+    }
 
     if (now - this._lastPersist > PERSIST_MS) { this._lastPersist = now; await this.storage.put('sim', this.sim.serialize()); }
     await this.storage.setAlarm(now + SIM_STEP_MS);
