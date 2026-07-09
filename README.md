@@ -184,6 +184,8 @@ wrangler deploy
 
 Note the printed Worker URL (e.g. `https://ai-muralist-proxy.<account>.workers.dev`).
 
+Live Debug `https://ai-muralist-proxy.<account>.workers.dev/live?world=1960122060`
+
 ### 4 · Set the API key
 
 Create an Anthropic API key in the Anthropic console, make sure your account has billing enabled and access to the model you want to use, then store it as a Wrangler secret for this Worker:
