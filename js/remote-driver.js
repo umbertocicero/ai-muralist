@@ -36,13 +36,44 @@ export class RemoteDriver {
   // A fresh route from the server: walk it locally from wherever Kay currently
   // is. No snap — he re-syncs to the wall during each paint pause, so any small
   // lag is absorbed there; the >8 m teleport guard in update() handles a relocate.
+  //
+  // The SAME route can arrive again mid-walk: the DO hibernates between ticks,
+  // and a wake re-broadcasts the current route from its START (it can't know
+  // which clients already have it). Restarting at waypoint 0 would visibly walk
+  // Kay BACKWARD to the route start every time — so after accepting a route we
+  // fast-forward to the first segment that passes near where he already stands,
+  // and keep walking from there. A genuinely new route (from the wall he's
+  // parked at) matches its first segment, so this is a no-op for the normal case.
   setRoute(route) {
     if (!route || !Array.isArray(route.waypoints)) return;
     this._route = route.waypoints;
-    this._ri = 0;
     this._routeTargetId = route.targetId ?? null;
     this._speed = route.speed || this._speed;
     if (this._rx == null) { this._rx = route.x; this._rz = route.z; }
+    this._ri = this._resumeIndex(route.waypoints);
+  }
+
+  // First waypoint still AHEAD of Kay along the route: walk toward waypoint i
+  // when his position sits within snapDist of segment (i-1 → i) — i.e. he's
+  // already ON that leg. Falls back to the globally nearest waypoint if he's on
+  // none of them (route start, or after a relocate).
+  _resumeIndex(wp) {
+    if (this._rx == null || wp.length < 2) return 0;
+    const snapDist = 0.75;
+    for (let i = 1; i < wp.length; i++) {
+      const ax = wp[i - 1].x, az = wp[i - 1].z, bx = wp[i].x, bz = wp[i].z;
+      const vx = bx - ax, vz = bz - az;
+      const len2 = vx * vx + vz * vz;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((this._rx - ax) * vx + (this._rz - az) * vz) / len2)) : 0;
+      const dx = this._rx - (ax + vx * t), dz = this._rz - (az + vz * t);
+      if (dx * dx + dz * dz < snapDist * snapDist) return i;
+    }
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < wp.length; i++) {
+      const d = (wp[i].x - this._rx) ** 2 + (wp[i].z - this._rz) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
   }
 
   update(dt, t, kay) {
@@ -138,7 +169,13 @@ export class RemoteDriver {
     if ((state === S.OBSERVE || state === S.PAINTING) && prev === S.MOVING_TO_WALL && slot) this.ui.onPaintBegin?.(slot);
     if (state === S.PAINTING) { this._flashPulse(); this._popSfx(); }
     if (state === S.ADMIRING) { this.ui.flashActive = false; if (slot) this.ui.onAdmire?.(slot); }
-    if (state === S.SEEKING && (prev === S.ADMIRING || prev === S.PAINTING || prev === S.OBSERVE)) {
+    // Leaving the paint cycle → rise + resume follow. NOT just on SEEKING: the
+    // server's coarse 2 s tick resolves ADMIRING → SEEKING → MOVING_TO_WALL
+    // inside ONE advance(), so the broadcast almost never shows SEEKING at all —
+    // keying only on it left the camera parked on the last mural forever while
+    // Kay walked away. Any paint-cycle → non-paint transition counts as the end.
+    const inCycle  = (s) => s === S.OBSERVE || s === S.PAINTING || s === S.ADMIRING;
+    if (!inCycle(state) && inCycle(prev)) {
       this.ui.flashActive = false;
       this.ui.thoughtVisible = false;
       this.ui.onPaintEnd?.();                                             // rise + resume follow

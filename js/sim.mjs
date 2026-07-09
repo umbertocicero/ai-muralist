@@ -348,6 +348,17 @@ export class KaySim {
         } else {
           this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);          // unreachable → skip a while
           if (++this._pathFails > 12 && this._openNeighbors(this.x, this.z) < 6) this._relocate();
+          // Routing keeps failing from an OPEN spot: Kay is standing on a
+          // walkable island disconnected from every wall (e.g. hydrated onto a
+          // spot the current grid can't route out of). _relocate() won't fire
+          // (his neighbours are open) and nothing else moves him → without this
+          // he'd re-fail forever, visibly frozen while the sim ticks fine.
+          // Jump home: the spawn cell is carved free by the model builder and
+          // is where every wall was reachable from when the world was uploaded.
+          else if (this._pathFails > 30) {
+            this.x = this.model.spawn.x; this.z = this.model.spawn.z;
+            this._pathFails = 0;
+          }
         }
         return null;
       }
@@ -421,12 +432,21 @@ export class KaySim {
   }
 
   // ── Persistence to Durable Object storage (survives eviction while frozen) ───
+  // The active WALK survives too (state + targetId + route + progress): the DO
+  // hibernates between 2 s ticks, and rebuilding as SEEKING on every wake made
+  // Kay abandon his walk, re-pick a wall and re-broadcast a route — on screen a
+  // constant backtrack/stutter. In-flight PAINTS still don't survive (the
+  // generation itself is gone) — those re-decide as before.
   serialize() {
-    return {
+    const s = {
       x: this.x, z: this.z, facing: this.facing, muralCount: this.muralCount, simTime: this.simTime,
       cooldownLeft: this._cooldownLeft,
       painted: [...this.painted], defer: [...this._defer],
     };
+    if (this.state === SIM_STATE.MOVING_TO_WALL && this._path && this._pi < this._path.length) {
+      s.walk = { targetId: this.targetId, path: this._path, pi: this._pi, moveT: this.timers.move };
+    }
+    return s;
   }
 
   hydrate(s) {
@@ -436,10 +456,17 @@ export class KaySim {
     this._cooldownLeft = s.cooldownLeft ?? 0;
     this.painted = new Set(s.painted ?? []);
     this._defer  = new Map(s.defer ?? []);
-    // Routes and in-flight paints don't survive an eviction — just re-decide.
-    this.targetId = null; this._path = null; this._pi = 0;
     this._paintPending = false; this._paintResult = null;
-    this._setState(SIM_STATE.SEEKING);
+    const w = s.walk;
+    if (w && this.byId.has(w.targetId) && Array.isArray(w.path) && w.pi < w.path.length &&
+        w.path.every((p) => Number.isFinite(p?.x) && Number.isFinite(p?.z))) {
+      this.targetId = w.targetId; this._path = w.path; this._pi = w.pi | 0;
+      this.timers.move = Number.isFinite(w.moveT) ? w.moveT : 0;
+      this._setState(SIM_STATE.MOVING_TO_WALL);       // resume the walk mid-route
+    } else {
+      this.targetId = null; this._path = null; this._pi = 0;
+      this._setState(SIM_STATE.SEEKING);
+    }
     return this;
   }
 }
