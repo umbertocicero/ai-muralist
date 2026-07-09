@@ -41,3 +41,19 @@ database_id = "363b925a-31c2-475a-9819-f801a4cf9b0e"
 
 # The Anthropic API key is a SECRET, never put it here. Set it with:
 #   wrangler secret put ANTHROPIC_API_KEY
+
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
