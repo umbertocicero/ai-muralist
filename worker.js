@@ -53,8 +53,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // browser console. Bump when the /murals contract, validation, OR the live DO
 // protocol changes — build 5 is the first to broadcast `route` messages and the
 // hibernating in-memory tick, so a console still showing "build 4" means the
-// Worker predates client-side route animation and MUST be redeployed.
-const WORKER_BUILD = 5;
+// Worker predates client-side route animation and MUST be redeployed. Build 6
+// makes the alarm heartbeat crash-proof + force-restarted on every connect, so a
+// console showing "build 5" or lower means Kay can still freeze permanently.
+const WORKER_BUILD = 6;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -388,7 +390,13 @@ export class KayDO {
       needWorld: !this.sim, kay: this.sim ? this.sim.snapshot() : null,
       route: this.sim ? this.sim.currentRoute() : null,   // mid-walk joiner resumes the route
     });
-    await this._ensureAlarm(FIRST_TICK_MS);   // first client → start the coarse tick
+    // Force a prompt tick on EVERY connect — unconditionally, not "only if no
+    // alarm exists". A browser opening the page must always revive Kay: if a
+    // previous tick threw and the runtime left the alarm wedged in retry/backoff
+    // (getAlarm() stays non-null, so _ensureAlarm would be a no-op), setAlarm here
+    // REPLACES that wedged alarm with a fresh near-term one and the heartbeat
+    // resumes. Without this, one bad tick could freeze Kay until a redeploy.
+    await this.storage.setAlarm(Date.now() + FIRST_TICK_MS);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -449,6 +457,23 @@ export class KayDO {
   // and his authoritative `kay` keyframe (position + state) each tick. When nobody
   // is connected it does NOT reschedule → the world freezes and stops billing.
   async alarm() {
+    // A tick must NEVER kill the heartbeat. If _tick throws, the runtime would
+    // retry it with backoff — and while it retries, getAlarm() stays non-null, so
+    // reconnecting browsers (whose _ensureAlarm only sets an alarm when none
+    // exists) can't restart it: Kay stays frozen until a redeploy. Catching here
+    // and rescheduling ourselves turns a fatal tick into "skip one, try again in
+    // 2 s", and surfaces the cause in `wrangler tail`.
+    try {
+      await this._tick();
+    } catch (e) {
+      console.error('[KayDO] tick failed, keeping heartbeat alive:', e?.stack || e);
+      try {
+        if (this._sockets().length > 0) await this.storage.setAlarm(Date.now() + SIM_STEP_MS);
+      } catch {}
+    }
+  }
+
+  async _tick() {
     await this._ensureLoaded();
     const socketCount = this._sockets().length;
     if (socketCount === 0) {             // nobody watching → freeze
