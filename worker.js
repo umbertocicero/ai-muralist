@@ -58,8 +58,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // console showing "build 5" or lower means Kay can still freeze permanently.
 // Build 7 adds GET /live?world=N diagnostics (plain browser tab, no WebSocket)
 // and self-heals a stale painted set: D1 is re-checked on every connect, every
-// 30 s while CONTEMPLATING, and on the owner's DELETE /murals wipe.
-const WORKER_BUILD = 7;
+// 30 s while CONTEMPLATING, and on the owner's DELETE /murals wipe. Build 8
+// persists the sim (including the active walk) every tick, so hibernation wakes
+// resume the route seamlessly instead of re-seeking from a stale snapshot.
+const WORKER_BUILD = 8;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -302,7 +304,6 @@ function handleLive(request, env) {
 // ~1 request / 2 s and near-zero billable duration (it sleeps between alarms).
 const SIM_STEP_MS = 2000;
 const FIRST_TICK_MS = 300;    // first tick shortly after a connect, so Kay sets off promptly
-const PERSIST_MS = 30_000;    // how often to snapshot sim state to storage
 // Bump when the uploaded world model's shape/resolution changes, so a DO holding
 // an older cached model discards it and asks the next client to re-upload.
 const MODEL_VERSION = 2;
@@ -331,7 +332,6 @@ export class KayDO {
     this._loaded  = false;
     this._generating = false;      // an AI paint is in flight (guards double-start)
     this._lastTick = null;         // wall-clock of the last advance (per live instance)
-    this._lastPersist = 0;
     this._routeSentFor = null;     // targetId whose route we've already broadcast
     this._lastReconcile = 0;       // last painted-vs-D1 rebuild (CONTEMPLATING self-heal)
   }
@@ -596,7 +596,11 @@ export class KayDO {
       await this._rebuildPainted();
     }
 
-    if (now - this._lastPersist > PERSIST_MS) { this._lastPersist = now; await this.storage.put('sim', this.sim.serialize()); }
+    // Persist EVERY tick (one tiny row on SQLite-backed storage): with the old
+    // 30 s cadence a hibernation wake hydrated a snapshot up to 30 s stale, so
+    // Kay rolled back mid-walk — the client's >8 m teleport guard then snapped
+    // him around. A fresh snapshot each tick makes wakes seamless.
+    await this.storage.put('sim', this.sim.serialize());
     await this.storage.setAlarm(now + SIM_STEP_MS);
   }
 

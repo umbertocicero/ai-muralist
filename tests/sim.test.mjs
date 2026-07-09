@@ -144,5 +144,46 @@ const check = (name, fn) => {
   });
 }
 
+// ── 6: hibernation resume — serialize mid-walk, hydrate, walk continues ──────
+// The DO persists the sim every tick and can be evicted between ticks. A wake
+// must RESUME the active walk (same target, same route, same progress), not
+// re-seek: re-seeking rolled Kay back on screen and re-broadcast the route.
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5 }, mulberry32(11));
+  // Step until he is walking, then a bit further so he's clearly mid-route.
+  let guard = 5000;
+  while (sim.state !== SIM_STATE.MOVING_TO_WALL && guard-- > 0) sim.step(0.1);
+  for (let i = 0; i < 5; i++) sim.step(0.1);
+  const before = { x: sim.x, z: sim.z, target: sim.targetId, state: sim.state };
+
+  const revived = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5 }, mulberry32(12))
+    .hydrate(JSON.parse(JSON.stringify(sim.serialize())));   // through-storage round trip
+  check('6. hibernation resume — mid-walk serialize/hydrate keeps the walk', () => {
+    assert(before.state === SIM_STATE.MOVING_TO_WALL, 'test setup failed: never started walking');
+    assert.equal(revived.state, SIM_STATE.MOVING_TO_WALL, 'walk was not resumed (fell back to SEEKING)');
+    assert.equal(revived.targetId, before.target, 'resumed toward a different wall');
+    assert(Math.hypot(revived.x - before.x, revived.z - before.z) < 1e-9, 'position rolled back');
+    const r = revived.currentRoute();
+    assert(r && r.waypoints.length > 0, 'no route to hand a mid-walk joiner');
+    // And the walk actually completes: he reaches the wall and starts the cycle.
+    let g = 3000, sig = null;
+    while (g-- > 0 && !sig) sig = revived.step(0.1);
+    assert(sig && sig.paint && sig.paint.id === before.target, 'resumed walk never reached the wall');
+  });
+}
+
+// ── 7: legacy snapshot (no walk field) still hydrates to SEEKING ─────────────
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const revived = new KaySim(model, {}, mulberry32(13))
+    .hydrate({ x: 3, z: 4, muralCount: 2, painted: [0], defer: [] });
+  check('7. legacy snapshot without walk hydrates to SEEKING', () => {
+    assert.equal(revived.state, SIM_STATE.SEEKING);
+    assert.equal(revived.targetId, null);
+    assert.equal(revived.muralCount, 2);
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);
