@@ -82,6 +82,8 @@ export class LiveLink {
     this._closed = false;
     this._modelSent = false;
     this._seq = 0;
+    this._pendingMural = null;    // finished piece held back until the spray ends
+    this._muralT = null;          // safety flush if the PAINTING→ADMIRING edge is missed
   }
 
   start() {
@@ -128,7 +130,18 @@ export class LiveLink {
         this.onRoute?.(msg);
         break;
       case 'mural':
-        this._applyMural(msg);
+        // The server sends the piece the moment generation FINISHES — for demo
+        // murals that's milliseconds after the spray starts. Applying it right
+        // away spoils the reveal, so while Kay is still PAINTING we hold it and
+        // flush on the next state edge (→ ADMIRING): the mural appears just as
+        // he steps back to admire. A 20 s timer guards a missed edge.
+        if (this.kay?.state === 'PAINTING') {
+          this._pendingMural = msg;
+          clearTimeout(this._muralT);
+          this._muralT = setTimeout(() => this._flushMural(), 20_000);
+        } else {
+          this._applyMural(msg);
+        }
         break;
       case 'notice':   // server-side status the user should see (e.g. why Kay can't paint)
         console.warn('[live] Kay:', msg.message);
@@ -141,7 +154,18 @@ export class LiveLink {
 
   _applyKay(k) {
     this.kay = k;
+    // Reveal a held mural the moment the spray ends — BEFORE the state hook, so
+    // the wall already carries the piece when the camera moves in to admire it.
+    if (this._pendingMural && k.state !== 'PAINTING') this._flushMural();
     if (k.state !== this._prevState) { this.onState?.(k.state, this._prevState); this._prevState = k.state; }
+  }
+
+  _flushMural() {
+    const m = this._pendingMural;
+    if (!m) return;
+    this._pendingMural = null;
+    clearTimeout(this._muralT);
+    this._applyMural(m);
   }
 
   // Report the site's resolved mode so the server knows whether to paint
@@ -194,5 +218,5 @@ export class LiveLink {
     if (m.thought) { this.ui.thought = m.thought; this.ui.thoughtVisible = true; }
   }
 
-  close() { this._closed = true; try { this._ws?.close(); } catch {} }
+  close() { this._closed = true; clearTimeout(this._muralT); try { this._ws?.close(); } catch {} }
 }
