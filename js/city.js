@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { clamp } from './helpers.js';
-import { toonMat, addInk, inkedMesh } from './toon.js';
+import { toonMat, addInk, inkedMesh, gradientMap } from './toon.js';
 import { planetPoint, planetQuat, PLANET_R } from './planet.js';
 import { GLASS, SHUTTER } from './items/materials.js';
 import { createItem } from './items/index.js';
@@ -48,6 +48,49 @@ const KERBFACE = toonMat('#bdb9b1', { side: THREE.DoubleSide });
 const WIRE     = new THREE.LineBasicMaterial({ color: '#2a2824', transparent: true, opacity: 0.72 });
 applyWireWind(WIRE);   // cables bob in the GPU wind (vertex shader — no CPU cost)
 const ROOFLINE = new THREE.LineBasicMaterial({ color: '#2a2824' });   // tile / corrugation strokes
+
+// ── Japanese road-surface paint (路面標示) ──────────────────────────────────
+//  The white lettering painted straight onto the tarmac in Japan — とまれ at a
+//  junction, 徐行 on a bend, a stacked speed limit, a 車 lane mark (the reference
+//  photo). Each marking is one CanvasTexture (characters stacked, elongated) laid
+//  on a quad ALONG the road so it reads foreshortened. Cached + cel-shaded so it
+//  matches the manga road paint. Weighted so calm STOP/SLOW marks dominate.
+const ROAD_MARKS = [
+  'とまれ', 'とまれ', '止まれ',   // STOP (most common)
+  '徐行', '徐行',                 // SLOW
+  '30', '40', '50',              // speed limit (digits stack vertically)
+  '車', '横断歩道あり',           // bus/vehicle lane · "crosswalk ahead"
+];
+const _markMatCache = new Map();
+function roadPaintMaterial(text) {
+  let m = _markMatCache.get(text);
+  if (m) return m;
+  const chars = Array.from(text);
+  const CELL = 176, W = 128;                      // px per glyph cell (tall = elongated)
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = CELL * chars.length;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#f3f1ec';                        // worn road-paint white
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = `bold 132px "Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo","Noto Sans JP",sans-serif`;
+  for (let i = 0; i < chars.length; i++) {
+    // squash each glyph a touch horizontally so it stays crisp inside the cell
+    g.save();
+    g.translate(W / 2, CELL * i + CELL / 2);
+    g.scale(0.92, 1);
+    g.fillText(chars[i], 0, 6);
+    g.restore();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 4; tex.needsUpdate = true;
+  m = new THREE.MeshToonMaterial({
+    map: tex, gradientMap: gradientMap(), color: '#ffffff',
+    transparent: true, alphaTest: 0.42, side: THREE.DoubleSide, depthWrite: false,
+  });
+  m.userData.cells = chars.length;
+  _markMatCache.set(text, m);
+  return m;
+}
 // Window / shutter instancing geometry + every house piece (roofs, balcony,
 // shopfront, door, AC…) now lives in js/items/house.js — imported above.
 
@@ -346,7 +389,7 @@ export class City {
     let vi = 0;
     for (const r of this.mainRoads) {
       const hw = r.half;
-      let painted = 0;
+      let painted = 0, marks = 0;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
         if (Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) > this.CAP) continue;
@@ -378,17 +421,28 @@ export class City {
         // a zebra crossing — only on a flat, central, long-enough straight run so
         // the stripes always land on real asphalt (never spilling onto the curved
         // ground / curb down the planet's side).
-        if (painted < 2 && Math.hypot((a.x + b.x) / 2, (a.z + b.z) / 2) < this.CAP * 0.4 && len > 6) {
-          this._crosswalk(spos, sidx, (a.x + b.x) / 2, (a.z + b.z) / 2, dx / len, dz / len, px, pz, hw);
-          painted++;
+        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2, central = Math.hypot(mx, mz);
+        let crossed = false;
+        if (painted < 2 && central < this.CAP * 0.4 && len > 6) {
+          this._crosswalk(spos, sidx, mx, mz, dx / len, dz / len, px, pz, hw);
+          painted++; crossed = true;
           // bollards guarding the sidewalk at both ends of the crossing
           for (const sb of [-1, 1]) {
             for (const ob of [-0.55, 0.55]) {
-              const bx2 = (a.x + b.x) / 2 + px * sb * (hw + 0.36) + (dx / len) * ob;
-              const bz2 = (a.z + b.z) / 2 + pz * sb * (hw + 0.36) + (dz / len) * ob;
+              const bx2 = mx + px * sb * (hw + 0.36) + (dx / len) * ob;
+              const bz2 = mz + pz * sb * (hw + 0.36) + (dz / len) * ob;
               if (!this.isColliding(bx2, bz2)) this._bollard(bx2, bz2);
             }
           }
+        }
+        // Japanese road lettering (とまれ / 徐行 / speed …) painted on a clear,
+        // central, straight run — never on the same segment as a zebra, and spaced
+        // out (≤2 per road) so it reads as signage, not clutter.
+        else if (marks < 2 && !crossed && central < this.CAP * 0.55 && len > 4 &&
+                 this.rng() < 0.5 && !this.isColliding(mx, mz)) {
+          this._roadPaint(mx, mz, dx / len, dz / len, px, pz, hw,
+                          ROAD_MARKS[(this.rng() * ROAD_MARKS.length) | 0]);
+          marks++;
         }
         // a flagstone sidewalk strip along the kerb (its own raised slab + the
         // paving joints, laid only on open ground so it never runs through a building)
@@ -451,6 +505,35 @@ export class City {
       sidx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);   // normal up (see _buildRoads)
       base += 4;
     }
+  }
+
+  // Lay one Japanese road marking centred at (cx,cz): a white lettering quad that
+  // runs ALONG the road (fx,fz) and spans a lane ACROSS it (px,pz). The first glyph
+  // sits furthest ahead so a driver reads it foreshortened, exactly like real 路面
+  // 標示. Corners are sphere-projected so the paint hugs the curved tarmac.
+  _roadPaint(cx, cz, fx, fz, px, pz, hw, text) {
+    const mat = roadPaintMaterial(text);
+    const cells = mat.userData.cells;
+    // along-road length grows with the word but is capped so a long marking never
+    // overruns the straight run / bends off the tarmac
+    const L = Math.min(cells * Math.min(1.7, hw * 1.05), 6.5);
+    const W = Math.min(hw * 1.1, 1.15), y = 0.072;    // lane-wide, just above the tarmac
+    const v = new THREE.Vector3();
+    const pos = [], uv = [], idx = [];
+    const corner = (along, across, u, w) => {
+      planetPoint(cx + fx * along + px * across, y, cz + fz * along + pz * across, v, this.R);
+      pos.push(v.x, v.y, v.z); uv.push(u, w);
+    };
+    corner( L / 2, -W / 2, 0, 0); corner( L / 2,  W / 2, 1, 0);
+    corner(-L / 2, -W / 2, 0, 1); corner(-L / 2,  W / 2, 1, 1);
+    idx.push(0, 2, 1, 1, 2, 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    this.scene.add(mesh);
   }
 
   // Raised concrete kerb + gutter along a road segment — modelled on the inked
