@@ -61,7 +61,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // 30 s while CONTEMPLATING, and on the owner's DELETE /murals wipe. Build 8
 // persists the sim (including the active walk) every tick, so hibernation wakes
 // resume the route seamlessly instead of re-seeking from a stale snapshot.
-const WORKER_BUILD = 8;
+// Build 9 broadcasts each route from its TRUE start (the tick breaks the moment
+// a route is chosen instead of walking into it first), caps catch-up dt at 3 s,
+// and slows the default pacing to an unhurried stroll.
+const WORKER_BUILD = 9;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -310,14 +313,17 @@ const MODEL_VERSION = 2;
 const KAY_MODEL_DEFAULT = 'claude-sonnet-4-6';
 const STYLE_NAMES = ['Ukiyo-e', 'Sumi-e', 'Manga', 'Woodblock', 'Anime', 'Kirie', 'Wabi-sabi', 'Kanji'];
 const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+// NB: env vars set in the dashboard OVERRIDE these code defaults — if the pace
+// still feels frantic after a deploy, check for a stale KAY_COOLDOWN_MIN /
+// KAY_PAINT / KAY_ADMIRE var pinning the old rhythm.
 function pacing(env) {
   return {
     moveSpeed:       envNum(env.KAY_SPEED, 2.6),      // stroll speed (m/s)
-    paintMinSeconds: envNum(env.KAY_PAINT, 5.0),      // min spray time (demo shows a few s)
+    paintMinSeconds: envNum(env.KAY_PAINT, 7.0),      // min spray time (demo shows a few s)
     paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
-    admireSeconds:   envNum(env.KAY_ADMIRE, 3.0),
-    cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 6),
-    cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 6),
+    admireSeconds:   envNum(env.KAY_ADMIRE, 6.0),
+    cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 18),
+    cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 14),
   };
 }
 
@@ -567,7 +573,10 @@ export class KayDO {
     // wake (_lastTick lost) assume the scheduled interval.
     let dt = this._lastTick ? (now - this._lastTick) / 1000 : SIM_STEP_MS / 1000;
     this._lastTick = now;
-    dt = Math.min(Math.max(dt, 0.05), 6);
+    // Cap catch-up at 3 s (not 6): a late alarm made the keyframe leap up to
+    // 15 m in one tick, blowing past the client's teleport guard — on screen Kay
+    // "jumped several metres". 3 s bounds any leap to under the guard distance.
+    dt = Math.min(Math.max(dt, 0.05), 3);
 
     const sig = this.sim.advance(dt);
     if (sig && sig.paint && !this._generating) {

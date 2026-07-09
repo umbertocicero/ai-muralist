@@ -173,6 +173,25 @@ const check = (name, fn) => {
   });
 }
 
+// ── 6b: route start breaks the coarse tick — no pre-walk before broadcast ────
+// advance() must STOP the moment a route is chosen: the DO broadcasts the route
+// right after, and consuming the rest of the tick first would walk Kay metres
+// into it before any browser knows it exists (clients then trail by a tick and
+// he appears to start painting from the middle of the street).
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5 }, mulberry32(21));
+  const sig = sim.advance(2.0);   // a full coarse tick from cold
+  check('6b. advance() breaks at route start (route broadcast from its true start)', () => {
+    assert(sig && sig.routeStarted, 'no routeStarted signal from advance()');
+    assert.equal(sim.state, SIM_STATE.MOVING_TO_WALL);
+    assert(Math.hypot(sim.x - model.spawn.x, sim.z - model.spawn.z) < 1e-9,
+      `already walked ${Math.hypot(sim.x - model.spawn.x, sim.z - model.spawn.z).toFixed(2)} m into the route before the broadcast`);
+    const r = sim.currentRoute(true);
+    assert(r && r.waypoints.length >= 1, 'no route to broadcast');
+  });
+}
+
 // ── 7: legacy snapshot (no walk field) still hydrates to SEEKING ─────────────
 {
   const model = buildModel({ wallCoords: gridWalls });

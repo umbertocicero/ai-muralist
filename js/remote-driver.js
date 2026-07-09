@@ -31,6 +31,7 @@ export class RemoteDriver {
     this._speed = CONFIG.moveSpeed || 2.6;
     this._facing = 0;
     this._rx = null; this._rz = null;   // rendered position
+    this._arriveFx = null;     // paint-begin FX held until the ON-SCREEN Kay arrives
   }
 
   // A fresh route from the server: walk it locally from wherever Kay currently
@@ -100,6 +101,10 @@ export class RemoteDriver {
     if (onRoute) {
       this._advanceRoute(dt);
       this.char.faceDirection({ x: Math.sin(this._facing), z: Math.cos(this._facing) });
+      // The on-screen Kay just finished the walk → NOW fire the held paint-begin
+      // FX (camera dive, flash, spray sfx). Firing them on the server state edge
+      // played them while he was still visibly metres from the wall.
+      if (this._ri >= this._route.length) this._fireArriveFx();
     } else if (arrivedOnRoute) {
       // Route walked to the wall; the server hasn't advanced his state yet → HOLD.
       this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
@@ -119,7 +124,11 @@ export class RemoteDriver {
       else                          this.char.faceDirection({ x: Math.sin(kay.facing), z: Math.cos(kay.facing) });
     }
     // Teleport guard (a server _relocate): snap instead of sliding across town.
-    if (Math.hypot(this._rx - kay.x, this._rz - kay.z) > 8) {
+    // NEVER while walking a route the server issued for this very target: the
+    // route ends AT the wall, so any keyframe gap is pure timing skew — snapping
+    // here is what painted the long straight streaks across the city map.
+    const onIssuedRoute = onRoute && this._routeTargetId === kay.targetId;
+    if (!onIssuedRoute && Math.hypot(this._rx - kay.x, this._rz - kay.z) > 8) {
       this._rx = kay.x; this._rz = kay.z; this._route = null; this._routeTargetId = null;
     }
 
@@ -166,9 +175,23 @@ export class RemoteDriver {
 
     // Frame the wall the moment he ARRIVES (OBSERVE, or PAINTING if he skipped
     // the pause). PAINTING also flashes + sprays. ADMIRING zooms the mural.
-    if ((state === S.OBSERVE || state === S.PAINTING) && prev === S.MOVING_TO_WALL && slot) this.ui.onPaintBegin?.(slot);
-    if (state === S.PAINTING) { this._flashPulse(); this._popSfx(); }
-    if (state === S.ADMIRING) { this.ui.flashActive = false; if (slot) this.ui.onAdmire?.(slot); }
+    // The SERVER may declare arrival while the ON-SCREEN Kay is still walking
+    // the last stretch of the route — hold the FX and let update() fire them
+    // when HE gets there, so he never visibly paints from mid-street.
+    if ((state === S.OBSERVE || state === S.PAINTING) && prev === S.MOVING_TO_WALL && slot) {
+      const walking = this._route && this._ri < this._route.length && this._routeTargetId === kay.targetId;
+      this._arriveFx = { slot, paint: state === S.PAINTING };
+      if (!walking) this._fireArriveFx();
+    } else if (state === S.PAINTING) {
+      // OBSERVE → PAINTING at the wall (or a paint with no travel edge seen).
+      if (this._arriveFx) this._arriveFx.paint = true;   // upgrade a held arrival
+      else { this._flashPulse(); this._popSfx(); }
+    }
+    if (state === S.ADMIRING) {
+      this._fireArriveFx();                    // never admire before the dive-in ran
+      this.ui.flashActive = false;
+      if (slot) this.ui.onAdmire?.(slot);
+    }
     // Leaving the paint cycle → rise + resume follow. NOT just on SEEKING: the
     // server's coarse 2 s tick resolves ADMIRING → SEEKING → MOVING_TO_WALL
     // inside ONE advance(), so the broadcast almost never shows SEEKING at all —
@@ -176,10 +199,20 @@ export class RemoteDriver {
     // Kay walked away. Any paint-cycle → non-paint transition counts as the end.
     const inCycle  = (s) => s === S.OBSERVE || s === S.PAINTING || s === S.ADMIRING;
     if (!inCycle(state) && inCycle(prev)) {
+      this._arriveFx = null;
       this.ui.flashActive = false;
       this.ui.thoughtVisible = false;
       this.ui.onPaintEnd?.();                                             // rise + resume follow
     }
+  }
+
+  // Fire the held paint-begin FX exactly once, when the rendered Kay reaches the wall.
+  _fireArriveFx() {
+    const fx = this._arriveFx;
+    if (!fx) return;
+    this._arriveFx = null;
+    this.ui.onPaintBegin?.(fx.slot);
+    if (fx.paint) { this._flashPulse(); this._popSfx(); }
   }
 
   // A short orange impact flash (not a held veil — painting can now last the
