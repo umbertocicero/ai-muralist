@@ -156,6 +156,11 @@ export class City {
       if (chosen) this._waterTower(chosen.x, chosen.z);
     }
 
+    // Every collider (buildings, fences, poles, water towers) now exists, so
+    // fix each wall's stand point and drop only the faces a house is built flush
+    // against — alley walls with room to stand stay paintable.
+    this._resolveWallSlots();
+
     // Wrap the flat town onto the little planet: transform every individual mesh
     // added above, then build the batched lines + instanced windows already
     // mapped onto the sphere.
@@ -798,7 +803,11 @@ export class City {
     }
   }
 
-  // wall slot per street-facing face (only if its approach is on open ground)
+  // A wall slot for EVERY facade — one per face. The stand point (and whether
+  // the face survives at all) is resolved later by _resolveWallSlots, once the
+  // whole town exists: this runs mid-generation, so buildings placed AFTER this
+  // one aren't in the collision world yet and a "faces open ground" test here
+  // would be wrong for half the neighbours anyway.
   _addSlots(cx, cz, hw, hd, rot, idx) {
     const py = 1.55, wh = 2.7;
     const faces = [
@@ -809,22 +818,47 @@ export class City {
     ];
     // Same curvature factor the collision uses (see _curveK): the rendered wall
     // sits further out in flat space the closer to the rim, so the stand point
-    // must stand off from that EFFECTIVE face — otherwise it lands inside the
-    // (now curvature-inflated) collision box and KAI can never reach the wall.
+    // (resolved later) must stand off from that EFFECTIVE face — otherwise it
+    // lands inside the curvature-inflated collision box and KAI can't reach it.
     const k = this._curveKraw(cx, cz, hw, hd);
     for (const f of faces) {
       const fc = this._toWorld(cx, cz, rot, f.nlx * f.half, f.nlz * f.half);
       const n  = this._dir(rot, f.nlx, f.nlz);
-      const apOff = (f.half + CONFIG.approachOffset) * k - f.half;   // stand a real 1.5 m off the rendered wall
-      const ap = { x: fc.x + n.x * apOff, z: fc.z + n.z * apOff };
-      if (this.isColliding(ap.x, ap.z)) continue;   // wall faces a building → skip
       this.wallSlots.push({
         px: fc.x, py, pz: fc.z, nx: n.x, nz: n.z,
-        ax: ap.x, az: ap.z,                          // curvature-corrected stand point
+        ax: 0, az: 0,                                // resolved in _resolveWallSlots
         wallW: Math.min(f.len * 1.4, 4.4), wallH: wh,
         buildingIdx: idx, used: false, mesh: null,
+        _half: f.half, _k: k,                        // scratch for the resolver
       });
     }
+  }
+
+  // Resolve every wall's stand point now that the ENTIRE town exists (buildings,
+  // fences, poles, water towers all registered for collision). For each face,
+  // stand the ideal approachOffset (1.5 m) back; if a neighbour occupies that
+  // spot, step IN toward the wall as far as KAI still clears his OWN facade. A
+  // face is dropped only when even hugging the wall collides — i.e. another house
+  // is built flush against it, so the wall is genuinely unreachable. This is what
+  // keeps the alley-facing walls on the map instead of silently vanishing: KAI
+  // used to run out of walls and freeze (CONTEMPLATING) while whole facades sat
+  // blank in the narrow gaps between houses.
+  _resolveWallSlots() {
+    const minOff = CONFIG.charRadius + 0.3;   // just clear of his own plaster (~0.7 m)
+    const kept = [];
+    for (const s of this.wallSlots) {
+      let ap = null;
+      for (let off = CONFIG.approachOffset; off >= minOff - 1e-6; off -= 0.15) {
+        const apOff = (s._half + off) * s._k - s._half;
+        const x = s.px + s.nx * apOff, z = s.pz + s.nz * apOff;
+        if (!this.isColliding(x, z)) { ap = { x, z }; break; }
+      }
+      delete s._half; delete s._k;
+      if (!ap) continue;                      // house attached flush → unreachable
+      s.ax = ap.x; s.az = ap.z;
+      kept.push(s);
+    }
+    this.wallSlots = kept;
   }
 
   _facade(cx, cz, rot, hw, hd, H, nlx, nlz, seed, shop = false) {
