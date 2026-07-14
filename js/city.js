@@ -902,9 +902,14 @@ export class City {
         // _seatOnWall glues it to the rigid box instead of independently
         // sphere-projecting its own (x,z) — that drift is what pulled AC units
         // away from the facade on taller/wider blocks (the "floating AC" bug).
+        // Placed CENTRED DIRECTLY BELOW its window, in the clear band between
+        // this floor's window (frame bottom ≈ wy-0.73) and the one below
+        // (frame top ≈ wy-1.47): tucked next to the window like a real 室外機
+        // on its bracket, not overlapping the glass (it used to sit at tc+0.7,
+        // wy-0.55 and clip the window's lower corner).
         if (f >= 1 && (c + seed) % 4 === 1) {
-          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.11) + tlx * (tc + 0.7), nlz * (half + 0.11) + tlz * (tc + 0.7));
-          this._acUnit(a.x, wy - 0.55, a.z, rotY, cx, cz, H, hw, hd);
+          const a = this._toWorld(cx, cz, rot, nlx * (half + 0.11) + tlx * tc, nlz * (half + 0.11) + tlz * tc);
+          this._acUnit(a.x, wy - 1.06, a.z, rotY, cx, cz, H, hw, hd);
         }
       }
     }
