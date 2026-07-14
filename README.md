@@ -377,8 +377,8 @@ Setup:
 
 Leave `google_client_id` unset to keep the app open (login hidden, no gating).
 
-Sign in from the **Google button on the HUD (top-left)**; the ⚙ Settings panel
-shows your status but the button is the entry point.
+Sign in from the **Google button inside the ⚙ Settings panel** — it's both the
+entry point and where your signed-in status shows.
 
 Two gotchas this commonly trips on:
 

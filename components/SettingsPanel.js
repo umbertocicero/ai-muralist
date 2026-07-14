@@ -1,22 +1,31 @@
 import { loadUserSettings, saveUserSettings } from '../js/settings.js';
 import { CONFIG } from '../js/config.js';
 import { auth, signOut } from '../js/auth.js';
+import LoginButton from './LoginButton.js';
 
 // ===========================================================================
 //  Settings panel — a ⚙ button opening a small paper card where the VISITOR
 //  configures their own session (stored in localStorage only, never sent
 //  anywhere except the api key going straight to the Worker/Anthropic):
 //
+//    · Google sign-in — owner-only controls below unlock once signed in
 //    · Mode        — Demo (procedural murals, free) or AI (Claude generates)
 //    · API key     — their own Anthropic key (cached, editable, optional if
 //                    the site's Worker already has one)
 //    · Model       — which Claude model paints
 //    · Save to DB  — persist murals to the shared world (when the site has D1)
 //
+//  The Worker URL is NOT a visitor setting: it's the site owner's endpoint
+//  (config.yaml `worker_url`, or the code default) — a visitor pointing the
+//  client at an arbitrary URL is a footgun, not a feature, so there is no
+//  field for it here. effectiveWorker always reflects CONFIG.workerUrl,
+//  resolved once at boot (js/settings.js).
+//
 //  Saving reloads the page: settings resolve at boot (js/settings.js).
 // ===========================================================================
 export default {
   name: 'SettingsPanel',
+  components: { LoginButton },
   // onDelete: wipes the shared world's murals (wired to Persistence in main.js);
   // null when no Worker is configured, so the button hides.
   props: { onDelete: { type: Function, default: null } },
@@ -27,17 +36,13 @@ export default {
       mode:      s.mode ?? '',          // '' = auto
       apiKey:    s.apiKey ?? '',
       model:     s.model ?? '',
-      workerUrl: s.workerUrl ?? '',
       saveMurals: s.saveMurals !== false,
       deleting:  false,
       models: ['claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-opus-4-8'],
     };
   },
   computed: {
-    // Worker resolved from ANY layer (panel field > yaml/site > code default).
-    // By the time the panel is opened, boot-time resolution has long finished,
-    // so CONFIG.workerUrl reflects the effective value.
-    effectiveWorker() { return this.workerUrl.trim() || CONFIG.workerUrl || ''; },
+    effectiveWorker() { return CONFIG.workerUrl || ''; },
     auth() { return auth; },                 // reactive Google-auth store (js/auth.js)
     // Admin controls (MODE, DELETE) are visible when auth is OFF (open app) or
     // when the signed-in user is the owner. The Worker enforces regardless.
@@ -50,7 +55,6 @@ export default {
       if (this.mode)            s.mode = this.mode;
       if (this.apiKey.trim())   s.apiKey = this.apiKey.trim();
       if (this.model)           s.model = this.model;
-      if (this.workerUrl.trim()) s.workerUrl = this.workerUrl.trim();
       s.saveMurals = this.saveMurals;
       saveUserSettings(s);
       location.reload();
@@ -83,7 +87,10 @@ export default {
           <span class="s-note">signed in as {{ auth.user.email }}<template v-if="auth.isOwner"> · owner</template></span>
           <button class="s-btn ghost" @click="doSignOut">SIGN OUT</button>
         </template>
-        <span v-else class="s-note">sign in with the Google button (top-left) to manage this world</span>
+        <template v-else>
+          <span class="s-note">sign in with Google to manage this world</span>
+          <LoginButton />
+        </template>
       </div>
 
       <template v-if="canAdmin">
@@ -106,16 +113,11 @@ export default {
         </select>
       </template>
 
-      <!-- The Worker also hosts persistence (D1), so it matters in EVERY mode:
-           demo murals are saved/restored through it too — keep it visible. -->
-      <label class="s-lab">WORKER URL <span class="s-note">(generation + save/restore)</span></label>
-      <input class="s-in" type="text" v-model="workerUrl" placeholder="https://…workers.dev">
-
       <label class="s-row s-save">
         <input type="checkbox" v-model="saveMurals"> save murals to the shared world (DB)
       </label>
       <div class="s-warn" v-if="saveMurals && !effectiveWorker">
-        ⚠ saving needs a Worker URL (the database lives behind it)
+        ⚠ this deployment has no Worker configured (site owner setting) — saving is unavailable
       </div>
 
       <div class="s-row s-actions">

@@ -276,10 +276,8 @@
   }
   #settings-btn:hover { background: #4a5a66; color: #fff; }
 
-  /* ── Login control (Google sign-in) — top-left column under Settings ─────── */
+  /* ── Login control (Google sign-in) — lives inside the Settings panel ────── */
   #login-ctl {
-    position: fixed; z-index: 12; pointer-events: auto;
-    top: 202px; left: 18px;
     display: flex; align-items: center; gap: 8px;
   }
   #login-ctl .lc-gsi { min-height: 30px; }
@@ -301,6 +299,7 @@
     font-family: 'Courier New', monospace; color: #1a1a1a;
   }
   #settings-panel .s-hdr { font-size: 11px; letter-spacing: 3px; color: #ff6b35; margin-bottom: 8px; }
+  #settings-panel .s-auth { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
   #settings-panel .s-lab { display: block; font-size: 10px; letter-spacing: 1.5px; color: #666655; margin: 9px 0 3px; }
   #settings-panel .s-note { letter-spacing: 0; text-transform: none; color: #999; }
   #settings-panel .s-in {
