@@ -852,7 +852,6 @@ export class City {
         if (hasBalcony && f === floors - 1 && Math.abs(tc) < balcW / 2) continue;  // porta-finestra instead
         const w = this._toWorld(cx, cz, rot, nlx * half + tlx * tc, nlz * half + tlz * tc);
         const ox = n.x * 0.09, oz = n.z * 0.09;
-        const lift = this._datumLift(cx, cz, w.x, w.z);   // used by the AC unit below
         // Windows/shutters carry their BUILDING's frame (centre cx,cz + size H,hw,
         // hd) so _buildInstances can seat them on the rigid box's wall at any
         // height — placing them on the sphere instead let them drift off the wall
@@ -864,10 +863,14 @@ export class City {
         this._winXf.push(w.x + ox, wy, w.z + oz, cx, cz, H, hw, hd, rotY);
 
         // occasional AC outdoor unit, sitting flush against the wall — with the
-        // grille ring + spinning fan blades drawn on its street-facing face
+        // grille ring + spinning fan blades drawn on its street-facing face.
+        // Carries the BUILDING's frame (same fix as windows/balcony above) so
+        // _seatOnWall glues it to the rigid box instead of independently
+        // sphere-projecting its own (x,z) — that drift is what pulled AC units
+        // away from the facade on taller/wider blocks (the "floating AC" bug).
         if (f >= 1 && (c + seed) % 4 === 1) {
           const a = this._toWorld(cx, cz, rot, nlx * (half + 0.11) + tlx * (tc + 0.7), nlz * (half + 0.11) + tlz * (tc + 0.7));
-          this._acUnit(a.x, wy - 0.55 + lift, a.z, rotY);
+          this._acUnit(a.x, wy - 0.55, a.z, rotY, cx, cz, H, hw, hd);
         }
       }
     }
@@ -902,10 +905,13 @@ export class City {
   // by one big circular fan grille — a recessed dish behind a static spoked guard
   // with concentric rings, with the fan blades spinning behind it. The left flank
   // carries the vertical louvre slats of the heat-exchanger vent. A lipped top lid
-  // and two feet finish it. The body is spherified like any prop; only the fan
-  // (a child group) is animated, so the planet mapping is never disturbed.
+  // and two feet finish it. Tagged with its BUILDING's frame (cx,cz,H,hw,hd) so
+  // _spherifyIndividuals seats it rigidly on the box wall (_seatOnWall) instead
+  // of independently sphere-projecting its own (x,z) — the latter is what let AC
+  // units drift off the facade on taller/wider blocks. Only the fan (a child
+  // group) is animated, so the wall seating is never disturbed.
   // AC outdoor unit (室外機) — built by the item factory (js/items/props.js).
-  _acUnit(x, y, z, rotY) { createItem(this, 'acUnit', { x, y, z, rotY }); }
+  _acUnit(x, y, z, rotY, cx, cz, H, hw, hd) { createItem(this, 'acUnit', { x, y, z, rotY, cx, cz, H, hw, hd }); }
 
   // Concrete balcony + porta-finestra + wind-flapped futons — item factory (house.js).
   _balcony(cx, cz, rot, nlx, nlz, tlx, tlz, half, wallLen, rotY, y, seed, H, hw, hd) {
