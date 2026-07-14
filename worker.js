@@ -63,8 +63,11 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // resume the route seamlessly instead of re-seeking from a stale snapshot.
 // Build 9 broadcasts each route from its TRUE start (the tick breaks the moment
 // a route is chosen instead of walking into it first), caps catch-up dt at 3 s,
-// and slows the default pacing to an unhurried stroll.
-const WORKER_BUILD = 9;
+// and slows the default pacing to an unhurried stroll. Build 10 caps the OBSERVE
+// pause (standing at the wall before spraying) at 1 s — it used to inherit
+// whatever cooldown was left after travel, up to the full 18-32 s when two
+// walls sat close together — and shortens admire to 5 s.
+const WORKER_BUILD = 10;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -321,9 +324,10 @@ function pacing(env) {
     moveSpeed:       envNum(env.KAY_SPEED, 2.6),      // stroll speed (m/s)
     paintMinSeconds: envNum(env.KAY_PAINT, 7.0),      // min spray time (demo shows a few s)
     paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
-    admireSeconds:   envNum(env.KAY_ADMIRE, 6.0),
+    admireSeconds:   envNum(env.KAY_ADMIRE, 5.0),
     cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 18),
     cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 14),
+    observeMaxSeconds: envNum(env.KAY_OBSERVE_MAX, 1.0),  // cap the pre-paint "sizing up" pause
   };
 }
 

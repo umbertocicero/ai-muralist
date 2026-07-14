@@ -192,6 +192,36 @@ const check = (name, fn) => {
   });
 }
 
+// ── 6c: OBSERVE never outlasts observeMaxSeconds, even with cooldown to spare ─
+// Two walls placed right next to each other: travel is near-instant, so almost
+// the whole 18-32 s cooldown is still on the clock when Kay arrives. Before the
+// fix, OBSERVE inherited that full remaining cooldown — he'd stand at the wall
+// for up to ~30 s before spraying. It must now cap at cfg.observeMaxSeconds.
+{
+  const model = buildModel({ wallCoords: [[0, 0, 1, 0], [0, 1.2, 1, 0]] });
+  const cfg = { cooldownMin: 18, cooldownRange: 14, observeMaxSeconds: 1.0 };
+  const sim = new KaySim(model, cfg, mulberry32(31));
+  // Walk to and paint the first wall (short trip — the model's approach points
+  // are only 1.5 m from spawn), then watch how long OBSERVE holds before wall 2.
+  let guard = 4000, sig = null;
+  while (guard-- > 0 && !(sig && sig.paint)) sig = sim.step(0.1);
+  sim.paintDone({ svg: '<svg/>', thought: 't' });
+  guard = 4000;
+  while (guard-- > 0 && sim.state !== SIM_STATE.ADMIRING) sim.step(0.1);
+
+  let observeElapsed = 0, sawObserve = false, sig2 = null;
+  guard = 4000;
+  while (guard-- > 0 && !(sig2 && sig2.paint)) {
+    sig2 = sim.step(0.1);
+    if (sim.state === SIM_STATE.OBSERVE) { sawObserve = true; observeElapsed += 0.1; }
+  }
+  check('6c. OBSERVE caps at observeMaxSeconds regardless of leftover cooldown', () => {
+    assert(sawObserve, 'test setup failed: never entered OBSERVE for the second wall');
+    assert(observeElapsed <= cfg.observeMaxSeconds + 0.15,
+      `stood observing for ${observeElapsed.toFixed(2)} s, expected ≤ ${cfg.observeMaxSeconds} s`);
+  });
+}
+
 // ── 7: legacy snapshot (no walk field) still hydrates to SEEKING ─────────────
 {
   const model = buildModel({ wallCoords: gridWalls });
