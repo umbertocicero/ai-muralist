@@ -1,10 +1,11 @@
 import { auth, renderSignInButton, signOut } from '../js/auth.js';
 
 // ===========================================================================
-//  LoginButton — the visible sign-in control on the HUD (top-left column).
-//  Signed out: the official Google button. Signed in: a small chip with the
-//  account + a sign-out. Hidden entirely when auth isn't configured
-//  (CONFIG.googleClientId unset). Real enforcement is server-side; this is UI.
+//  LoginButton — the sign-in control, embedded in the ⚙ Settings panel
+//  (SettingsPanel.js) rather than a standalone HUD element. Signed out: the
+//  official Google button. Signed in: a small chip with the account + a
+//  sign-out. Hidden entirely when auth isn't configured (CONFIG.googleClientId
+//  unset). Real enforcement is server-side; this is UI.
 // ===========================================================================
 export default {
   name: 'LoginButton',

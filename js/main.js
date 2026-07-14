@@ -21,7 +21,7 @@ import TitlePanel    from '../components/TitlePanel.js';
 import MuralLog      from '../components/MuralLog.js';
 import MuralGallery  from '../components/MuralGallery.js';
 import MapOverlay    from '../components/MapOverlay.js';
-import SettingsPanel from '../components/SettingsPanel.js';
+import SettingsPanel from '../components/SettingsPanel.js';   // hosts the Google sign-in (LoginButton) too
 import StatusBar     from '../components/StatusBar.js';
 import MuralCounter  from '../components/MuralCounter.js';
 import ThoughtBubble from '../components/ThoughtBubble.js';
@@ -29,7 +29,6 @@ import SfxOverlay    from '../components/SfxOverlay.js';
 import FollowButton  from '../components/FollowButton.js';
 import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
-import LoginButton   from '../components/LoginButton.js';
 
 const DAY = new THREE.Color(CONFIG.sky);
 const col = new THREE.Color();
@@ -71,7 +70,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay, LoginButton },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay },
   setup() {
     return { ui };
   },
@@ -100,7 +99,6 @@ const VueRoot = {
     <ThoughtBubble :thought="ui.thought" :visible="ui.thoughtVisible" :tail-angle="ui.tailAngle" :tail-up="ui.tailUp" />
     <FollowButton  :visible="!ui.cameraFollowing" @follow="onFollow" />
     <ResetButton   :visible="ui.viewTilted" @reset="onReset" />
-    <LoginButton />
   `,
 };
 

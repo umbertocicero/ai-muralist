@@ -457,10 +457,14 @@ export function makeRoofSign(ctx, { cx, cz, rot, nlx, nlz, hw, hd, H, seed }) {
 // grille on the front (a recessed dish behind a static spoked guard with the
 // blades spinning behind it) and louvre slats on the flank. The fan child group
 // is registered as an animator so the planet mapping is never disturbed.
-export function makeAcUnit(ctx, { x, y, z, rotY }) {
+export function makeAcUnit(ctx, { x, y, z, rotY, cx, cz, H, hw, hd }) {
   const W = 0.62, Hh = 0.42, D = 0.28, front = D / 2;
   const CASE = '#dedcd7', EDGE = '#c2bfb8', GUARD = '#5d5950', DARK = '#2a2824';
   const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY;
+  // Wall-fitting frame (see the balcony fix above): _seatOnWall glues this to
+  // the building's own rigid box instead of _spherifyIndividuals projecting
+  // (x,z) independently, which is what tore AC units off the facade.
+  g._wallFrame = { cx, cz, H, hw, hd };
   const box = (w, h, d, col, px, py, pz, k = 1.04, cast = false) => {
     const m = inkedMesh(new THREE.BoxGeometry(w, h, d), col, { k, cast });
     m.position.set(px, py, pz); g.add(m); return m;
