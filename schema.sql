@@ -22,8 +22,16 @@ CREATE TABLE IF NOT EXISTS murals (
   thought    TEXT,                                    -- KAI's one-line monologue
   svg        TEXT    NOT NULL,                        -- the artwork itself
   user_id    TEXT    NOT NULL,                        -- anonymous painter id (per browser)
+  model      TEXT,                                    -- Claude model that painted it ('demo' for procedural)
+  prompt     TEXT,                                    -- the exact prompt used, so a viewer can recreate it
   created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- EXISTING databases (created before model/prompt existed): run these once —
+-- CREATE TABLE IF NOT EXISTS above won't add columns to a table that's there.
+--   wrangler d1 execute ai-muralist-db --remote --command "ALTER TABLE murals ADD COLUMN model TEXT"
+--   wrangler d1 execute ai-muralist-db --remote --command "ALTER TABLE murals ADD COLUMN prompt TEXT"
+-- (both are also in migrations/0001_mural_model_prompt.sql)
 
 -- One mural per wall per world: the first painter wins, later saves are ignored
 -- (mirrors slot.used in the client). Coordinates are rounded to 3 decimals

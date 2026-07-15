@@ -123,7 +123,7 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
     const demo = CONFIG.mode === 'demo' || (!CONFIG.workerUrl && !CONFIG.userApiKey);
     if (demo) {
       await new Promise(r => setTimeout(r, rand(700, 1300)));
-      return { thought: DEMO_THOUGHTS[index % DEMO_THOUGHTS.length], svg: demoSVG(PW, PH, index), PW, PH };
+      return { thought: DEMO_THOUGHTS[index % DEMO_THOUGHTS.length], svg: demoSVG(PW, PH, index), PW, PH, model: 'demo', prompt: null };
     }
 
     const direct  = !CONFIG.workerUrl;
@@ -158,7 +158,7 @@ OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no 
       if (!raw) throw new Error('empty_response');
       const parsed = this._parse(raw);
       this._validateSvg(parsed.svg);
-      return { ...parsed, PW, PH };
+      return { ...parsed, PW, PH, model: CONFIG.model, prompt: text };   // provenance for the detail view
     } finally {
       clearTimeout(timer);
     }

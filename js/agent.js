@@ -100,6 +100,11 @@ export class Agent {
         wallW:       slot.wallW,
         wallH:       slot.wallH,
         buildingIdx: slot.buildingIdx,
+        // provenance for the detail view (locally painted → carried inline)
+        thought:     this.pendingResult?.thought ?? null,
+        model:       this.pendingResult?.model ?? null,
+        prompt:      this.pendingResult?.prompt ?? null,
+        by:          'you',
         // where the mural lives, so the sidebar can fly the camera to it
         target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
       };

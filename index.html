@@ -129,11 +129,78 @@
     border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 2px; overflow: hidden;
   }
   #gallery .g-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #gallery .g-info { min-width: 0; }
+  #gallery .g-info { min-width: 0; flex: 1; }
+  #gallery .g-info { cursor: pointer; }
+  #gallery .g-thumb { cursor: pointer; }
   #gallery .g-title { font-size: 12px; line-height: 1.4; }
   #gallery .g-title .n { color: #ff6b35; font-weight: bold; }
   #gallery .g-meta { font-size: 10px; color: #666655; }
+  #gallery .g-detail {
+    flex: 0 0 auto; margin-left: auto; pointer-events: auto;
+    width: 28px; height: 28px; padding: 0; cursor: pointer;
+    background: transparent; color: #4a5a66;
+    border: 1.5px solid #4a5a66; border-radius: 2px;
+    font-size: 13px; line-height: 1;
+  }
+  #gallery .g-detail:hover { background: #4a5a66; color: #fff; }
   #gallery .g-empty { font-size: 11px; color: #999; font-style: italic; padding: 14px 16px; }
+
+  /* ── Mural detail modal (⛶ from a gallery item) ──────────────────────────── */
+  #detail-overlay {
+    position: fixed; inset: 0; z-index: 40; pointer-events: auto;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; background: rgba(20, 18, 16, 0.62);
+  }
+  #detail-overlay .d-card {
+    position: relative; width: min(880px, 94vw); max-height: 90vh; overflow: hidden;
+    background: rgba(245, 240, 230, 0.98); color: #1a1a1a;
+    border: 1.5px solid #4a5a66; border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.25);
+  }
+  #detail-overlay .d-close {
+    position: absolute; top: 8px; right: 8px; z-index: 2;
+    width: 30px; height: 30px; cursor: pointer;
+    background: rgba(245, 240, 230, 0.9); color: #4a5a66;
+    border: 1.5px solid #4a5a66; border-radius: 2px; font-size: 13px; line-height: 1;
+  }
+  #detail-overlay .d-close:hover { background: #4a5a66; color: #fff; }
+  #detail-overlay .d-body { display: flex; gap: 0; max-height: 90vh; }
+  #detail-overlay .d-art {
+    flex: 0 0 46%; background: #fff; display: flex; align-items: center; justify-content: center;
+    border-right: 1px solid rgba(0, 0, 0, 0.15); min-height: 260px;
+  }
+  #detail-overlay .d-art img { width: 100%; height: 100%; max-height: 90vh; object-fit: contain; display: block; }
+  #detail-overlay .d-side { flex: 1; min-width: 0; padding: 18px 18px 16px; overflow-y: auto; display: flex; flex-direction: column; }
+  #detail-overlay .d-title { font-size: 16px; margin: 4px 30px 12px 0; }
+  #detail-overlay .d-title .n { color: #ff6b35; font-weight: bold; }
+  #detail-overlay .d-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-bottom: 12px; }
+  #detail-overlay .d-meta .k { font-size: 9px; letter-spacing: 1.5px; color: #999; text-transform: uppercase; display: block; }
+  #detail-overlay .d-meta .v { font-size: 12px; color: #1a1a1a; word-break: break-word; }
+  #detail-overlay .d-thought { font-size: 12px; font-style: italic; color: #555; margin-bottom: 14px; line-height: 1.5; }
+  #detail-overlay .d-prompt-hdr { display: flex; align-items: center; justify-content: space-between; font-size: 10px; letter-spacing: 2px; color: #666655; margin-bottom: 5px; }
+  #detail-overlay .d-copy {
+    cursor: pointer; padding: 3px 9px; font-family: inherit; font-size: 9px; letter-spacing: 1px;
+    background: #ff6b35; color: #fff; border: 1.5px solid #ff6b35; border-radius: 2px;
+  }
+  #detail-overlay .d-prompt {
+    width: 100%; flex: 1; min-height: 120px; resize: vertical;
+    font-family: inherit; font-size: 11px; line-height: 1.45; color: #222;
+    background: #fffdf8; border: 1px solid rgba(0, 0, 0, 0.22); border-radius: 2px;
+    padding: 8px; white-space: pre-wrap;
+  }
+  #detail-overlay .d-prompt-note { font-size: 11px; color: #999; font-style: italic; padding: 8px 0; }
+  #detail-overlay .d-actions { margin-top: 12px; }
+  #detail-overlay .d-btn {
+    cursor: pointer; padding: 7px 14px; font-family: inherit; font-size: 10px; letter-spacing: 2px;
+    background: transparent; color: #4a5a66; border: 1.5px solid #4a5a66; border-radius: 2px;
+  }
+  #detail-overlay .d-btn:hover { background: #4a5a66; color: #fff; }
+  @media (max-width: 640px) {
+    #detail-overlay .d-body { flex-direction: column; max-height: 88vh; overflow-y: auto; }
+    #detail-overlay .d-art { flex: none; border-right: none; border-bottom: 1px solid rgba(0,0,0,0.15); max-height: 40vh; }
+    #detail-overlay .d-art img { max-height: 40vh; }
+  }
 
   #status { bottom: 18px; left: 18px; display: flex; align-items: center; gap: 10px; }
   #status .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff6b35; animation: pulse 1.4s ease-in-out infinite; }
