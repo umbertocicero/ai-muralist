@@ -67,8 +67,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // and slows the default pacing to an unhurried stroll. Build 10 caps the OBSERVE
 // pause (standing at the wall before spraying) at 1 s — it used to inherit
 // whatever cooldown was left after travel, up to the full 18-32 s when two
-// walls sat close together — and shortens admire to 5 s.
-const WORKER_BUILD = 10;
+// walls sat close together — and shortens admire to 5 s. Build 11: observe 2 s /
+// admire 4 s; NO_MORE_WALL wander-and-admire once the city is full; each mural
+// records its model + prompt (D1 columns, in the broadcast, and GET /murals?id).
+const WORKER_BUILD = 11;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -183,12 +185,28 @@ async function handleMurals(request, env) {
   }
 
   if (request.method === 'GET') {
-    const world = parseInt(new URL(request.url).searchParams.get('world') ?? '', 10);
+    const params = new URL(request.url).searchParams;
+    // GET /murals?id=<n> → ONE mural with its full provenance (model + prompt).
+    // The list below omits the (large, near-identical) prompt to keep the boot
+    // payload small; the detail view fetches it here only when a mural is opened.
+    const idParam = params.get('id');
+    if (idParam != null) {
+      const id = parseInt(idParam, 10);
+      if (!Number.isFinite(id)) {
+        return json({ error: { type: 'invalid_request_error', message: 'Bad ?id=' } }, 400);
+      }
+      const row = await env.DB.prepare(
+        `SELECT id, style, thought, svg, model, prompt, user_id, wall_w, wall_h, created_at
+           FROM murals WHERE id = ?1`).bind(id).first();
+      if (!row) return json({ error: { type: 'not_found', message: 'No such mural' } }, 404);
+      return json({ mural: row, build: WORKER_BUILD });
+    }
+    const world = parseInt(params.get('world') ?? '', 10);
     if (!Number.isFinite(world)) {
       return json({ error: { type: 'invalid_request_error', message: 'Missing ?world=<seed>' } }, 400);
     }
     const { results } = await env.DB.prepare(
-      `SELECT id, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id, created_at
+      `SELECT id, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id, model, created_at
          FROM murals WHERE world = ?1 ORDER BY id LIMIT ${MURAL_LIST_CAP}`
     ).bind(world).all();
     return json({ murals: results ?? [], build: WORKER_BUILD });
@@ -249,7 +267,7 @@ async function handleMurals(request, env) {
   // NAMES what failed: a bare "invalid record" made real deployments
   // undebuggable from the browser console.
   const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
-  const { world, px, py, pz, nx, nz, wallW, wallH, style, thought, svg, userId } = body ?? {};
+  const { world, px, py, pz, nx, nz, wallW, wallH, style, thought, svg, userId, model, prompt } = body ?? {};
   const bad =
     !Number.isInteger(world)                                          ? 'world' :
     !(num(px, -200, 200) && num(py, 0, 50) && num(pz, -200, 200))     ? 'position' :
@@ -261,6 +279,8 @@ async function handleMurals(request, env) {
     !svg.trimStart().startsWith('<svg')                               ? 'svg prefix' :
     SVG_FORBIDDEN.test(svg)                                           ? 'svg content (forbidden reference)' :
     !(typeof userId === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(userId)) ? 'userId' :
+    !(model  == null || (typeof model  === 'string' && model.length  <= 40))    ? 'model' :
+    !(prompt == null || (typeof prompt === 'string' && prompt.length <= 12_000)) ? 'prompt' :
     null;
   if (bad) {
     return json({ error: { type: 'invalid_request_error', message: `Invalid mural record: ${bad}` } }, 400);
@@ -269,9 +289,9 @@ async function handleMurals(request, env) {
   // First painter per wall wins: the unique (world, px, py, pz) index turns a
   // duplicate into a no-op instead of an error.
   const res = await env.DB.prepare(
-    `INSERT OR IGNORE INTO murals (world, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
-  ).bind(world, px, py, pz, nx, nz, wallW, wallH, style, thought ?? null, svg, userId).run();
+    `INSERT OR IGNORE INTO murals (world, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id, model, prompt)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+  ).bind(world, px, py, pz, nx, nz, wallW, wallH, style, thought ?? null, svg, userId, model ?? null, prompt ?? null).run();
   const saved = (res?.meta?.changes ?? 0) > 0;
   return json({ saved }, saved ? 201 : 200);
 }
@@ -325,10 +345,10 @@ function pacing(env) {
     moveSpeed:       envNum(env.KAY_SPEED, 2.6),      // stroll speed (m/s)
     paintMinSeconds: envNum(env.KAY_PAINT, 7.0),      // min spray time (demo shows a few s)
     paintMaxSeconds: envNum(env.KAY_PAINT_MAX, 45),   // cap while AI generation is in flight
-    admireSeconds:   envNum(env.KAY_ADMIRE, 5.0),
+    admireSeconds:   envNum(env.KAY_ADMIRE, 4.0),
     cooldownMin:     envNum(env.KAY_COOLDOWN_MIN, 18),
     cooldownRange:   envNum(env.KAY_COOLDOWN_RANGE, 14),
-    observeMaxSeconds: envNum(env.KAY_OBSERVE_MAX, 1.0),  // cap the pre-paint "sizing up" pause
+    observeMaxSeconds: envNum(env.KAY_OBSERVE_MAX, 2.0),  // cap the pre-paint "sizing up" pause
   };
 }
 
@@ -601,11 +621,11 @@ export class KayDO {
     }
     this._broadcast({ type: 'kay', ...this.sim.snapshot() });
 
-    // CONTEMPLATING self-heal: "every wall painted" may be a stale belief (e.g.
-    // the murals table was wiped since). While he contemplates, re-derive the
-    // painted set from D1 every 30 s — if walls freed up, SEEKING resumes on its
-    // own within ~3 s (the sim re-checks hasFreeReachable while contemplating).
-    if (this.sim.state === 'CONTEMPLATING' && this.env.DB && now - this._lastReconcile > 30_000) {
+    // NO_MORE_WALL self-heal: "every wall painted" may be a stale belief (e.g.
+    // the murals table was wiped since). While he wanders the finished gallery,
+    // re-derive the painted set from D1 every 30 s — if walls freed up, SEEKING
+    // resumes on its own (the sim re-checks hasFreeReachable while roaming).
+    if (this.sim.state === 'NO_MORE_WALL' && this.env.DB && now - this._lastReconcile > 30_000) {
       this._lastReconcile = now;
       await this._rebuildPainted();
     }
@@ -626,19 +646,23 @@ export class KayDO {
   async _paintWall(wall) {
     try {
       const index = this.sim.muralCount;
-      let svg, thought;
+      let svg, thought, model, prompt;
 
       if (this._isDemo()) {
         const PW = 512, PH = Math.round(512 * (wall.wallH / wall.wallW));
         svg     = demoSVG(PW, PH, index);
         thought = DEMO_THOUGHTS[index % DEMO_THOUGHTS.length];
+        model   = 'demo';         // procedural — no model, no prompt to recreate
+        prompt  = null;
       } else {
         const { text } = buildMuralPrompt(wall, index);
+        model  = this.env.KAY_MODEL || KAY_MODEL_DEFAULT;
+        prompt = text;            // the exact prompt, stored so a viewer can recreate it
         const upstream = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': this.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({
-            model: this.env.KAY_MODEL || KAY_MODEL_DEFAULT,
+            model,
             max_tokens: 2048, temperature: 1,
             messages: [{ role: 'user', content: text }],
           }),
@@ -659,21 +683,22 @@ export class KayDO {
       if (this.env.DB && Number.isInteger(this.worldKey)) {
         const r3 = (v) => Math.round(v * 1000) / 1000;
         await this.env.DB.prepare(
-          `INSERT OR IGNORE INTO murals (world, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
+          `INSERT OR IGNORE INTO murals (world, px, py, pz, nx, nz, wall_w, wall_h, style, thought, svg, user_id, model, prompt)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
         ).bind(this.worldKey, r3(wall.px), r3(wall.py), r3(wall.pz), r3(wall.nx), r3(wall.nz),
-               r3(wall.wallW), r3(wall.wallH), style, thought ?? null, svg, 'kay-server').run();
+               r3(wall.wallW), r3(wall.wallH), style, thought ?? null, svg, 'kay-server', model, prompt).run();
       }
 
       this.sim.paintDone({ svg, thought });
       console.log(`[KayDO] painted wall ${wall.id} · ${style} · mural #${index} · world ${this.worldKey}${this._isDemo() ? ' · demo' : ''}`);
       // Broadcast in the SAME shape the client's mural-apply expects (mirrors a
-      // /murals row): the browser matches it to the wall slot by anchor.
+      // /murals row): the browser matches it to the wall slot by anchor. model +
+      // prompt ride along so the detail view has them without a follow-up fetch.
       this._broadcast({
         type: 'mural',
         px: wall.px, py: wall.py, pz: wall.pz, nx: wall.nx, nz: wall.nz,
         wall_w: wall.wallW, wall_h: wall.wallH,
-        style, thought: thought ?? null, svg, user_id: 'kay-server',
+        style, thought: thought ?? null, svg, user_id: 'kay-server', model, prompt,
       });
     } catch (e) {
       this._paintError('paint failed — ' + (e?.message || e));

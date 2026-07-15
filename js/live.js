@@ -215,6 +215,9 @@ export class LiveLink {
       id: `live-${this._seq++}`,
       styleName: m.style, wallW: slot.wallW, wallH: slot.wallH,
       buildingIdx: slot.buildingIdx, by: m.user_id,
+      // Provenance for the detail view — carried inline (a live id isn't a D1
+      // row, so the modal can't lazy-fetch it; the broadcast already has it).
+      thought: m.thought ?? null, model: m.model ?? null, prompt: m.prompt ?? null,
       target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
     };
     this.ui.logEntries.unshift(entry);

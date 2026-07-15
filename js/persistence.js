@@ -57,6 +57,8 @@ export class Persistence {
         thought: result.thought ?? null,
         svg: result.svg,
         userId: this.uid,
+        model: result.model ?? null,     // provenance for the detail view
+        prompt: result.prompt ?? null,
       }),
     }).then(async res => {
       if (!res.ok) {
@@ -133,6 +135,7 @@ export class Persistence {
       ui.gallery.unshift({
         id: m.id, styleName: m.style, wallW: slot.wallW, wallH: slot.wallH,
         buildingIdx: slot.buildingIdx, by: m.user_id,
+        thought: m.thought ?? null, model: m.model ?? null,   // detail view (prompt fetched on open)
         target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
         thumb: 'data:image/svg+xml;utf8,' + encodeURIComponent(m.svg),
       });

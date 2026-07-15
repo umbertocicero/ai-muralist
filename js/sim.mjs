@@ -24,8 +24,9 @@ export const SIM_STATE = {
   OBSERVE:        'OBSERVE',         // stood at the wall, sizing it up (paces murals)
   PAINTING:       'PAINTING',        // spraying (whole creation)
   ADMIRING:       'ADMIRING',        // looking at the finished mural
-  CONTEMPLATING:  'CONTEMPLATING',   // every reachable wall painted
+  NO_MORE_WALL:   'NO_MORE_WALL',    // every wall painted → wander + admire the gallery
   // legacy (only ever seen in old persisted state on hydrate):
+  CONTEMPLATING:  'CONTEMPLATING',
   WANDERING:      'WANDERING',
   THINKING:       'THINKING',
 };
@@ -36,6 +37,7 @@ export const SIM_STATUS = {
   OBSERVE:        'sizing up the wall',
   PAINTING:       'painting…',
   ADMIRING:       'admiring the finished mural',
+  NO_MORE_WALL:   'every wall painted · wandering the gallery',
   CONTEMPLATING:  'every wall is painted · contemplating',
   WANDERING:      'walking the streets',
   THINKING:       'imagining a mural',
@@ -51,7 +53,7 @@ export const DEFAULT_SIM_CFG = {
   // up to paintMaxSeconds while an AI mural is still generating.
   paintMinSeconds: 6.0,
   paintMaxSeconds: 45,
-  admireSeconds:   5.0,
+  admireSeconds:   4.0,
   // Unhurried pace: a mural roughly every half-minute, not a graffiti blitz —
   // the gap is spent travelling, so it reads as strolling. OBSERVE (standing at
   // the wall before spraying) is capped separately below — it must NEVER eat
@@ -60,7 +62,12 @@ export const DEFAULT_SIM_CFG = {
   // at a blank wall for ages before starting.
   cooldownMin:     18,   // gap between murals (travel counts toward it)
   cooldownRange:   14,   // → 18-32 s; also bounds token spend
-  observeMaxSeconds: 1.0, // hard cap on the "sizing up the wall" pause on arrival
+  observeMaxSeconds: 2.0, // hard cap on the "sizing up the wall" pause on arrival
+  // NO_MORE_WALL (city fully painted): stroll to a finished mural, admire it,
+  // repeat. A short beat between strolls, and a spell before the SAME piece can
+  // be revisited so he tours the gallery instead of pacing one wall.
+  roamPauseSeconds:   2.5,
+  roamRevisitSeconds: 40,
   reachTimeout:    30,   // safety: abandon a route that somehow overruns this
   deferSeconds:    35,   // don't retry an unreachable wall for this long
   nearK:           6,    // pick randomly among the K nearest free walls
@@ -106,6 +113,8 @@ export class KaySim {
     this.timers = { move: 0, paint: 0, admire: 0, idle: 0 };
     this._paintPending = false;   // the DO is generating an SVG right now
     this._paintResult  = null;    // { svg, thought } once ready
+    this._roamAdmire = false;     // walking to a finished mural to admire (NO_MORE_WALL)
+    this._lastAdmired = null;     // last mural admired while roaming (don't pick it twice in a row)
 
     this._setState(SIM_STATE.SEEKING);
   }
@@ -161,6 +170,21 @@ export class KaySim {
   }
   hasFreeReachable() { return this._freeWalls().length > 0; }
   allPainted()       { return this.walls.every((w) => this.painted.has(w.id)); }
+
+  // NO_MORE_WALL: a finished, reachable mural to stroll over and admire —
+  // proximity-first random (like _pickWall) so he tours the nearby gallery, and
+  // never the one he just left (unless it's the only one).
+  _pickAdmireWall(fromX, fromZ) {
+    const painted = this.walls.filter((w) => this.painted.has(w.id) && !this.blocked(w.ax, w.az));
+    if (!painted.length) return null;
+    let pool = painted.filter((w) => w.id !== this._lastAdmired && (this._defer.get(w.id) ?? 0) <= this.simTime);
+    if (!pool.length) pool = painted.filter((w) => w.id !== this._lastAdmired);
+    if (!pool.length) pool = painted;
+    pool.sort((a, b) =>
+      ((a.px - fromX) ** 2 + (a.pz - fromZ) ** 2) - ((b.px - fromX) ** 2 + (b.pz - fromZ) ** 2));
+    const k = Math.min(pool.length, this.cfg.nearK);
+    return pool[(this.rng() * k) | 0];
+  }
 
   // ── Pathfinding — BFS over the grid (8-connected, no corner cutting) ─────────
   // Returns waypoints (cell centres, last one is the exact approach point), or null.
@@ -353,7 +377,7 @@ export class KaySim {
       case SIM_STATE.SEEKING: {
         if (this.blocked(this.x, this.z)) { this._relocate(); return null; }   // drifted into a wall
         const w = this._pickWall(this.x, this.z);
-        if (!w) { if (!this.hasFreeReachable()) this._setState(SIM_STATE.CONTEMPLATING); return null; }
+        if (!w) { if (!this.hasFreeReachable()) { this.timers.idle = 0; this._setState(SIM_STATE.NO_MORE_WALL); } return null; }
         const path = this._findPath(this.x, this.z, w.ax, w.az);
         if (path) {
           this.targetId = w.id; this._path = this._simplifyPath(path); this._pi = 0; this._pathFails = 0;
@@ -385,6 +409,11 @@ export class KaySim {
         const arrived = this._followPath(step);
         if (arrived) {
           this._faceWall(w);
+          // Roaming a finished city (or the wall's already painted, e.g. after a
+          // hibernation wake lost the _roamAdmire flag): admire it, never repaint.
+          if (this._roamAdmire || this.painted.has(w.id)) {
+            this.timers.admire = 0; this._setState(SIM_STATE.ADMIRING); return null;
+          }
           if (this._cooldownLeft > 0) { this.timers.idle = 0; this._setState(SIM_STATE.OBSERVE); return null; }
           return this._beginPaint(w);
         }
@@ -422,18 +451,47 @@ export class KaySim {
       case SIM_STATE.ADMIRING: {
         this.timers.admire += dt;
         if (this.timers.admire > this.cfg.admireSeconds) {
-          this.targetId = null;
-          this._cooldownLeft = this._cooldown();      // steady pace before the next
-          this._toSeeking();
+          if (this._roamAdmire) {                     // toured a finished mural → keep roaming
+            this._roamAdmire = false;
+            this._lastAdmired = this.targetId;
+            this.targetId = null; this._path = null; this._pi = 0;
+            this.timers.idle = 0;
+            this._setState(SIM_STATE.NO_MORE_WALL);
+          } else {
+            this.targetId = null;
+            this._cooldownLeft = this._cooldown();    // steady pace before the next paint
+            this._toSeeking();
+          }
         }
         return null;
       }
 
-      case SIM_STATE.CONTEMPLATING: {
+      // Every wall is painted: Kay wanders the city and stops at finished murals
+      // to admire them. A short beat, then stroll to a nearby painted wall (the
+      // walk reuses MOVING_TO_WALL with _roamAdmire, so arrival ADMIREs instead of
+      // painting). Keeps re-checking for a freed wall (D1 wipe / new build) and
+      // drops straight back to SEEKING when one appears.
+      case SIM_STATE.NO_MORE_WALL: {
+        if (this.hasFreeReachable()) { this._roamAdmire = false; this._toSeeking(); return null; }
         this.timers.idle += dt;
-        if (this.timers.idle > 3) { this.timers.idle = 0; if (this.hasFreeReachable()) this._toSeeking(); }
+        if (this.timers.idle < this.cfg.roamPauseSeconds) return null;
+        const target = this._pickAdmireWall(this.x, this.z);
+        if (!target) { this.timers.idle = 0; return null; }   // nothing reachable to admire yet
+        const path = this._findPath(this.x, this.z, target.ax, target.az);
+        if (path) {
+          this.targetId = target.id; this._path = this._simplifyPath(path); this._pi = 0;
+          this._pathFails = 0; this.timers.move = 0; this._roamAdmire = true;
+          this._setState(SIM_STATE.MOVING_TO_WALL);
+          return { routeStarted: true };
+        }
+        this._defer.set(target.id, this.simTime + this.cfg.deferSeconds);        // unreachable → try another
+        this.timers.idle = 0;
         return null;
       }
+
+      case SIM_STATE.CONTEMPLATING:                  // legacy persisted state → new behaviour
+        this.timers.idle = 0; this._setState(SIM_STATE.NO_MORE_WALL);
+        return null;
 
       default:                                       // legacy state from old persistence
         this._toSeeking();

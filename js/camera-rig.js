@@ -76,6 +76,10 @@ export class CameraRig {
     this._panN = new THREE.Vector3();             // scratch: sphere normal for re-tangenting the glide
     this._panAxis = new THREE.Vector3();          // scratch: geodesic rotation axis for the grab
     this._panQ = new THREE.Quaternion();          // scratch: geodesic rotation for the grab
+    this._azUp = new THREE.Vector3();             // scratch: heading parallel-transport (see _pan)
+    this._azT  = new THREE.Vector3();
+    this._azB  = new THREE.Vector3();
+    this._azG  = new THREE.Vector3();
     this._tanHalfFov = Math.tan(THREE.MathUtils.degToRad(CONFIG.camFov) / 2);   // pan gain ← view geometry
     this._cineN = null;            // slot normal the paint-cam frames from behind
     this._cineSide = 0;            // shoulder offset (rad) for the paint-cam
@@ -320,12 +324,36 @@ export class CameraRig {
     // _panStep is left intact as the tangential displacement for the release fling.
     this._panAxis.crossVectors(n, this._panStep).normalize();
     this._panQ.setFromAxisAngle(this._panAxis, arc / (this.R + CONFIG.camLookY));
+    // PARALLEL-TRANSPORT the compass heading along the pan geodesic. The tangent
+    // basis (T,B) is longitude-locked (T = worldY × up), so it TWISTS as the
+    // look-point travels the sphere; with the azimuth held fixed, that twist
+    // slowly rotates the view and a sustained "straight forward" drag curves off
+    // sideways (the reported bug). Capture the heading vector (cosAz·T + sinAz·B)
+    // at the old point, carry it rigidly by the same rotation that moves the
+    // pivot, then re-read the azimuth in the new frame — so forward stays forward.
+    this._headingFrame(this.pivotTarget, this._azT, this._azB);
+    this._azG.copy(this._azT).multiplyScalar(Math.cos(this.azimuth))
+             .addScaledVector(this._azB, Math.sin(this.azimuth));
     this.pivotTarget.applyQuaternion(this._panQ);
     this._clampPivot(this.pivotTarget);   // stay on the roamable sphere
+    this._azG.applyQuaternion(this._panQ);
+    this._headingFrame(this.pivotTarget, this._azT, this._azB);
+    this.azimuth = Math.atan2(this._azG.dot(this._azB), this._azG.dot(this._azT));
     // A grab is direct manipulation — the globe tracks the finger 1:1 with no
     // rubber-banding, so move the eased look-point straight to the target too
     // (the follow/travel easing still applies when the rig drives itself).
     this.pivot.copy(this.pivotTarget);
+  }
+
+  // The longitude tangent basis at a look-point (matches update()'s T,B): up is
+  // the radial, T = worldY × up (a hair short of the pole falls back to +x), and
+  // B = up × T. Used to parallel-transport the pan heading (see _pan).
+  _headingFrame(pivot, T, B) {
+    const up = this._azUp.copy(pivot).normalize();
+    T.set(0, 1, 0).cross(up);
+    if (T.lengthSq() < 1e-6) T.set(1, 0, 0);
+    T.normalize();
+    B.copy(up).cross(T).normalize();
   }
 
   // double-tap the globe to glide the look-point there (Google-Earth style)

@@ -29,6 +29,7 @@ import SfxOverlay    from '../components/SfxOverlay.js';
 import FollowButton  from '../components/FollowButton.js';
 import ResetButton   from '../components/ResetButton.js';
 import FlashOverlay  from '../components/FlashOverlay.js';
+import MuralDetailModal from '../components/MuralDetailModal.js';
 
 const DAY = new THREE.Color(CONFIG.sky);
 const col = new THREE.Color();
@@ -53,6 +54,8 @@ const ui = reactive({
   flashActive:     false,
   cameraFollowing: true,
   viewTilted:      false,        // horizon rolled → show the "Raddrizza" button
+  detailEntry:     null,         // gallery ⛶ → the mural shown in the detail modal (null = closed)
+  workerUrl:       '',           // resolved after applySettings (the modal fetches prompts from it)
 
   // Callback slots: Vue / Agent → Three.js CameraRig
   onFollowRequest: null,
@@ -70,7 +73,7 @@ const ui = reactive({
 // ==========================================================================
 const VueRoot = {
   name: 'VueRoot',
-  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay },
+  components: { BootScreen, TitlePanel, MuralLog, MuralGallery, MapOverlay, SettingsPanel, StatusBar, MuralCounter, ThoughtBubble, SfxOverlay, FollowButton, ResetButton, FlashOverlay, MuralDetailModal },
   setup() {
     return { ui };
   },
@@ -84,13 +87,16 @@ const VueRoot = {
     onMuralFocus(entry) {
       ui.onMuralFocus?.(entry.target);
     },
+    onMuralDetail(entry) { ui.detailEntry = entry; },
+    onDetailClose()      { ui.detailEntry = null; },
   },
   template: `
     <FlashOverlay  :active="ui.flashActive" />
     <BootScreen    :hidden="ui.booted" :error="ui.bootError" />
     <TitlePanel />
     <MuralLog      :entries="ui.logEntries" @focus="onMuralFocus" />
-    <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" />
+    <MuralGallery  :entries="ui.gallery"    @focus="onMuralFocus" @detail="onMuralDetail" />
+    <MuralDetailModal :entry="ui.detailEntry" :worker-url="ui.workerUrl" @close="onDetailClose" @focus="onMuralFocus" />
     <MapOverlay    :render="ui.onMapRender" />
     <SettingsPanel :on-delete="ui.onDeleteMurals" />
     <StatusBar     :state="ui.status" />
@@ -399,6 +405,7 @@ createApp(VueRoot).mount('#ui-root');
 applySettings(CONFIG)
   .catch(() => {})           // settings are best-effort; defaults always work
   .then(() => {
+    ui.workerUrl = CONFIG.workerUrl || '';   // now resolved → the detail modal can fetch prompts
     initAuth().catch(() => {});   // Google sign-in (no-op unless googleClientId is set)
     try {
       new App();

@@ -8,7 +8,7 @@ export default {
   props: {
     entries: { type: Array, default: () => [] },
   },
-  emits: ['focus'],
+  emits: ['focus', 'detail'],
   data() {
     return { open: false };
   },
@@ -20,6 +20,7 @@ export default {
       // On a phone the drawer covers the view, so step aside to reveal the zoom.
       if (window.innerWidth <= 640) this.open = false;
     },
+    detail(e) { this.$emit('detail', e); },   // ⛶ → open the enlarged detail view
   },
   template: `
     <button id="gallery-tab" class="ui" :class="{ open }" @click="toggle"
@@ -36,15 +37,15 @@ export default {
       </div>
       <div class="g-scroll">
         <template v-if="entries.length">
-          <div v-for="e in entries" :key="e.id" class="g-item" :class="{ clickable: e.target }"
-               @click="pick(e)">
-            <div class="g-thumb">
+          <div v-for="e in entries" :key="e.id" class="g-item" :class="{ clickable: e.target }">
+            <div class="g-thumb" @click="pick(e)">
               <img v-if="e.thumb" :src="e.thumb" :alt="e.styleName" loading="lazy" draggable="false" />
             </div>
-            <div class="g-info">
-              <div class="g-title"><span class="n">#{{ String(e.id + 1).padStart(3, '0') }}</span> {{ e.styleName }}</div>
+            <div class="g-info" @click="pick(e)">
+              <div class="g-title"><span class="n">#{{ String((typeof e.id === 'number' ? e.id : 0) + 1).padStart(3, '0') }}</span> {{ e.styleName }}</div>
               <div class="g-meta">{{ e.wallW.toFixed(1) }}×{{ e.wallH.toFixed(1) }}m · building {{ e.buildingIdx + 1 }}</div>
             </div>
+            <button class="g-detail" aria-label="Mural details" title="Details + prompt" @click.stop="detail(e)">⛶</button>
           </div>
         </template>
         <div v-else class="g-empty">no murals yet… KAI is still wandering</div>
