@@ -113,12 +113,17 @@ export default {
         </select>
       </template>
 
-      <label class="s-row s-save">
-        <input type="checkbox" v-model="saveMurals"> save murals to the shared world (DB)
-      </label>
-      <div class="s-warn" v-if="saveMurals && !effectiveWorker">
-        ⚠ this deployment has no Worker configured (site owner setting) — saving is unavailable
-      </div>
+      <!-- Writing to the shared world is an owner action, so this only shows when
+           the visitor is allowed to admin (auth off = open app, or signed-in
+           owner) — hidden for a signed-out visitor on a gated deployment. -->
+      <template v-if="canAdmin">
+        <label class="s-row s-save">
+          <input type="checkbox" v-model="saveMurals"> save murals to the shared world (DB)
+        </label>
+        <div class="s-warn" v-if="saveMurals && !effectiveWorker">
+          ⚠ this deployment has no Worker configured (site owner setting) — saving is unavailable
+        </div>
+      </template>
 
       <div class="s-row s-actions">
         <button class="s-btn" @click="apply">SAVE &amp; RELOAD</button>
