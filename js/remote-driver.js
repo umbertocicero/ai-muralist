@@ -16,8 +16,8 @@ import { CONFIG } from './config.js';
 // the browser never has to import the server-only sim module.
 const S = {
   SEEKING: 'SEEKING', MOVING_TO_WALL: 'MOVING_TO_WALL', OBSERVE: 'OBSERVE',
-  PAINTING: 'PAINTING', ADMIRING: 'ADMIRING', CONTEMPLATING: 'CONTEMPLATING',
-  WANDERING: 'WANDERING',   // legacy
+  PAINTING: 'PAINTING', ADMIRING: 'ADMIRING', NO_MORE_WALL: 'NO_MORE_WALL',
+  CONTEMPLATING: 'CONTEMPLATING', WANDERING: 'WANDERING',   // legacy
 };
 
 export class RemoteDriver {
@@ -161,7 +161,7 @@ export class RemoteDriver {
     const stepLen = Math.hypot(this._rx - px, this._rz - pz);
     if (onRoute || (stillMoving && stepLen > 0.002)) this.char.walk(t);
     else if (kay.state === S.PAINTING)               this.char.paint(t);  // hand moving the whole creation
-    else                                             this.char.idle(t);   // arrived / SEEKING / OBSERVE / ADMIRING / CONTEMPLATING
+    else                                             this.char.idle(t);   // arrived / SEEKING / OBSERVE / ADMIRING / NO_MORE_WALL
 
     if (kay.state === S.PAINTING) {
       this._sfxT = (this._sfxT ?? 0) + dt;
@@ -199,17 +199,20 @@ export class RemoteDriver {
     // The SERVER may declare arrival while the ON-SCREEN Kay is still walking
     // the last stretch of the route — hold the FX and let update() fire them
     // when HE gets there, so he never visibly paints from mid-street.
-    if ((state === S.OBSERVE || state === S.PAINTING) && prev === S.MOVING_TO_WALL && slot) {
+    // Arrival at a wall from a walk. paint (OBSERVE/PAINTING) → flash + spray;
+    // ADMIRING here means he ROAMED to a finished mural (NO_MORE_WALL) → frame +
+    // zoom the piece. Either way, hold it until the on-screen Kay actually gets
+    // there so nothing fires from mid-street.
+    if (prev === S.MOVING_TO_WALL && (state === S.OBSERVE || state === S.PAINTING || state === S.ADMIRING) && slot) {
       const walking = this._route && this._ri < this._route.length && this._routeTargetId === kay.targetId;
-      this._arriveFx = { slot, paint: state === S.PAINTING };
+      this._arriveFx = { slot, paint: state === S.PAINTING, admire: state === S.ADMIRING };
       if (!walking) this._fireArriveFx();
     } else if (state === S.PAINTING) {
       // OBSERVE → PAINTING at the wall (or a paint with no travel edge seen).
       if (this._arriveFx) this._arriveFx.paint = true;   // upgrade a held arrival
       else { this._flashPulse(); this._popSfx(); }
-    }
-    if (state === S.ADMIRING) {
-      this._fireArriveFx();                    // never admire before the dive-in ran
+    } else if (state === S.ADMIRING) {
+      // PAINTING → ADMIRING at the wall: he's already framed, zoom the piece now.
       this.ui.flashActive = false;
       if (slot) this.ui.onAdmire?.(slot);
     }
@@ -227,13 +230,14 @@ export class RemoteDriver {
     }
   }
 
-  // Fire the held paint-begin FX exactly once, when the rendered Kay reaches the wall.
+  // Fire the held arrival FX exactly once, when the rendered Kay reaches the wall.
   _fireArriveFx() {
     const fx = this._arriveFx;
     if (!fx) return;
     this._arriveFx = null;
-    this.ui.onPaintBegin?.(fx.slot);
-    if (fx.paint) { this._flashPulse(); this._popSfx(); }
+    this.ui.onPaintBegin?.(fx.slot);                 // dive to the wall (sets the mural cam)
+    if (fx.admire) this.ui.onAdmire?.(fx.slot);      // roamed to a finished mural → zoom it
+    else if (fx.paint) { this._flashPulse(); this._popSfx(); }
   }
 
   // A short orange impact flash (not a held veil — painting can now last the

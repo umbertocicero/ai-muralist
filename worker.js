@@ -600,11 +600,11 @@ export class KayDO {
     }
     this._broadcast({ type: 'kay', ...this.sim.snapshot() });
 
-    // CONTEMPLATING self-heal: "every wall painted" may be a stale belief (e.g.
-    // the murals table was wiped since). While he contemplates, re-derive the
-    // painted set from D1 every 30 s — if walls freed up, SEEKING resumes on its
-    // own within ~3 s (the sim re-checks hasFreeReachable while contemplating).
-    if (this.sim.state === 'CONTEMPLATING' && this.env.DB && now - this._lastReconcile > 30_000) {
+    // NO_MORE_WALL self-heal: "every wall painted" may be a stale belief (e.g.
+    // the murals table was wiped since). While he wanders the finished gallery,
+    // re-derive the painted set from D1 every 30 s — if walls freed up, SEEKING
+    // resumes on its own (the sim re-checks hasFreeReachable while roaming).
+    if (this.sim.state === 'NO_MORE_WALL' && this.env.DB && now - this._lastReconcile > 30_000) {
       this._lastReconcile = now;
       await this._rebuildPainted();
     }

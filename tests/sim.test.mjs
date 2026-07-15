@@ -234,5 +234,49 @@ const check = (name, fn) => {
   });
 }
 
+// ── 8: NO_MORE_WALL — a fully-painted city → wander + admire the gallery ─────
+// After coverage, Kay must not freeze: he enters NO_MORE_WALL, strolls to a
+// finished mural (MOVING_TO_WALL with _roamAdmire), ADMIREs it (never repaints),
+// then keeps touring — and drops back to SEEKING the instant a wall frees up.
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5, roamPauseSeconds: 0.5 }, mulberry32(41));
+  // Paint everything.
+  const cov = run(sim, { steps: 60000, dt: 0.1 });
+  const paintedBefore = sim.painted.size;
+  // Now roam for a while and record what he does.
+  const states = new Set();
+  let admireMoves = 0, repainted = 0, prev = sim.state;
+  for (let i = 0; i < 6000; i++) {
+    const sig = sim.step(0.1);
+    if (sig && sig.paint) { repainted++; sim.paintDone({ svg: '<svg/>', thought: 't' }); }
+    states.add(sim.state);
+    if (prev !== SIM_STATE.ADMIRING && sim.state === SIM_STATE.ADMIRING) admireMoves++;
+    prev = sim.state;
+  }
+  check('8. NO_MORE_WALL — full city: wanders + admires, never repaints', () => {
+    assert(cov.done, `coverage not reached first (${paintedBefore}/${model.walls.length})`);
+    assert(states.has(SIM_STATE.NO_MORE_WALL), 'never entered NO_MORE_WALL');
+    assert(states.has(SIM_STATE.MOVING_TO_WALL), 'never strolled to a mural to admire');
+    assert(admireMoves >= 2, `expected repeated admiring while roaming, got ${admireMoves}`);
+    assert.equal(repainted, 0, 'repainted an already-finished wall while roaming');
+    assert.equal(sim.painted.size, paintedBefore, 'painted set changed while only admiring');
+  });
+}
+
+// ── 9: NO_MORE_WALL → SEEKING the moment a wall frees up ─────────────────────
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5, roamPauseSeconds: 0.5 }, mulberry32(42));
+  run(sim, { steps: 60000, dt: 0.1 });
+  // free one wall (as a D1 wipe / rebuildPainted would) and let him notice
+  sim.painted.delete(3);
+  let resumed = false;
+  for (let i = 0; i < 400; i++) { sim.step(0.1); if (sim.state === SIM_STATE.SEEKING || sim.state === SIM_STATE.MOVING_TO_WALL) { if (!sim._roamAdmire) { resumed = true; break; } } }
+  check('9. a freed wall pulls Kay out of NO_MORE_WALL back to painting', () => {
+    assert(resumed, 'Kay kept roaming instead of resuming painting when a wall freed up');
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);
