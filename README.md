@@ -87,8 +87,7 @@ index.html          ← minimal shell: importmap + two <div>s + one <script>
 ├── wrangler.toml   ← Worker deploy config (KV + optional D1 + optional KayDO Durable Object binding)
 ├── schema.sql      ← D1 table schema for persisted murals
 ├── config.yaml     ← optional site-owner config (save_murals, worker_url, model, mode, live)
-├── tests/sim.test.mjs ← deterministic node test of KaySim (continuity / proximity / coverage / revisit)
-└── PROMPT.md       ← full design spec
+└── tests/sim.test.mjs ← deterministic node test of KaySim (continuity / proximity / coverage / revisit)
 ```
 
 ### How the layers connect
