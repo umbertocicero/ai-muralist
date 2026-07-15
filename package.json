@@ -11,6 +11,7 @@
     "test:install": "playwright install",
     "test:sim": "node tests/sim.test.mjs",
     "test:alarm": "node tests/kaydo-alarm.test.mjs",
+    "test:prompt": "node tests/prompt.test.mjs",
     "test:auth": "node tests/google-verify.test.mjs"
   }
 }

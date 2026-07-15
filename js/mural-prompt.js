@@ -1,3 +1,18 @@
+// The mural prompt — shared by the Worker Durable Object (server-side Kay) and
+// the browser MuralFactory (offline/local fallback), so both paint the same way.
+//
+// NO fixed style list. The FIRST mural of a world starts from a generic, open
+// prompt: KAI invents his own visual language. Every LATER mural is CONDITIONED
+// by the one painted before it — the previous piece's style name, thought and
+// raw SVG source are embedded in the prompt, and KAI is asked to respond to it:
+// evolve a motif, push the palette, answer the gesture. The city becomes one
+// continuous visual conversation instead of eight looping presets.
+//
+// `prev` = { style, thought, svg } of the mural painted before (null → first).
+// The caller supplies it: the Worker reads the latest D1 row of this world (so
+// the chain resets naturally when the murals table is wiped), the local factory
+// remembers its last result for the session.
+
 function aspectDesc(wall) {
   const r = wall.wallH / wall.wallW;
   if (r > 1.3) return 'tall portrait';
@@ -5,57 +20,55 @@ function aspectDesc(wall) {
   return 'roughly square';
 }
 
-export function buildMuralPrompt(wall, index) {
+// Keep the embedded previous SVG small enough that the whole prompt stays well
+// under the 12 KB the murals table stores (and token cost stays sane). Murals
+// average 2-3 KB; a rare huge one gets its tail cut — the opening defs/paths
+// carry the palette and gesture, which is what the conditioning needs.
+const PREV_SVG_MAX = 3500;
+
+export function buildMuralPrompt(wall, index, prev = null) {
   const PW = 512;
   const PH = Math.round(512 * (wall.wallH / wall.wallW));
-  const text =
+
+  const intro =
 `You are KAI, a teenage street artist wandering a grey Japanese neighbourhood.
 You paint vivid murals on concrete walls - bursts of colour in a monochrome world.
-Your painting style is expressive and hand-drawn, never rigid or geometric.
+Your painting style is expressive and hand-drawn, never rigid or geometric.`;
 
-This is mural #${index}. Use (${index} % 8) to choose your style:
+  let brief;
+  if (prev && typeof prev.svg === 'string' && prev.svg) {
+    const svgSrc = prev.svg.length > PREV_SVG_MAX
+      ? prev.svg.slice(0, PREV_SVG_MAX) + '... (truncated)'
+      : prev.svg;
+    brief =
+`This is mural #${index}. It must be CONDITIONED by the piece you painted just
+before it, shown below. Study it - its palette, its gestures, its mood - and let
+this new piece RESPOND to it: evolve a motif, push the palette somewhere new,
+answer its gesture with a counter-gesture. A visible thread must connect the two,
+yet this one must be clearly its own work - never a copy, never a repetition of
+the same composition. If you feel the conversation has run its course, break from
+it deliberately and start a new visual sentence.
 
-STYLE 0 - UKIYO-E
-Flowing organic waves, mountains, wind. Flat colour washes in navy-vermillion-gold.
-Use <path d="M...C...C...Z"> with smooth bezier curves for every major shape.
+YOUR PREVIOUS MURAL${prev.style ? ` (you called its style "${prev.style}")` : ''}:
+${prev.thought ? `Its thought was: "${prev.thought}"\n` : ''}Its SVG source:
+${svgSrc}`;
+  } else {
+    brief =
+`This is mural #${index}, the first wall of a fresh conversation with this city.
+There is no house style and no preset list: INVENT the visual language of this
+piece yourself - any tradition, any palette, any energy, as long as it is
+expressive, hand-drawn in spirit, and alive. Name the style you invent.`;
+  }
 
-STYLE 1 - SUMI-E
-Ink-wash meditation. Sweeping brushstroke paths, varying stroke-width (1-18px),
-monochrome grey-black washes with one vivid accent colour bleeding through.
-Heavy use of <path> with stroke-linecap="round" and opacity layers.
+  const text =
+`${intro}
 
-STYLE 2 - MANGA
-Dynamic energy. Speed-line paths radiating from a focal point.
-High contrast: near-black ground with electric colour pop (one hue).
-Use <path> for motion blur lines, <circle>/<ellipse> for focal elements.
-
-STYLE 3 - WOODBLOCK
-Hand-printed feel. Bold organic outlines (stroke-width 3-6) on flat colour fields.
-Earth tones: indigo-rust-tan-charcoal. Paths with slightly imperfect curves.
-
-STYLE 4 - ANIME
-Cel-shaded scene. Hard contour <path> strokes outlining coloured areas.
-Primary palette - red, yellow, blue, white, black - no gradients in fills,
-but dramatic gradient sky/background behind the composition.
-
-STYLE 5 - KIRIE (paper cut)
-Intricate silhouette work cut from a single vivid colour field.
-Organic paper-cut <path> shapes: leaves, waves, birds, branches -
-delicate negative space. One accent colour + stark black/white.
-
-STYLE 6 - WABI-SABI
-Imperfect beauty. Asymmetric brushed shapes, aged textures.
-Overlapping semi-transparent washes in ochre-moss-ash-umber.
-Let shapes be irregular, "unfinished", with visible layering.
-
-STYLE 7 - KANJI-ART
-Abstract calligraphic forms - not letters, but shapes inspired by brushed kanji.
-Thick-to-thin <path> strokes (stroke-width varies 1px to 30px along path),
-deep ink gradients, bold sweep gestures across the full canvas.
+${brief}
 
 The wall is ${wall.wallW.toFixed(1)}m wide x ${wall.wallH.toFixed(1)}m tall (${aspectDesc(wall)}).
 
 Return your response in EXACTLY this format and nothing else:
+STYLE: <the name you give this piece's style, 1-3 words>
 THOUGHT: <one sentence, 7-12 words, KAI's raw poetic inner monologue; no quotes, no trailing punctuation, do not start with "I">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PW} ${PH}" width="${PW}" height="${PH}">...</svg>
 
@@ -70,6 +83,15 @@ GRADIENTS: at least 2 gradient definitions in <defs> - use them for depth and pa
 COLOUR: at least 5 distinct colours; fill the entire canvas - no bare white areas
 STROKES: use stroke attributes on <path> to simulate ink lines and brushwork
 LIMIT: maximum 40 elements (not counting <defs> children)
-OUTPUT: ONLY the THOUGHT line then the raw SVG. No markdown, no code fences, no comments.`;
+OUTPUT: ONLY the STYLE line, the THOUGHT line, then the raw SVG. No markdown, no code fences, no comments.`;
   return { PW, PH, text };
+}
+
+// Pull the self-named STYLE off a model response (shared by both parsers).
+// Bounded to the murals table's 40-char style column; 'Freestyle' when absent.
+export function parseStyle(raw) {
+  if (typeof raw !== 'string') return 'Freestyle';
+  const m = raw.match(/STYLE:\s*(.+)/i);
+  const s = m ? m[1].split('\n')[0].trim().replace(/^["']|["']$/g, '') : '';
+  return (s || 'Freestyle').slice(0, 40);
 }

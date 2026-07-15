@@ -10,7 +10,7 @@
 
 import { KaySim } from './js/sim.mjs';
 import { demoSVG, DEMO_THOUGHTS } from './js/demo.js';
-import { buildMuralPrompt } from './js/mural-prompt.js';
+import { buildMuralPrompt, parseStyle } from './js/mural-prompt.js';
 import { verifyGoogleIdToken, isOwner, makeGoogleJwksFetcher } from './js/google-verify.mjs';
 
 const CORS_HEADERS = {
@@ -70,7 +70,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // walls sat close together — and shortens admire to 5 s. Build 11: observe 2 s /
 // admire 4 s; NO_MORE_WALL wander-and-admire once the city is full; each mural
 // records its model + prompt (D1 columns, in the broadcast, and GET /murals?id).
-const WORKER_BUILD = 11;
+// Build 12 drops the 8 fixed style presets: the first mural of a world starts
+// from a generic open prompt, every later one is conditioned by the previous
+// piece (its SVG + thought embedded in the prompt), and KAI names his own style.
+const WORKER_BUILD = 12;
 const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -365,6 +368,7 @@ export class KayDO {
     this._lastTick = null;         // wall-clock of the last advance (per live instance)
     this._routeSentFor = null;     // targetId whose route we've already broadcast
     this._lastReconcile = 0;       // last painted-vs-D1 rebuild (CONTEMPLATING self-heal)
+    this._lastMural = null;        // {style,thought,svg} of the last paint — prompt conditioning fallback when D1 is absent
   }
 
   // Presence + broadcast go through the hibernation API's socket list, so they
@@ -648,14 +652,20 @@ export class KayDO {
       const index = this.sim.muralCount;
       let svg, thought, model, prompt;
 
+      let style;
       if (this._isDemo()) {
         const PW = 512, PH = Math.round(512 * (wall.wallH / wall.wallW));
         svg     = demoSVG(PW, PH, index);
         thought = DEMO_THOUGHTS[index % DEMO_THOUGHTS.length];
+        style   = STYLE_NAMES[index % STYLE_NAMES.length];   // procedural pieces keep the rotation
         model   = 'demo';         // procedural — no model, no prompt to recreate
         prompt  = null;
       } else {
-        const { text } = buildMuralPrompt(wall, index);
+        // Conditioning: the newest mural of THIS world (D1 is the durable truth,
+        // so the chain resets by itself when the murals table is wiped). null →
+        // first mural → the generic open prompt; KAI names his own style either way.
+        const prev = await this._latestMural();
+        const { text } = buildMuralPrompt(wall, index, prev);
         model  = this.env.KAY_MODEL || KAY_MODEL_DEFAULT;
         prompt = text;            // the exact prompt, stored so a viewer can recreate it
         const upstream = await fetch('https://api.anthropic.com/v1/messages', {
@@ -671,14 +681,15 @@ export class KayDO {
         if (!upstream.ok || data.error) {
           throw new Error(`Anthropic ${upstream.status}: ${data?.error?.message || 'api_error'}`);
         }
-        const parsed = parseMural(data?.content?.[0]?.text);
+        const raw = data?.content?.[0]?.text;
+        const parsed = parseMural(raw);
         svg = parsed.svg; thought = parsed.thought;
+        style = parseStyle(raw);
       }
 
       if (!svg || svg.length > 60_000 || SVG_FORBIDDEN.test(svg) || !svg.trimStart().startsWith('<svg')) {
         throw new Error('no usable SVG');
       }
-      const style = STYLE_NAMES[index % STYLE_NAMES.length];
 
       if (this.env.DB && Number.isInteger(this.worldKey)) {
         const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -690,6 +701,7 @@ export class KayDO {
       }
 
       this.sim.paintDone({ svg, thought });
+      this._lastMural = { style, thought: thought ?? null, svg };   // no-DB conditioning fallback
       console.log(`[KayDO] painted wall ${wall.id} · ${style} · mural #${index} · world ${this.worldKey}${this._isDemo() ? ' · demo' : ''}`);
       // Broadcast in the SAME shape the client's mural-apply expects (mirrors a
       // /murals row): the browser matches it to the wall slot by anchor. model +
@@ -714,6 +726,23 @@ export class KayDO {
   _paintError(message) {
     console.warn('[KayDO]', message);
     this._broadcast({ type: 'notice', level: 'error', message });
+  }
+
+  // The newest mural of this world — the piece that CONDITIONS the next prompt
+  // (see js/mural-prompt.js). D1 is the source of truth: reading it fresh each
+  // paint means the conversation chain survives hibernation AND resets by
+  // itself the moment the murals table is wiped (the memory reset). Without a
+  // DB binding, fall back to the in-memory last paint of this live instance.
+  async _latestMural() {
+    if (this.env.DB && Number.isInteger(this.worldKey)) {
+      try {
+        const row = await this.env.DB.prepare(
+          `SELECT style, thought, svg FROM murals WHERE world = ?1 ORDER BY id DESC LIMIT 1`
+        ).bind(this.worldKey).first();
+        return row ?? null;
+      } catch { /* fall through to the in-memory copy */ }
+    }
+    return this._lastMural;
   }
 }
 
