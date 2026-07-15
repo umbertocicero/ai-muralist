@@ -51,7 +51,7 @@ export const DEFAULT_SIM_CFG = {
   // up to paintMaxSeconds while an AI mural is still generating.
   paintMinSeconds: 6.0,
   paintMaxSeconds: 45,
-  admireSeconds:   5.0,
+  admireSeconds:   4.0,
   // Unhurried pace: a mural roughly every half-minute, not a graffiti blitz —
   // the gap is spent travelling, so it reads as strolling. OBSERVE (standing at
   // the wall before spraying) is capped separately below — it must NEVER eat
@@ -60,7 +60,7 @@ export const DEFAULT_SIM_CFG = {
   // at a blank wall for ages before starting.
   cooldownMin:     18,   // gap between murals (travel counts toward it)
   cooldownRange:   14,   // → 18-32 s; also bounds token spend
-  observeMaxSeconds: 1.0, // hard cap on the "sizing up the wall" pause on arrival
+  observeMaxSeconds: 2.0, // hard cap on the "sizing up the wall" pause on arrival
   reachTimeout:    30,   // safety: abandon a route that somehow overruns this
   deferSeconds:    35,   // don't retry an unreachable wall for this long
   nearK:           6,    // pick randomly among the K nearest free walls
