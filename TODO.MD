@@ -1,5 +1,4 @@
-# TODO 
-- [ ] la durata dello stato observe deve essere 2 secondi, mentre admiring 4
+# TODO principali
 - [ ] pulsante di loging dentro settings. e l'url non si può cambiare.
 - [ ] Sistemare drag and dropp per muoversi da browser, sembra che ad un certo punto invece di andare avandi tirando da su a giu, si muova lateralmente
 - [ ] aggiungi nuovo stato quando i muri sono finiti NO_MORE_WALL. se lo stato è attivo allora Kay vaga per la citta e si verma randomicamente ad ammirare disegni.
