@@ -96,7 +96,9 @@ export class Agent {
       this.ui.muralCount = this.muralCount;
       const entry = {
         id:          index,
-        styleName:   CONFIG.styleNames[index % CONFIG.styleNames.length],
+        // AI pieces name their own style now; the preset rotation only labels
+        // procedural demo murals (which don't carry a style of their own).
+        styleName:   this.pendingResult?.style ?? CONFIG.styleNames[index % CONFIG.styleNames.length],
         wallW:       slot.wallW,
         wallH:       slot.wallH,
         buildingIdx: slot.buildingIdx,

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, SVG_FORBIDDEN } from './config.js';
 import { rand } from './helpers.js';
 import { DEMO_THOUGHTS, demoSVG } from './demo.js';
-import { buildMuralPrompt } from './mural-prompt.js';
+import { buildMuralPrompt, parseStyle } from './mural-prompt.js';
 import { placeOnPlanet, planetPoint, planetQuat } from './planet.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
@@ -13,6 +13,10 @@ export class MuralFactory {
     this.scene    = scene;
     this.city     = city;
     this.maxAniso = renderer.capabilities.getMaxAnisotropy();
+    // The last AI piece painted THIS session — conditions the next prompt (see
+    // js/mural-prompt.js). Session-local by design: the offline/local path has
+    // no shared DB, so its conversation restarts on each page load.
+    this._lastResult = null;
   }
 
   // ---- Response parsing ---------------------------------------------------
@@ -42,7 +46,7 @@ export class MuralFactory {
   //   a key but NO Worker → straight to the Anthropic API from the browser
   //     (their CORS opt-in header), so anyone can run the app with just a key.
   async generate(slot, index) {
-    const { PW, PH, text } = buildMuralPrompt(slot, index);
+    const { PW, PH, text } = buildMuralPrompt(slot, index, this._lastResult);
 
     const demo = CONFIG.mode === 'demo' || (!CONFIG.workerUrl && !CONFIG.userApiKey);
     if (demo) {
@@ -82,7 +86,9 @@ export class MuralFactory {
       if (!raw) throw new Error('empty_response');
       const parsed = this._parse(raw);
       this._validateSvg(parsed.svg);
-      return { ...parsed, PW, PH, model: CONFIG.model, prompt: text };   // provenance for the detail view
+      const style = parseStyle(raw);          // KAI names his own style now (no preset list)
+      this._lastResult = { style, thought: parsed.thought, svg: parsed.svg };   // conditions the next piece
+      return { ...parsed, style, PW, PH, model: CONFIG.model, prompt: text };   // provenance for the detail view
     } finally {
       clearTimeout(timer);
     }
