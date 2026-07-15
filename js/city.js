@@ -848,10 +848,18 @@ export class City {
     const kept = [];
     for (const s of this.wallSlots) {
       let ap = null;
+      const tx = -s.nz, tz = s.nx;            // tangent along the wall
+      const maxSide = Math.max(0, Math.min((s.wallW ?? 2.6) * 0.42, 1.25));
+      const sideOffsets = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05]
+        .filter(v => Math.abs(v) <= maxSide + 1e-6);
       for (let off = CONFIG.approachOffset; off >= minOff - 1e-6; off -= 0.15) {
         const apOff = (s._half + off) * s._k - s._half;
-        const x = s.px + s.nx * apOff, z = s.pz + s.nz * apOff;
-        if (!this.isColliding(x, z)) { ap = { x, z }; break; }
+        for (const side of sideOffsets) {
+          const x = s.px + s.nx * apOff + tx * side;
+          const z = s.pz + s.nz * apOff + tz * side;
+          if (!this.isColliding(x, z)) { ap = { x, z }; break; }
+        }
+        if (ap) break;
       }
       delete s._half; delete s._k;
       if (!ap) continue;                      // house attached flush → unreachable
