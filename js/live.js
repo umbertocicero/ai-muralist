@@ -1,4 +1,5 @@
 import { CONFIG } from './config.js';
+import { muralThumb } from './helpers.js';
 import { getToken, onAuthChange } from './auth.js';
 
 // ===========================================================================
@@ -24,7 +25,7 @@ export const MODEL_VERSION = 2;
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 3;
+export const CLIENT_REV = 4;
 
 export function buildWorldModel(city) {
   const half     = city.HALF;
@@ -222,7 +223,7 @@ export class LiveLink {
     };
     this.ui.logEntries.unshift(entry);
     if (this.ui.logEntries.length > CONFIG.maxLogEntries) this.ui.logEntries.pop();
-    this.ui.gallery.unshift({ ...entry, thumb: 'data:image/svg+xml;utf8,' + encodeURIComponent(m.svg) });
+    this.ui.gallery.unshift({ ...entry, thumb: muralThumb(m.svg) });
     this.ui.muralCount++;
     if (m.thought) { this.ui.thought = m.thought; this.ui.thoughtVisible = true; }
   }

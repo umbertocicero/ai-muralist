@@ -1,4 +1,5 @@
 import { CONFIG } from './config.js';
+import { muralThumb } from './helpers.js';
 
 // ===========================================================================
 //  Mural persistence — the world survives a refresh.
@@ -137,7 +138,7 @@ export class Persistence {
         buildingIdx: slot.buildingIdx, by: m.user_id,
         thought: m.thought ?? null, model: m.model ?? null,   // detail view (prompt fetched on open)
         target: { px: slot.px, py: slot.py, pz: slot.pz, nx: slot.nx, nz: slot.nz },
-        thumb: 'data:image/svg+xml;utf8,' + encodeURIComponent(m.svg),
+        thumb: muralThumb(m.svg),
       });
     }
     console.info(`[persist] restore: ${rows.length} saved, ${restored} re-applied (world ${this.world})`);

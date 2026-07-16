@@ -6,7 +6,7 @@
 // Run:  node tests/prompt.test.mjs
 
 import assert from 'node:assert';
-import { buildMuralPrompt, parseStyle } from '../js/mural-prompt.js';
+import { buildMuralPrompt, buildImageMuralPrompt, pickImageSize, parseStyle } from '../js/mural-prompt.js';
 
 let failures = 0;
 const check = (name, fn) => {
@@ -68,6 +68,35 @@ const wall = { wallW: 4.2, wallH: 2.7 };
   check('5. prev without usable SVG falls back to the generic prompt', () => {
     assert(/INVENT/i.test(text));
     assert(!text.includes('CONDITIONED'));
+  });
+}
+
+// ── 6: a raster previous piece conditions textually, never as base64 noise ───
+{
+  const prev = { style: 'Image', thought: null, svg: 'data:image/webp;base64,AAAA' };
+  const { text } = buildMuralPrompt(wall, 4, prev);
+  check('6. raster prev → conditioned WITHOUT embedding base64', () => {
+    assert(text.includes('CONDITIONED'), 'lost the conditioning for a raster prev');
+    assert(!text.includes('base64'), 'embedded base64 noise into the prompt');
+    assert(text.includes('raster piece'), 'does not explain the missing source');
+  });
+}
+
+// ── 7: image-model prompt (gpt-image-1-mini) ─────────────────────────────────
+{
+  const first = buildImageMuralPrompt(wall, 0, null);
+  const later = buildImageMuralPrompt(wall, 5, { style: 'Ember Drift', thought: 'sparks learn the wind', svg: '<svg/>' });
+  check('7. image prompt: generic first, textually conditioned later', () => {
+    assert(/invent its visual language/i.test(first), 'first image prompt not generic');
+    assert(!/svg/i.test(first), 'image prompt mentions SVG');
+    assert(later.includes('Ember Drift') && later.includes('sparks learn the wind'), 'image prompt not conditioned by prev');
+    assert(/no text, no letters/i.test(first), 'missing the no-text guard');
+    assert(first.length < 4000 && later.length < 4000, 'image prompt exceeds the /image endpoint cap');
+  });
+  check('7b. pickImageSize matches the wall aspect', () => {
+    assert.equal(pickImageSize({ wallW: 3, wallH: 6 }), '1024x1536');
+    assert.equal(pickImageSize({ wallW: 8, wallH: 3 }), '1536x1024');
+    assert.equal(pickImageSize({ wallW: 3, wallH: 3 }), '1024x1024');
   });
 }
 

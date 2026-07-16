@@ -59,9 +59,11 @@ export async function applySettings(CONFIG) {
 
   const workerUrl = user.workerUrl ?? site.worker_url ?? CONFIG.workerUrl;
   const apiKey    = user.apiKey    ?? null;                       // visitor-only, never in yaml
+  const openaiKey = user.openaiKey ?? null;                       // visitor-only ChatGPT key (gpt-image murals)
+  const provider  = user.provider ?? site.provider ?? 'claude';   // 'claude' (SVG) | 'openai' (gpt-image-1-mini)
   const model     = user.model     ?? site.model ?? CONFIG.model;
   // mode: explicit wins; otherwise 'ai' when something can generate, else demo
-  const mode      = user.mode ?? site.mode ?? ((workerUrl || apiKey) ? 'ai' : 'demo');
+  const mode      = user.mode ?? site.mode ?? ((workerUrl || apiKey || openaiKey) ? 'ai' : 'demo');
   // save flag: visitor toggle > site yaml > default ON (needs a worker to land)
   const saveMurals = (user.saveMurals ?? site.save_murals ?? true) !== false;
   // live shared Kay: site yaml > default ON (only takes effect with a workerUrl)
@@ -74,9 +76,11 @@ export async function applySettings(CONFIG) {
   CONFIG.model          = model;
   CONFIG.mode           = mode;
   CONFIG.userApiKey     = apiKey;
+  CONFIG.userOpenaiKey  = openaiKey;
+  CONFIG.provider       = provider === 'openai' ? 'openai' : 'claude';
   CONFIG.saveMurals     = saveMurals;
   CONFIG.live           = live;
   CONFIG.googleClientId = googleClientId || null;
   CONFIG.ownerEmail     = ownerEmail || null;
-  return { workerUrl: CONFIG.workerUrl, apiKey, model, mode, saveMurals, live, googleClientId, ownerEmail };
+  return { workerUrl: CONFIG.workerUrl, apiKey, openaiKey, provider: CONFIG.provider, model, mode, saveMurals, live, googleClientId, ownerEmail };
 }
