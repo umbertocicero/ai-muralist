@@ -25,7 +25,7 @@ export const MODEL_VERSION = 2;
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 4;
+export const CLIENT_REV = 5;
 
 export function buildWorldModel(city) {
   const half     = city.HALF;
@@ -97,12 +97,39 @@ export class LiveLink {
     // Re-report mode when the owner signs in/out, so their (authenticated) mode
     // choice takes effect immediately.
     onAuthChange(() => { if (this.connected) this._sendMode(); });
+    // Mobile Safari kills the socket WITHOUT a close event when the app is
+    // backgrounded, and suspends the retry timers with the page — on return the
+    // link could sit dead for many seconds (the "Kay restarted somewhere random"
+    // report: the local fallback took over meanwhile). The moment the page is
+    // visible again, drop whatever half-dead socket remains and reconnect NOW.
+    const wake = () => { if (!this._closed && document.visibilityState === 'visible') this.reconnectNow(); };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('pageshow', wake);          // BFCache resume fires no visibilitychange
+    // Keepalive ping: tells the server "someone is really watching" — iOS zombie
+    // sockets otherwise kept the shared world ticking for minutes after the last
+    // real viewer left (see the staleness guard in worker.js KayDO._tick).
+    this._pingT = setInterval(() => {
+      if (this.connected) { try { this._ws.send('{"type":"ping"}'); } catch {} }
+    }, 20_000);
     this._connect();
     return this;
   }
 
+  // Immediate reconnect (page came back to the foreground): reset the backoff
+  // and replace the current socket unless it is provably alive and OPEN.
+  reconnectNow() {
+    this._backoff = 1000;
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+      try { this._ws.send('{"type":"ping"}'); } catch {}   // freshen the server's liveness clock
+      return;
+    }
+    try { this._ws?.close(); } catch {}
+    this._connect();
+  }
+
   _connect() {
     if (this._closed) return;
+    if (this._ws && (this._ws.readyState === WebSocket.CONNECTING || this._ws.readyState === WebSocket.OPEN)) return;
     let ws;
     try { ws = new WebSocket(this.url); } catch { this._retry(); return; }
     this._ws = ws;
@@ -114,7 +141,8 @@ export class LiveLink {
 
   _retry() {
     if (this._closed) return;
-    setTimeout(() => this._connect(), this._backoff);
+    clearTimeout(this._retryT);
+    this._retryT = setTimeout(() => this._connect(), this._backoff);
     this._backoff = Math.min(this._backoff * 2, 15000);
   }
 
@@ -228,5 +256,9 @@ export class LiveLink {
     if (m.thought) { this.ui.thought = m.thought; this.ui.thoughtVisible = true; }
   }
 
-  close() { this._closed = true; clearTimeout(this._muralT); try { this._ws?.close(); } catch {} }
+  close() {
+    this._closed = true;
+    clearTimeout(this._muralT); clearTimeout(this._retryT); clearInterval(this._pingT);
+    try { this._ws?.close(); } catch {}
+  }
 }

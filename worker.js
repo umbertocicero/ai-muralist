@@ -76,7 +76,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Build 13 adds RASTER murals: POST /image proxies OpenAI gpt-image-1-mini
 // (visitor's own key via x-user-api-key, or the site's OPENAI_API_KEY), and the
 // murals store/broadcast accepts data:image/… pieces alongside SVG ones.
-const WORKER_BUILD = 13;
+// Build 14: zombie-socket staleness guard — the world freezes when no client
+// message (connect/ping) has arrived for STALE_VIEWER_MS, because iOS kills
+// sockets without a close frame and Kay kept walking for phantom viewers.
+const WORKER_BUILD = 14;
 const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -410,6 +413,10 @@ function handleLive(request, env) {
 // ~1 request / 2 s and near-zero billable duration (it sleeps between alarms).
 const SIM_STEP_MS = 2000;
 const FIRST_TICK_MS = 300;    // first tick shortly after a connect, so Kay sets off promptly
+// A socket that hasn't spoken for this long is a zombie (iOS kills connections
+// without a close frame): the world freezes as if nobody were connected.
+// Clients ping every 20 s, so three missed beats + slack = really gone.
+const STALE_VIEWER_MS = 75_000;
 // Bump when the uploaded world model's shape/resolution changes, so a DO holding
 // an older cached model discards it and asks the next client to re-upload.
 const MODEL_VERSION = 2;
@@ -445,6 +452,8 @@ export class KayDO {
     this._routeSentFor = null;     // targetId whose route we've already broadcast
     this._lastReconcile = 0;       // last painted-vs-D1 rebuild (CONTEMPLATING self-heal)
     this._lastMural = null;        // {style,thought,svg} of the last paint — prompt conditioning fallback when D1 is absent
+    this._lastHeard = 0;           // last client message (connect/ping/…) — zombie-socket staleness guard
+    this._lastHeardWrite = 0;      // throttle for persisting _lastHeard
   }
 
   // Presence + broadcast go through the hibernation API's socket list, so they
@@ -464,6 +473,7 @@ export class KayDO {
     this._loaded = true;
     this.worldKey = (await this.storage.get('worldKey')) ?? null;
     this.demo     = (await this.storage.get('demo')) ?? false;
+    this._lastHeard = (await this.storage.get('lastHeard')) ?? 0;
     const model = await this.storage.get('model');
     if (model && model.version === MODEL_VERSION) {
       this.sim = new KaySim(model, pacing(this.env));
@@ -527,6 +537,7 @@ export class KayDO {
       build: WORKER_BUILD, worldKey: this.worldKey, demo: this._isDemo(),
       sockets: this._sockets().length,
       alarmInMs: alarm == null ? null : alarm - Date.now(),
+      lastHeardAgoMs: this._lastHeard ? Date.now() - this._lastHeard : null,   // staleness guard clock
       d1Murals,
       sim: this.sim ? {
         state: this.sim.state, status: this.sim.status,
@@ -581,6 +592,7 @@ export class KayDO {
     // (getAlarm() stays non-null, so _ensureAlarm would be a no-op), setAlarm here
     // REPLACES that wedged alarm with a fresh near-term one and the heartbeat
     // resumes. Without this, one bad tick could freeze Kay until a redeploy.
+    await this._touchLiveness(true);
     await this.storage.setAlarm(Date.now() + FIRST_TICK_MS);
     // Freshen painted from D1 in the background: if murals were wiped while this
     // DO remembered its walls as painted, the next visitor un-freezes Kay.
@@ -593,6 +605,11 @@ export class KayDO {
     await this._ensureLoaded();
     let msg;
     try { msg = JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message)); } catch { return; }
+    // ANY client message proves a live viewer (the client pings every 20 s).
+    // This clock is what the staleness guard in _tick reads — and a ping must
+    // also re-arm the alarm, so a world frozen for staleness wakes right up.
+    await this._touchLiveness();
+    if (msg.type === 'ping') { await this._ensureAlarm(FIRST_TICK_MS); return; }
     // The shared demo/AI mode. OWNER ONLY — the message must carry a Google ID
     // token for an OWNER_EMAILS account, else it's ignored (the baseline still
     // comes from KAY_DEMO / stored state). This is why any visitor's local mode
@@ -638,6 +655,18 @@ export class KayDO {
     if ((await this.storage.getAlarm()) == null) await this.storage.setAlarm(Date.now() + ms);
   }
 
+  // Record "a real client just spoke" (connect or any socket message). Persisted
+  // (throttled to one write/10 s) because the DO hibernates between ticks and the
+  // staleness guard must survive the eviction.
+  async _touchLiveness(force = false) {
+    const now = Date.now();
+    this._lastHeard = now;
+    if (force || now - this._lastHeardWrite > 10_000) {
+      this._lastHeardWrite = now;
+      try { await this.storage.put('lastHeard', now); } catch {}
+    }
+  }
+
   // The heartbeat — one coarse step every ~2 s, then the object HIBERNATES until
   // the next alarm. sim.advance() sub-steps internally so the trajectory matches
   // continuous ticking; browsers animate the walk smoothly in between from the
@@ -664,7 +693,14 @@ export class KayDO {
   async _tick() {
     await this._ensureLoaded();
     const socketCount = this._sockets().length;
-    if (socketCount === 0) {             // nobody watching → freeze
+    // "Watching" needs BOTH an open socket AND a recent client message: mobile
+    // Safari kills its socket WITHOUT a close frame when the app is backgrounded,
+    // and that zombie kept the world ticking for minutes — the user came back to
+    // find Kay somewhere far away, murals painted for nobody. Clients ping every
+    // 20 s (js/live.js), so a minute of silence means nobody is really there.
+    const stale = this._lastHeard > 0 && Date.now() - this._lastHeard > STALE_VIEWER_MS;
+    if (socketCount === 0 || stale) {    // nobody (really) watching → freeze
+      if (stale && socketCount > 0) console.log(`[KayDO] ${socketCount} socket(s) silent for ${((Date.now() - this._lastHeard) / 1000) | 0}s — freezing (zombie connections)`);
       if (this.sim) await this.storage.put('sim', this.sim.serialize());
       return;
     }

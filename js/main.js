@@ -210,7 +210,11 @@ class App {
       this.live.onRoute = (route) => this.remote.setRoute(route);
       this.live.start();
       // If no live server answers within the grace window, run the local Kay.
-      setTimeout(() => { if (!this.live.everConnected) this._offline = true; }, 8000);
+      // 15 s, not 8: a phone coming back over mobile data can take several
+      // seconds of DNS + TLS + WS handshake — tripping to the local fallback
+      // early made Kay visibly "restart from a random spot" (the local agent
+      // wanders from spawn), then snap away when the live link finally opened.
+      setTimeout(() => { if (!this.live.everConnected) this._offline = true; }, 15_000);
     }
     // Live map page: the overlay canvas is composited from js/map.js — static
     // base cached once, KAI dot + fading trail + mural markers on top.
