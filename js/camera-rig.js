@@ -444,6 +444,16 @@ export class CameraRig {
   // The camera drops in BEHIND him (along the wall's outward normal), slightly
   // to one shoulder and zoomed in, looking at the wall — so the viewer sees
   // exactly what he is drawing, with KAI in the near foreground.
+  // The FOV is VERTICAL (fixed), so a portrait phone squeezes the horizontal
+  // field to a fraction of the desktop one (iPhone 13 portrait aspect ≈ 0.46 vs
+  // ≈ 1.78) — the paint/admire distances below, tuned on desktop, framed the
+  // wall wall-to-wall on a phone with KAI cropped clean out of the shot. Scale
+  // the distance so a comparable horizontal slice fits; no-op on landscape.
+  _shotRadius(base) {
+    const a = this.camera?.aspect || 1.78;
+    return a >= 1.25 ? base : base * Math.min(2.4, 1.25 / a);
+  }
+
   watchMural(slot) {
     if (!slot || !this.following) return;     // only auto-frame if KAI was followed
     this._cine  = slot;
@@ -453,7 +463,9 @@ export class CameraRig {
     this.ui.cameraFollowing = true;           // auto-framing → hide the button
     this.following = false;
     this._cinePolar = 1.30;                    // nearly level, looking at the wall
-    this.targetRadius = 4.6;                   // zoomed in on the work
+    // Zoomed in on the work — portrait-compensated so KAI stays in frame; the
+    // occlusion pull-in (update()) still shortens it if a building intrudes.
+    this.targetRadius = this._shotRadius(4.6);
     planetPoint(slot.px, slot.py + 0.2, slot.pz, this.pivotTarget, this.R);
   }
 
@@ -484,19 +496,24 @@ export class CameraRig {
     // shoulder that is itself CLEAR (blindly swinging one way was occluded on ~8%
     // of walls, the "blank frame" case). If boxed in on every side, stay head-on
     // and pull in just short of the obstruction so the camera sits in the near gap.
+    // Distances are portrait-compensated (_shotRadius) but ALWAYS clamped to the
+    // probed clearance: admire opts out of the occlusion-lift, so a longer
+    // portrait shot must never back the lens into the building across the lane.
     const open = this.city ? this.city.frontageOpen(slot) : true;
     if (open) {
-      this._cineSide = 0.22; this._cinePolar = 1.46; this.targetRadius = 4.4;
+      this._cineSide = 0.22; this._cinePolar = 1.46;
+      this.targetRadius = Math.max(3.4, Math.min(this._shotRadius(4.4), this._clearDist(slot, 0.22, 14) - 0.6));
     } else {
-      const cR = this._clearDist(slot,  0.70);
-      const cL = this._clearDist(slot, -0.70);
+      const cR = this._clearDist(slot,  0.70, 14);
+      const cL = this._clearDist(slot, -0.70, 14);
       if (Math.max(cR, cL) >= 5.6) {
         this._cineSide = cR >= cL ? 0.70 : -0.70;   // swing toward the open shoulder
-        this._cinePolar = 1.28; this.targetRadius = 5.6;
+        this._cinePolar = 1.28;
+        this.targetRadius = Math.max(3.4, Math.min(this._shotRadius(5.6), Math.max(cR, cL) - 0.6));
       } else {
         const cN = this._clearDist(slot, 0);         // boxed in → head-on, pulled into the gap
         this._cineSide = 0.22; this._cinePolar = 1.42;
-        this.targetRadius = Math.max(3.0, Math.min(4.4, cN - 0.6));
+        this.targetRadius = Math.max(3.0, Math.min(this._shotRadius(4.4), cN - 0.6));
       }
     }
 
