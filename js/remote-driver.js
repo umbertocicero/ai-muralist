@@ -20,6 +20,11 @@ const S = {
   CONTEMPLATING: 'CONTEMPLATING', WANDERING: 'WANDERING',   // legacy
 };
 
+// How far off the wall FACE the on-screen Kay stands while spraying: arm's
+// reach, close enough to touch the piece. Purely visual — the sim's routing
+// stand point stays ~1.5 m out where the walkability grid guarantees a path.
+const PAINT_STAND = 0.75;
+
 export class RemoteDriver {
   constructor(city, character, ui) {
     this.city = city;
@@ -134,8 +139,18 @@ export class RemoteDriver {
       // route to walk: settle onto the exact authoritative point — but never
       // faster than a walk, so even a rare 2 m gap eases smoothly instead of
       // popping. This is the safety net that keeps Kay from ever freezing.
+      //
+      // While he OBSERVEs/PAINTs, the authoritative point is the ROUTING stand
+      // (~1.5 m off the wall — it must sit on walkable grid), which reads as
+      // spraying from across the pavement. Visually step him IN to arm's reach
+      // of the face instead; when the state flips to ADMIRING the target reverts
+      // to the server point and he naturally steps back to look at his work.
+      let tx = kay.x, tz = kay.z;
+      const atWall = (kay.state === S.PAINTING || kay.state === S.OBSERVE) && kay.targetId != null
+        ? this.city.wallSlots[kay.targetId] : null;
+      if (atWall) { tx = atWall.px + atWall.nx * PAINT_STAND; tz = atWall.pz + atWall.nz * PAINT_STAND; }
       const a = 1 - Math.exp(-dt * 6);
-      let ex = (kay.x - this._rx) * a, ez = (kay.z - this._rz) * a;
+      let ex = (tx - this._rx) * a, ez = (tz - this._rz) * a;
       const em = Math.hypot(ex, ez), cap = this._speed * dt;
       if (em > cap) { ex *= cap / em; ez *= cap / em; }
       this._rx += ex; this._rz += ez;
@@ -158,8 +173,10 @@ export class RemoteDriver {
 
     // "Walking" = advancing a route, or covering ground while tracking a moving
     // keyframe — either way play the walk cycle so his feet aren't sliding.
+    // Walk whenever he's actually covering ground (route, keyframe chase, or the
+    // step-in to the wall face) — spraying while sliding read as skating.
     const stepLen = Math.hypot(this._rx - px, this._rz - pz);
-    if (onRoute || (stillMoving && stepLen > 0.002)) this.char.walk(t);
+    if (onRoute || stepLen > 0.02 * (dt * 60))       this.char.walk(t);
     else if (kay.state === S.PAINTING)               this.char.paint(t);  // hand moving the whole creation
     else                                             this.char.idle(t);   // arrived / SEEKING / OBSERVE / ADMIRING / NO_MORE_WALL
 
