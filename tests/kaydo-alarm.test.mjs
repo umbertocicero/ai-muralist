@@ -66,6 +66,36 @@ function makeState({ pendingAlarm = null, sockets = [new FakeWS()] } = {}) {
   console.log('  ok  A2. crash with nobody watching does not re-arm (billing stays zero)');
 }
 
+// ── C) zombie sockets: open but silent → the world freezes ──────────────────
+// iOS kills connections WITHOUT a close frame; the socket list stays non-empty
+// while nobody is really there. With no client message for > STALE_VIEWER_MS
+// the tick must freeze exactly like the 0-socket case (no reschedule).
+{
+  const state = makeState();                 // one (zombie) socket
+  const dob = new KayDO(state, {});
+  dob._loaded = true;
+  dob._lastHeard = Date.now() - 120_000;     // silent for 2 minutes
+  let advanced = 0;
+  dob.sim = { advance() { advanced++; return null; }, state: 'SEEKING',
+              snapshot: () => ({}), serialize: () => ({}), currentRoute: () => null };
+  await dob.alarm();
+  assert.equal(state.calls.setAlarm.length, 0, 'stale viewers must not keep the heartbeat alive');
+  assert.equal(advanced, 0, 'the sim must not advance for zombie sockets');
+  console.log('  ok  C. silent zombie sockets freeze the world (no phantom walking)');
+}
+
+// ── C2) a ping revives a stale-frozen world ─────────────────────────────────
+{
+  const state = makeState();                 // frozen: no alarm pending
+  const dob = new KayDO(state, {});
+  dob._loaded = true;
+  dob._lastHeard = Date.now() - 120_000;
+  await dob.webSocketMessage(state.getWebSockets()[0], '{"type":"ping"}');
+  assert.ok(Date.now() - dob._lastHeard < 1000, 'ping must freshen the liveness clock');
+  assert.equal(state.calls.setAlarm.length, 1, 'ping must re-arm the frozen heartbeat');
+  console.log('  ok  C2. a client ping freshens liveness and re-arms the heartbeat');
+}
+
 // ── B) connect force-replaces a wedged/pending alarm ────────────────────────
 {
   const wedged = Date.now() + 999_999;      // stuck far out / in runtime retry
