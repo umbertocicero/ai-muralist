@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, SVG_FORBIDDEN } from './config.js';
 import { rand } from './helpers.js';
 import { DEMO_THOUGHTS, demoSVG } from './demo.js';
-import { buildMuralPrompt, parseStyle } from './mural-prompt.js';
+import { buildMuralPrompt, buildImageMuralPrompt, pickImageSize, parseStyle } from './mural-prompt.js';
 import { placeOnPlanet, planetPoint, planetQuat } from './planet.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
@@ -48,11 +48,15 @@ export class MuralFactory {
   async generate(slot, index) {
     const { PW, PH, text } = buildMuralPrompt(slot, index, this._lastResult);
 
-    const demo = CONFIG.mode === 'demo' || (!CONFIG.workerUrl && !CONFIG.userApiKey);
+    const openai = CONFIG.provider === 'openai';
+    const demo = CONFIG.mode === 'demo' ||
+      (openai ? (!CONFIG.workerUrl && !CONFIG.userOpenaiKey)
+              : (!CONFIG.workerUrl && !CONFIG.userApiKey));
     if (demo) {
       await new Promise(r => setTimeout(r, rand(700, 1300)));
       return { thought: DEMO_THOUGHTS[index % DEMO_THOUGHTS.length], svg: demoSVG(PW, PH, index), PW, PH, model: 'demo', prompt: null };
     }
+    if (openai) return this._generateImage(slot, index, PW, PH);
 
     const direct  = !CONFIG.workerUrl;
     const url     = direct ? 'https://api.anthropic.com/v1/messages' : CONFIG.workerUrl;
@@ -94,14 +98,64 @@ export class MuralFactory {
     }
   }
 
-  // ---- SVG → CanvasTexture → PlaneGeometry --------------------------------
+  // ---- Raster path: ChatGPT gpt-image-1-mini paints the piece --------------
+  // Through the Worker's /image proxy when the site has one (the visitor's key
+  // rides x-user-api-key, or the site's OPENAI_API_KEY pays); straight to the
+  // OpenAI API otherwise. The result is a data-url webp that the same apply()
+  // pipeline rasterises onto the wall; conditioning stays textual (an image
+  // model reads no SVG), so the visual conversation carries on across engines.
+  async _generateImage(slot, index, PW, PH) {
+    const prompt = buildImageMuralPrompt(slot, index, this._lastResult);
+    const size   = pickImageSize(slot);
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), CONFIG.requestTimeoutMs);
+    try {
+      let b64, mime = 'image/webp';
+      if (CONFIG.workerUrl) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (CONFIG.userOpenaiKey) headers['x-user-api-key'] = CONFIG.userOpenaiKey;
+        const res  = await fetch(CONFIG.workerUrl.replace(/\/$/, '') + '/image', {
+          method: 'POST', headers, body: JSON.stringify({ prompt, size }), signal: ctrl.signal,
+        });
+        if (res.status === 429) throw new Error('rate_limited');
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || 'api_error');
+        b64 = data.b64; mime = data.mime || mime;
+      } else {
+        const res = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.userOpenaiKey}` },
+          body: JSON.stringify({ model: 'gpt-image-1-mini', prompt, n: 1, size,
+                                 quality: 'low', output_format: 'webp', output_compression: 60 }),
+          signal: ctrl.signal,
+        });
+        if (res.status === 429) throw new Error('rate_limited');
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || 'api_error');
+        b64 = data?.data?.[0]?.b64_json;
+      }
+      if (!b64) throw new Error('empty_response');
+      const svg = `data:${mime};base64,${b64}`;      // rides the svg field as a data URL
+      const style = 'Image';
+      this._lastResult = { style, thought: null, svg };   // conditions the next piece (textually)
+      return { thought: null, svg, style, PW, PH, model: 'gpt-image-1-mini', prompt };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // ---- SVG (or data-url raster) → CanvasTexture → PlaneGeometry -----------
   apply(slot, result) {
     return new Promise((resolve, reject) => {
-      const blob = new Blob([result.svg], { type: 'image/svg+xml' });
-      const url  = URL.createObjectURL(blob);
+      // A raster mural (gpt-image piece) arrives as a data URL — the <img> can
+      // load it directly, no blob needed. Everything after onload is identical.
+      const isRaster = typeof result.svg === 'string' && result.svg.startsWith('data:image/');
+      const url = isRaster ? result.svg
+                           : URL.createObjectURL(new Blob([result.svg], { type: 'image/svg+xml' }));
+      const revoke = () => { if (!isRaster) URL.revokeObjectURL(url); };
       const img  = new Image();
 
-      const fail = err => { URL.revokeObjectURL(url); reject(err instanceof Error ? err : new Error('render_failed')); };
+      const fail = err => { revoke(); reject(err instanceof Error ? err : new Error('render_failed')); };
       img.onerror = fail;
       img.onload  = () => {
         try {
@@ -110,7 +164,7 @@ export class MuralFactory {
           canvas.height = result.PH;
           const c2d = canvas.getContext('2d');
           c2d.drawImage(img, 0, 0, result.PW, result.PH);
-          URL.revokeObjectURL(url);
+          revoke();
 
           // Bake a PRIMER CASING into the texture: a paper-light margin ring
           // with a dark ink line outside it — like the primed edge of a real

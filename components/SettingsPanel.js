@@ -34,7 +34,9 @@ export default {
     return {
       open: false,
       mode:      s.mode ?? '',          // '' = auto
+      provider:  s.provider ?? 'claude',   // who paints: Claude (SVG) or ChatGPT (gpt-image-1-mini)
       apiKey:    s.apiKey ?? '',
+      openaiKey: s.openaiKey ?? '',
       model:     s.model ?? '',
       saveMurals: s.saveMurals !== false,
       deleting:  false,
@@ -52,9 +54,11 @@ export default {
     doSignOut() { signOut(); },
     apply() {
       const s = {};
-      if (this.mode)            s.mode = this.mode;
-      if (this.apiKey.trim())   s.apiKey = this.apiKey.trim();
-      if (this.model)           s.model = this.model;
+      if (this.mode)              s.mode = this.mode;
+      if (this.provider !== 'claude') s.provider = this.provider;
+      if (this.apiKey.trim())     s.apiKey = this.apiKey.trim();
+      if (this.openaiKey.trim())  s.openaiKey = this.openaiKey.trim();
+      if (this.model)             s.model = this.model;
       s.saveMurals = this.saveMurals;
       saveUserSettings(s);
       location.reload();
@@ -103,14 +107,27 @@ export default {
       </template>
 
       <template v-if="mode !== 'demo'">
-        <label class="s-lab">ANTHROPIC API KEY <span class="s-note">(kept in your browser)</span></label>
-        <input class="s-in" type="password" v-model="apiKey" placeholder="sk-ant-…" autocomplete="off">
+        <label class="s-lab">ARTIST ENGINE</label>
+        <div class="s-row">
+          <label><input type="radio" value="claude" v-model="provider"> Claude (SVG)</label>
+          <label><input type="radio" value="openai" v-model="provider"> ChatGPT (image)</label>
+        </div>
 
-        <label class="s-lab">MODEL</label>
-        <select class="s-in" v-model="model">
-          <option value="">(default)</option>
-          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-        </select>
+        <template v-if="provider === 'openai'">
+          <label class="s-lab">OPENAI API KEY <span class="s-note">(kept in your browser)</span></label>
+          <input class="s-in" type="password" v-model="openaiKey" placeholder="sk-…" autocomplete="off">
+          <div class="s-note s-engine-note">murals painted as pictures by <b>gpt-image-1-mini</b></div>
+        </template>
+        <template v-else>
+          <label class="s-lab">ANTHROPIC API KEY <span class="s-note">(kept in your browser)</span></label>
+          <input class="s-in" type="password" v-model="apiKey" placeholder="sk-ant-…" autocomplete="off">
+
+          <label class="s-lab">MODEL</label>
+          <select class="s-in" v-model="model">
+            <option value="">(default)</option>
+            <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+          </select>
+        </template>
       </template>
 
       <!-- Writing to the shared world is an owner action, so this only shows when

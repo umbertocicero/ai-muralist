@@ -1,4 +1,5 @@
 import { CONFIG } from './config.js';
+import { muralThumb } from './helpers.js';
 
 export const STATE = {
   WANDERING:      'WANDERING',
@@ -76,8 +77,11 @@ export class Agent {
     this.factory.generate(slot, index)
       .then(result => {
         this.pendingResult      = result;
-        this.ui.thought         = result.thought;
-        this.ui.thoughtVisible  = true;
+        // Raster pieces (gpt-image) carry no inner monologue — keep the bubble down.
+        if (result.thought) {
+          this.ui.thought        = result.thought;
+          this.ui.thoughtVisible = true;
+        }
       })
       .catch(err => {
         this.pendingResult = null;
@@ -118,7 +122,7 @@ export class Agent {
       const svg = this.pendingResult?.svg;
       this.ui.gallery.unshift({
         ...entry,
-        thumb: svg ? 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) : null,
+        thumb: muralThumb(svg),
       });
       // Persist the finished piece (wired by main.js when a Worker is set);
       // fire-and-forget, so the game never waits on the network.

@@ -10,7 +10,7 @@
 
 import { KaySim } from './js/sim.mjs';
 import { demoSVG, DEMO_THOUGHTS } from './js/demo.js';
-import { buildMuralPrompt, parseStyle } from './js/mural-prompt.js';
+import { buildMuralPrompt, buildImageMuralPrompt, pickImageSize, parseStyle } from './js/mural-prompt.js';
 import { verifyGoogleIdToken, isOwner, makeGoogleJwksFetcher } from './js/google-verify.mjs';
 
 const CORS_HEADERS = {
@@ -73,8 +73,11 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Build 12 drops the 8 fixed style presets: the first mural of a world starts
 // from a generic open prompt, every later one is conditioned by the previous
 // piece (its SVG + thought embedded in the prompt), and KAI names his own style.
-const WORKER_BUILD = 12;
-const MURAL_MAX_BODY = 80_000;    // svg (≤60 KB) + metadata
+// Build 13 adds RASTER murals: POST /image proxies OpenAI gpt-image-1-mini
+// (visitor's own key via x-user-api-key, or the site's OPENAI_API_KEY), and the
+// murals store/broadcast accepts data:image/… pieces alongside SVG ones.
+const WORKER_BUILD = 13;
+const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
 // Server-side copy of the client's SVG_FORBIDDEN guard (js/config.js):
@@ -82,6 +85,13 @@ const MURAL_LIST_CAP = 500;       // rows returned per world
 // external url(...) targets stay forbidden.
 const SVG_FORBIDDEN =
   /<\s*(script|foreignObject|image|use|symbol|iframe)\b|xlink:href|(?<![a-z])href\s*=|url\s*\(\s*(?!#)/i;
+// A raster mural rides the SAME svg column as a data URL: base64 image only,
+// nothing executable. Bounded (≤400 KB ≈ a compressed 1024px webp) well inside
+// D1's per-value limit.
+const IMAGE_MURAL   = /^data:image\/(png|webp|jpeg);base64,[A-Za-z0-9+/]+=*$/;
+const IMAGE_MURAL_MAX = 400_000;
+const IMAGE_MODEL     = 'gpt-image-1-mini';
+const IMAGE_SIZES     = new Set(['1024x1024', '1024x1536', '1536x1024']);
 
 export default {
   async fetch(request, env) {
@@ -97,6 +107,11 @@ export default {
     }
     if (path.endsWith('/murals')) {
       return handleMurals(request, env);
+    }
+    // Raster mural generation — proxies OpenAI's image API so the visitor's
+    // ChatGPT key never has to leave their browser unprotected by CORS rules.
+    if (path.endsWith('/image')) {
+      return handleImage(request, env);
     }
     if (request.method !== 'POST') {
       return json({ error: { type: 'invalid_request_error', message: 'Method not allowed' } }, 405);
@@ -177,6 +192,58 @@ export default {
     }
   },
 };
+
+// POST /image → one mural picture from OpenAI gpt-image-1-mini. The visitor's
+// own ChatGPT key rides x-user-api-key (never stored); without it the site's
+// OPENAI_API_KEY secret is used, and with neither the endpoint reports itself
+// unconfigured. Body: { prompt, size? } — the reply is { b64, mime } for the
+// client to assemble into a data URL. Same per-IP limiter as text generation.
+async function handleImage(request, env) {
+  if (request.method !== 'POST') {
+    return json({ error: { type: 'invalid_request_error', message: 'Method not allowed' } }, 405);
+  }
+  const userKey = request.headers.get('x-user-api-key');
+  const apiKey  = (userKey && /^sk-[A-Za-z0-9_-]{10,240}$/.test(userKey)) ? userKey : env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return json({ error: { type: 'config_error', message: 'No OpenAI key: send x-user-api-key or set OPENAI_API_KEY' } }, 500);
+  }
+  const clientIP = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  if (env.RATE_LIMIT_KV) {
+    const last = await env.RATE_LIMIT_KV.get(`rl:${clientIP}`);
+    if (last && Date.now() - parseInt(last, 10) < RATE_LIMIT_MS) {
+      return json({ error: { type: 'rate_limit_error', message: 'Too many requests. Wait a moment.' } }, 429);
+    }
+    await env.RATE_LIMIT_KV.put(`rl:${clientIP}`, String(Date.now()), { expirationTtl: 60 });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return json({ error: { type: 'invalid_request_error', message: 'Invalid JSON body' } }, 400);
+  }
+  const prompt = body?.prompt;
+  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) {
+    return json({ error: { type: 'invalid_request_error', message: 'Missing or oversized prompt' } }, 400);
+  }
+  const size = IMAGE_SIZES.has(body.size) ? body.size : '1024x1024';
+  try {
+    const upstream = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: IMAGE_MODEL, prompt, n: 1, size,
+        quality: 'low', output_format: 'webp', output_compression: 60,   // keep the piece storable (≤400 KB)
+      }),
+    });
+    const data = await upstream.json();
+    if (!upstream.ok || data.error) {
+      return json({ error: { type: 'upstream_error', message: data?.error?.message || `OpenAI ${upstream.status}` } }, upstream.status || 502);
+    }
+    const b64 = data?.data?.[0]?.b64_json;
+    if (!b64) return json({ error: { type: 'upstream_error', message: 'OpenAI returned no image' } }, 502);
+    return json({ b64, mime: 'image/webp', model: IMAGE_MODEL });
+  } catch {
+    return json({ error: { type: 'upstream_error', message: 'Failed to reach OpenAI' } }, 502);
+  }
+}
 
 // GET  /murals?world=<seed> → { murals: [...] }  every mural of that world
 // POST /murals              → save one painted mural (first painter per wall wins)
@@ -271,6 +338,17 @@ async function handleMurals(request, env) {
   // undebuggable from the browser console.
   const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   const { world, px, py, pz, nx, nz, wallW, wallH, style, thought, svg, userId, model, prompt } = body ?? {};
+  // The svg field carries EITHER real SVG markup (Claude pieces — full forbidden-
+  // reference guard) OR a base64 data-url image (gpt-image pieces — no markup at
+  // all, just a bounded base64 payload of an allowed raster type).
+  const isImage = typeof svg === 'string' && svg.startsWith('data:image/');
+  const artBad =
+    typeof svg !== 'string'                                    ? 'svg' :
+    isImage
+      ? (svg.length > IMAGE_MURAL_MAX ? 'image size' : !IMAGE_MURAL.test(svg) ? 'image content' : null)
+      : (svg.length > 60_000                 ? 'svg size' :
+         !svg.trimStart().startsWith('<svg') ? 'svg prefix' :
+         SVG_FORBIDDEN.test(svg)             ? 'svg content (forbidden reference)' : null);
   const bad =
     !Number.isInteger(world)                                          ? 'world' :
     !(num(px, -200, 200) && num(py, 0, 50) && num(pz, -200, 200))     ? 'position' :
@@ -278,9 +356,7 @@ async function handleMurals(request, env) {
     !(num(wallW, 0.5, 30) && num(wallH, 0.5, 30))                     ? 'wall size' :
     !(typeof style === 'string' && style.length <= 40)                ? 'style' :
     !(thought == null || (typeof thought === 'string' && thought.length <= 300)) ? 'thought' :
-    !(typeof svg === 'string' && svg.length <= 60_000)                ? 'svg size' :
-    !svg.trimStart().startsWith('<svg')                               ? 'svg prefix' :
-    SVG_FORBIDDEN.test(svg)                                           ? 'svg content (forbidden reference)' :
+    artBad                                                            ? artBad :
     !(typeof userId === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(userId)) ? 'userId' :
     !(model  == null || (typeof model  === 'string' && model.length  <= 40))    ? 'model' :
     !(prompt == null || (typeof prompt === 'string' && prompt.length <= 12_000)) ? 'prompt' :
@@ -660,6 +736,29 @@ export class KayDO {
         style   = STYLE_NAMES[index % STYLE_NAMES.length];   // procedural pieces keep the rotation
         model   = 'demo';         // procedural — no model, no prompt to recreate
         prompt  = null;
+      } else if (this.env.KAY_PROVIDER === 'openai' && this.env.OPENAI_API_KEY) {
+        // Raster Kay: gpt-image-1-mini paints the piece. Conditioning is textual
+        // (style + thought of the previous piece — an image model reads no SVG).
+        const prev = await this._latestMural();
+        prompt = buildImageMuralPrompt(wall, index, prev);
+        model  = IMAGE_MODEL;
+        const upstream = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.env.OPENAI_API_KEY}` },
+          body: JSON.stringify({
+            model: IMAGE_MODEL, prompt, n: 1, size: pickImageSize(wall),
+            quality: 'low', output_format: 'webp', output_compression: 60,
+          }),
+        });
+        const data = await upstream.json();
+        if (!upstream.ok || data.error) {
+          throw new Error(`OpenAI ${upstream.status}: ${data?.error?.message || 'api_error'}`);
+        }
+        const b64 = data?.data?.[0]?.b64_json;
+        if (!b64) throw new Error('OpenAI returned no image');
+        svg     = `data:image/webp;base64,${b64}`;
+        thought = null;                          // an image model has no inner monologue
+        style   = 'Image';
       } else {
         // Conditioning: the newest mural of THIS world (D1 is the durable truth,
         // so the chain resets by itself when the murals table is wiped). null →
@@ -687,7 +786,10 @@ export class KayDO {
         style = parseStyle(raw);
       }
 
-      if (!svg || svg.length > 60_000 || SVG_FORBIDDEN.test(svg) || !svg.trimStart().startsWith('<svg')) {
+      const isImage = typeof svg === 'string' && svg.startsWith('data:image/');
+      if (isImage) {
+        if (svg.length > IMAGE_MURAL_MAX || !IMAGE_MURAL.test(svg)) throw new Error('no usable image');
+      } else if (!svg || svg.length > 60_000 || SVG_FORBIDDEN.test(svg) || !svg.trimStart().startsWith('<svg')) {
         throw new Error('no usable SVG');
       }
 

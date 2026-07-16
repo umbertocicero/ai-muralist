@@ -37,12 +37,17 @@ Your painting style is expressive and hand-drawn, never rigid or geometric.`;
 
   let brief;
   if (prev && typeof prev.svg === 'string' && prev.svg) {
-    const svgSrc = prev.svg.length > PREV_SVG_MAX
-      ? prev.svg.slice(0, PREV_SVG_MAX) + '... (truncated)'
-      : prev.svg;
+    // A raster previous piece (data-url image, e.g. painted by gpt-image) has no
+    // SVG source worth embedding — base64 noise teaches the model nothing. Its
+    // style name + thought still carry the conversation.
+    const isRaster = prev.svg.startsWith('data:');
+    const svgSrc = isRaster ? null
+      : prev.svg.length > PREV_SVG_MAX
+        ? prev.svg.slice(0, PREV_SVG_MAX) + '... (truncated)'
+        : prev.svg;
     brief =
 `This is mural #${index}. It must be CONDITIONED by the piece you painted just
-before it, shown below. Study it - its palette, its gestures, its mood - and let
+before it${svgSrc ? ', shown below' : ', described below'}. Study it - its palette, its gestures, its mood - and let
 this new piece RESPOND to it: evolve a motif, push the palette somewhere new,
 answer its gesture with a counter-gesture. A visible thread must connect the two,
 yet this one must be clearly its own work - never a copy, never a repetition of
@@ -50,8 +55,7 @@ the same composition. If you feel the conversation has run its course, break fro
 it deliberately and start a new visual sentence.
 
 YOUR PREVIOUS MURAL${prev.style ? ` (you called its style "${prev.style}")` : ''}:
-${prev.thought ? `Its thought was: "${prev.thought}"\n` : ''}Its SVG source:
-${svgSrc}`;
+${prev.thought ? `Its thought was: "${prev.thought}"\n` : ''}${svgSrc ? `Its SVG source:\n${svgSrc}` : 'It was a painted raster piece (no source available).'}`;
   } else {
     brief =
 `This is mural #${index}, the first wall of a fresh conversation with this city.
@@ -94,4 +98,30 @@ export function parseStyle(raw) {
   const m = raw.match(/STYLE:\s*(.+)/i);
   const s = m ? m[1].split('\n')[0].trim().replace(/^["']|["']$/g, '') : '';
   return (s || 'Freestyle').slice(0, 40);
+}
+
+// ── Image-model variant (OpenAI gpt-image-1-mini) ───────────────────────────
+// Same artist, same conversation, different medium: a raster model returns a
+// finished picture, not SVG — so no SVG rules, and the conditioning is TEXTUAL
+// (the previous piece's style name + thought; raster models can't read SVG
+// source, and a previous raster piece has no source to read anyway).
+
+// The generation size closest to the wall's aspect (the only sizes the model
+// offers) — the texture is stretched onto the wall, so the nearer the aspect,
+// the less distortion.
+export function pickImageSize(wall) {
+  const r = wall.wallH / wall.wallW;
+  if (r > 1.3)     return '1024x1536';   // tall portrait
+  if (1 / r > 1.3) return '1536x1024';   // wide landscape
+  return '1024x1024';
+}
+
+export function buildImageMuralPrompt(wall, index, prev = null) {
+  const cond = prev
+    ? `It is the next piece in one continuous visual conversation: the mural painted just before it${
+        prev.style ? ` was in a style he called "${prev.style}"` : ''}${
+        prev.thought ? ` and carried the thought "${prev.thought}"` : ''}. This new piece must visibly RESPOND to that one — evolve a motif, push the palette somewhere new, answer its gesture — while being clearly its own work, never a copy.`
+    : `It is the first piece of a fresh conversation with this city: invent its visual language freely — any tradition, any palette, any energy.`;
+  return (
+`A vivid hand-painted street-art mural filling an entire concrete wall in a grey Japanese neighbourhood, painted by KAI, a teenage street artist — a burst of colour in a monochrome world. Expressive and hand-drawn in spirit, never rigid or geometric. ${cond} The artwork fills the whole canvas edge to edge (the wall is ${wall.wallW.toFixed(1)}m x ${wall.wallH.toFixed(1)}m). Flat frontal view of the painted surface only — no wall edges, no street, no people, no photograph framing. No text, no letters, no words, no signature, no watermark.`);
 }
