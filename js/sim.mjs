@@ -169,6 +169,31 @@ export class KaySim {
     if (Math.hypot(this.x - s.x, this.z - s.z) < 1) return true;
     return !!this._findPath(this.x, this.z, s.x, s.z);
   }
+
+  // Stand points to try for a wall, best first: the baked approach, then spots
+  // slid along the face and pushed a little further out. The baked cell can be
+  // sealed by grid quantisation (carved free but ringed by inflated collision)
+  // even when the pavement in front of the wall is perfectly walkable — one
+  // blocked half-metre cell must not cost the wall its mural.
+  _standCandidates(w) {
+    const tx = -w.nz, tz = w.nx;                       // unit tangent along the wall
+    const out = [{ x: w.ax, z: w.az }];
+    for (const [dn, dt] of [[0, 0.75], [0, -0.75], [0.7, 0], [0.7, 0.75], [0.7, -0.75], [-0.45, 0]]) {
+      out.push({ x: w.ax + w.nx * dn + tx * dt, z: w.az + w.nz * dn + tz * dt });
+    }
+    return out;
+  }
+
+  // Route to ANY viable stand point of this wall (first candidate that is on
+  // free ground and reachable). Returns the path or null.
+  _routeToWall(w) {
+    for (const c of this._standCandidates(w)) {
+      if (this.blocked(c.x, c.z)) continue;
+      const path = this._findPath(this.x, this.z, c.x, c.z);
+      if (path) return path;
+    }
+    return null;
+  }
   _pickWall(fromX, fromZ) {
     const free = this._freeWalls();
     if (!free.length) return null;
@@ -389,7 +414,7 @@ export class KaySim {
         if (this.blocked(this.x, this.z)) { this._relocate(); return null; }   // drifted into a wall
         const w = this._pickWall(this.x, this.z);
         if (!w) { if (!this.hasFreeReachable()) { this.timers.idle = 0; this._setState(SIM_STATE.NO_MORE_WALL); } return null; }
-        const path = this._findPath(this.x, this.z, w.ax, w.az);
+        const path = this._routeToWall(w);
         if (path) {
           this.targetId = w.id; this._path = this._simplifyPath(path); this._pi = 0; this._pathFails = 0;
           this.timers.move = 0; this._setState(SIM_STATE.MOVING_TO_WALL);
@@ -496,7 +521,7 @@ export class KaySim {
         if (this.timers.idle < this.cfg.roamPauseSeconds) return null;
         const target = this._pickAdmireWall(this.x, this.z);
         if (!target) { this.timers.idle = 0; return null; }   // nothing reachable to admire yet
-        const path = this._findPath(this.x, this.z, target.ax, target.az);
+        const path = this._routeToWall(target);
         if (path) {
           this.targetId = target.id; this._path = this._simplifyPath(path); this._pi = 0;
           this._pathFails = 0; this.timers.move = 0; this._roamAdmire = true;

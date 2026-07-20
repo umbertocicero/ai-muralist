@@ -82,7 +82,11 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Build 15: unroutable walls are blacklisted (3 strikes while Kay is provably
 // mobile) instead of triggering the spawn-teleport — with the city nearly full
 // he cycled pick→fail→jump forever, visibly teleporting around town.
-const WORKER_BUILD = 15;
+// Build 16: MODEL_VERSION → 3 (the cached DO grid predated the alley-approach
+// fixes — reachable walls read as unroutable) and the sim tries several stand
+// points around a wall before striking it (one sealed half-metre cell must not
+// cost the wall its mural).
+const WORKER_BUILD = 16;
 const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -422,7 +426,11 @@ const FIRST_TICK_MS = 300;    // first tick shortly after a connect, so Kay sets
 const STALE_VIEWER_MS = 75_000;
 // Bump when the uploaded world model's shape/resolution changes, so a DO holding
 // an older cached model discards it and asks the next client to re-upload.
-const MODEL_VERSION = 2;
+// v3: the alley-wall approach fixes (city.js b522430 + aacd0b3) changed where
+// stand points land, but a DO with a cached v2 model kept navigating the OLD
+// grid forever (needWorld:false → never re-uploaded) — walls that are perfectly
+// reachable in the current model read as unroutable server-side.
+const MODEL_VERSION = 3;
 const KAY_MODEL_DEFAULT = 'claude-sonnet-4-6';
 const STYLE_NAMES = ['Ukiyo-e', 'Sumi-e', 'Manga', 'Woodblock', 'Anime', 'Kirie', 'Wabi-sabi', 'Kanji'];
 const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
