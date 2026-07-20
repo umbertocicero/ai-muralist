@@ -19,13 +19,13 @@ import { getToken, onAuthChange } from './auth.js';
 // the wire as base64 (1 byte/cell) to keep the one-time upload small.
 // Bump when the model's shape/resolution changes — must match worker.js
 // MODEL_VERSION so a DO caching an older grid discards it and re-requests one.
-export const MODEL_VERSION = 2;
+export const MODEL_VERSION = 3;   // v3: alley-wall approach fixes must reach the DO's cached grid
 
 // Client revision, logged at connect next to the worker build: answers "is the
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 7;
+export const CLIENT_REV = 8;
 
 export function buildWorldModel(city) {
   const half     = city.HALF;

@@ -321,5 +321,28 @@ const check = (name, fn) => {
   });
 }
 
+// ── 11: a sealed baked stand cell → an alternate stand still paints the wall ─
+// Production geometry (0.5 m cells): the baked approach cell is carved free but
+// ringed by blocked cells (grid quantisation in a narrow spot). The candidates
+// slid ±0.75 m along the face land OUTSIDE the seal and route fine — the wall
+// must get its mural, not a blacklist entry.
+{
+  const wallCoords = [[4, 4, 1, 0]];
+  const model = buildModel({ wallCoords, cellSize: 0.5 });
+  const apx = 5.5, apz = 4, s = model.cellSize;
+  for (const [dx, dz] of [[s,0],[-s,0],[0,s],[0,-s],[s,s],[s,-s],[-s,s],[-s,-s]])
+    model.cells[model.cellOf(apx + dx, apz + dz)] = 1;
+  model.cells[model.cellOf(apx, apz)] = 0;      // carved free, but sealed at cell scale
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5 }, mulberry32(88));
+  const sealed = sim._findPath(model.spawn.x, model.spawn.z, apx, apz) === null;
+  let sig = null, guard = 20000;
+  while (guard-- > 0 && !(sig && sig.paint)) sig = sim.step(0.1);
+  check('11. sealed baked stand cell → alternate stand point paints the wall anyway', () => {
+    assert(sealed, 'test setup failed: the baked approach was not actually sealed');
+    assert(sig && sig.paint && sig.paint.id === 0, 'wall never painted via an alternate stand');
+    assert(!sim._unreachable.has(0), 'wall was wrongly blacklisted despite a viable stand');
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);
