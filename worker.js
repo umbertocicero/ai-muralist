@@ -79,7 +79,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Build 14: zombie-socket staleness guard — the world freezes when no client
 // message (connect/ping) has arrived for STALE_VIEWER_MS, because iOS kills
 // sockets without a close frame and Kay kept walking for phantom viewers.
-const WORKER_BUILD = 14;
+// Build 15: unroutable walls are blacklisted (3 strikes while Kay is provably
+// mobile) instead of triggering the spawn-teleport — with the city nearly full
+// he cycled pick→fail→jump forever, visibly teleporting around town.
+const WORKER_BUILD = 15;
 const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -545,6 +548,7 @@ export class KayDO {
         muralCount: this.sim.muralCount,
         wallsTotal: this.sim.walls.length,
         painted: this.sim.painted.size,
+        unreachable: this.sim._unreachable.size,   // walls proven unroutable in this grid
         freeReachable: this.sim._freeWalls().length,
         deferred: this.sim._defer.size,
         cooldownLeft: this.sim._cooldownLeft,

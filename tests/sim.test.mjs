@@ -278,5 +278,48 @@ const check = (name, fn) => {
   });
 }
 
+// ── 10: unroutable walls are blacklisted, never a teleport loop ──────────────
+// An approach cell can be carved free yet WALLED IN (alley walls). The old
+// logic blamed Kay and teleported him to spawn after 30 consecutive routing
+// failures — with only unroutable walls left he cycled pick→fail→jump forever,
+// visibly teleporting around town while people watched. Now: three strikes
+// while Kay is provably mobile → the wall is blacklisted; when only blacklisted
+// walls remain he settles into NO_MORE_WALL. Position must stay CONTINUOUS.
+{
+  const wallCoords = [[-12, -12, 1, 0], [12, -12, -1, 0], [-12, 12, 1, 0], [12, 12, -1, 0], [4, 4, 1, 0]];
+  const model = buildModel({ wallCoords });
+  // Wall id 4's approach is at (5.5, 4): wall it in — block every neighbour of
+  // its cell while the approach cell itself stays free (exactly the trap).
+  const apx = 5.5, apz = 4, s = model.cellSize;
+  for (const [dx, dz] of [[s,0],[-s,0],[0,s],[0,-s],[s,s],[s,-s],[-s,s],[-s,-s]])
+    model.cells[model.cellOf(apx + dx, apz + dz)] = 1;
+  model.cells[model.cellOf(apx, apz)] = 0;
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5, roamPauseSeconds: 0.5 }, mulberry32(77));
+  // sanity: the trap is real (wall 4 unroutable), Kay is mobile
+  const trapped = sim._findPath(model.spawn.x, model.spawn.z, apx, apz) === null;
+
+  let maxStep = 0, prevX = sim.x, prevZ = sim.z, roamed = false;
+  for (let i = 0; i < 30000; i++) {
+    const sig = sim.step(0.1);
+    if (sig && sig.paint) sim.paintDone({ svg: '<svg/>', thought: 't' });
+    maxStep = Math.max(maxStep, Math.hypot(sim.x - prevX, sim.z - prevZ));
+    prevX = sim.x; prevZ = sim.z;
+    if (sim.state === SIM_STATE.NO_MORE_WALL) roamed = true;
+  }
+  check('10. unroutable wall → blacklist + NO_MORE_WALL roaming, zero teleports', () => {
+    assert(trapped, 'test setup failed: wall 4 was actually routable');
+    assert.equal(sim.painted.size, 4, `expected the 4 reachable walls painted, got ${sim.painted.size}`);
+    assert(sim._unreachable.has(4), 'the walled-in wall was never blacklisted');
+    assert(maxStep <= sim.cfg.moveSpeed * 0.1 + 1e-6,
+      `position jumped ${maxStep.toFixed(2)} m in one step — still teleporting`);
+    // He settled into the gallery-roam cycle (NO_MORE_WALL ↔ stroll ↔ admire),
+    // not a SEEKING fail-loop; the exact end state depends where the loop cut.
+    assert(roamed, 'never settled into NO_MORE_WALL roaming');
+    const okEnd = sim.state === SIM_STATE.NO_MORE_WALL || sim.state === SIM_STATE.ADMIRING ||
+                  (sim.state === SIM_STATE.MOVING_TO_WALL && sim._roamAdmire);
+    assert(okEnd, `ended outside the roam cycle: ${sim.state}`);
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);

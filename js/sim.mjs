@@ -98,6 +98,8 @@ export class KaySim {
 
     this.painted = new Set();     // wall ids that carry a mural
     this._defer  = new Map();     // wall id → simTime it may be retried after
+    this._unreachable = new Set(); // wall ids proven unroutable in THIS grid (never picked again)
+    this._wallFails   = new Map(); // wall id → consecutive routing failures (3 strikes → unreachable)
     this.muralCount = 0;
     this.simTime = 0;
 
@@ -156,7 +158,16 @@ export class KaySim {
 
   // ── Wall choice — nearest free wall, with a little randomness ─────────────────
   _freeWalls() {
-    return this.walls.filter((w) => !this.painted.has(w.id) && !this.blocked(w.ax, w.az));
+    return this.walls.filter((w) => !this.painted.has(w.id) && !this._unreachable.has(w.id) && !this.blocked(w.ax, w.az));
+  }
+
+  // Can Kay route to the spawn (the street network's anchor cell, carved free by
+  // the model builder)? Distinguishes "that WALL is unreachable" from "I am the
+  // one stuck on an island" — the two need opposite remedies.
+  _isMobile() {
+    const s = this.model.spawn;
+    if (Math.hypot(this.x - s.x, this.z - s.z) < 1) return true;
+    return !!this._findPath(this.x, this.z, s.x, s.z);
   }
   _pickWall(fromX, fromZ) {
     const free = this._freeWalls();
@@ -384,18 +395,26 @@ export class KaySim {
           this.timers.move = 0; this._setState(SIM_STATE.MOVING_TO_WALL);
           return { routeStarted: true };   // advance() breaks here → route broadcast from its true start
         } else {
-          this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);          // unreachable → skip a while
-          if (++this._pathFails > 12 && this._openNeighbors(this.x, this.z) < 6) this._relocate();
-          // Routing keeps failing from an OPEN spot: Kay is standing on a
-          // walkable island disconnected from every wall (e.g. hydrated onto a
-          // spot the current grid can't route out of). _relocate() won't fire
-          // (his neighbours are open) and nothing else moves him → without this
-          // he'd re-fail forever, visibly frozen while the sim ticks fine.
-          // Jump home: the spawn cell is carved free by the model builder and
-          // is where every wall was reachable from when the world was uploaded.
-          else if (this._pathFails > 30) {
-            this.x = this.model.spawn.x; this.z = this.model.spawn.z;
+          // Routing failed — blame the RIGHT party before doing anything drastic.
+          // The old logic teleported Kay to spawn after 30 consecutive failures
+          // no matter why they happened: with the city nearly full, the last
+          // unpainted walls can simply be UNROUTABLE in this grid (an approach
+          // cell carved free but walled in), and Kay — perfectly mobile on the
+          // main street — cycled pick → fail → teleport forever, visibly jumping
+          // around town while people watched.
+          this._defer.set(w.id, this.simTime + this.cfg.deferSeconds);
+          // Three strikes against a wall while Kay is PROVABLY mobile → the wall
+          // is unroutable in this world model, permanently: stop ever picking it.
+          const strikes = (this._wallFails.get(w.id) ?? 0) + 1;
+          this._wallFails.set(w.id, strikes);
+          if (strikes >= 3 && this._isMobile()) { this._unreachable.add(w.id); this._wallFails.delete(w.id); }
+          if (++this._pathFails > 12) {
             this._pathFails = 0;
+            // Teleport ONLY when Kay himself is the stuck one: boxed in tight,
+            // or on a walkable island that can't even route home.
+            if (this._openNeighbors(this.x, this.z) < 6) this._relocate();
+            else if (!this._isMobile()) { this.x = this.model.spawn.x; this.z = this.model.spawn.z; }
+            // else: he can move fine — the walls are the problem, never jump.
           }
         }
         return null;
@@ -515,6 +534,7 @@ export class KaySim {
       x: this.x, z: this.z, facing: this.facing, muralCount: this.muralCount, simTime: this.simTime,
       cooldownLeft: this._cooldownLeft,
       painted: [...this.painted], defer: [...this._defer],
+      unreachable: [...this._unreachable],   // grid property, survives hibernation (else re-striking churns)
     };
     if (this.state === SIM_STATE.MOVING_TO_WALL && this._path && this._pi < this._path.length) {
       s.walk = { targetId: this.targetId, path: this._path, pi: this._pi, moveT: this.timers.move };
@@ -529,6 +549,7 @@ export class KaySim {
     this._cooldownLeft = s.cooldownLeft ?? 0;
     this.painted = new Set(s.painted ?? []);
     this._defer  = new Map(s.defer ?? []);
+    this._unreachable = new Set(s.unreachable ?? []);
     this._paintPending = false; this._paintResult = null;
     const w = s.walk;
     if (w && this.byId.has(w.targetId) && Array.isArray(w.path) && w.pi < w.path.length &&
