@@ -146,16 +146,6 @@ export class KaySim {
   _cx(gx) { return -this.model.half + (gx + 0.5) * this.model.cellSize; }
   _cz(gz) { return -this.model.half + (gz + 0.5) * this.model.cellSize; }
 
-  _randomReachable() {
-    const h = this.model.half;
-    for (let i = 0; i < 200; i++) {
-      const x = (this.rng() * 2 - 1) * (h - 1);
-      const z = (this.rng() * 2 - 1) * (h - 1);
-      if (!this.blocked(x, z)) return { x, z };
-    }
-    return { x: this.model.spawn.x, z: this.model.spawn.z };
-  }
-
   // ── Wall choice — nearest free wall, with a little randomness ─────────────────
   _freeWalls() {
     return this.walls.filter((w) => !this.painted.has(w.id) && !this._unreachable.has(w.id) && !this.blocked(w.ax, w.az));
@@ -379,9 +369,9 @@ export class KaySim {
       if (!this.blocked(x + dx * s, z + dz * s)) n++;
     return n;
   }
-  _nearestOpen(x, z) {
+  _nearestOpen(x, z, maxR = 80) {
     const s = this.model.cellSize;
-    for (let r = 1; r < 80; r++) {
+    for (let r = 1; r < maxR; r++) {
       const steps = r * 8;
       for (let a = 0; a < steps; a++) {
         const ang = (a / steps) * Math.PI * 2;
@@ -391,11 +381,17 @@ export class KaySim {
     }
     return null;
   }
-  _relocate() {
-    const p = this._nearestOpen(this.x, this.z) || this._randomReachable();
-    this.x = p.x; this.z = p.z;
+  // The SMALLEST correction that frees a stuck Kay — the nearest open spot
+  // within a few metres, nearest-first, and if nothing opens up that close he
+  // simply STAYS where he is. Never a cross-town jump: every long-range
+  // "rescue" teleport this sim ever had (random reachable point, spawn jump)
+  // showed up on screen and on the map as Kay teleporting around while people
+  // watched. Standing still is always better than jumping.
+  _unstick() {
     if (this.targetId != null) { this._defer.set(this.targetId, this.simTime + this.cfg.deferSeconds); this.targetId = null; }
     this._pathFails = 0;
+    const p = this._nearestOpen(this.x, this.z, 6);   // ≤ ~3 m at production cell size
+    if (p) { this.x = p.x; this.z = p.z; }
     this._toSeeking();
   }
 
@@ -411,7 +407,7 @@ export class KaySim {
 
     switch (this.state) {
       case SIM_STATE.SEEKING: {
-        if (this.blocked(this.x, this.z)) { this._relocate(); return null; }   // drifted into a wall
+        if (this.blocked(this.x, this.z)) { this._unstick(); return null; }   // drifted into a wall → smallest local fix
         const w = this._pickWall(this.x, this.z);
         if (!w) { if (!this.hasFreeReachable()) { this.timers.idle = 0; this._setState(SIM_STATE.NO_MORE_WALL); } return null; }
         const path = this._routeToWall(w);
@@ -435,11 +431,12 @@ export class KaySim {
           if (strikes >= 3 && this._isMobile()) { this._unreachable.add(w.id); this._wallFails.delete(w.id); }
           if (++this._pathFails > 12) {
             this._pathFails = 0;
-            // Teleport ONLY when Kay himself is the stuck one: boxed in tight,
-            // or on a walkable island that can't even route home.
-            if (this._openNeighbors(this.x, this.z) < 6) this._relocate();
-            else if (!this._isMobile()) { this.x = this.model.spawn.x; this.z = this.model.spawn.z; }
-            // else: he can move fine — the walls are the problem, never jump.
+            // NO teleports — ever. Boxed in tight → the smallest local unstick
+            // (a couple of metres at most, or stay put). Anything else — even a
+            // Kay stranded on a walkable island — WAITS where he is: standing
+            // still is invisible; the old spawn-jump "rescue" was the very
+            // teleporting people watched on the map.
+            if (this._openNeighbors(this.x, this.z) < 6) this._unstick();
           }
         }
         return null;

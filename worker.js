@@ -85,8 +85,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // Build 16: MODEL_VERSION → 3 (the cached DO grid predated the alley-approach
 // fixes — reachable walls read as unroutable) and the sim tries several stand
 // points around a wall before striking it (one sealed half-metre cell must not
-// cost the wall its mural).
-const WORKER_BUILD = 16;
+// cost the wall its mural). Build 17: NO teleports, ever — the spawn jump and
+// the cross-town relocate are gone; the only correction left is a ≤ few-metres
+// local unstick, and a genuinely stranded Kay simply waits in place.
+const WORKER_BUILD = 17;
 const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
