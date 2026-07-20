@@ -344,5 +344,41 @@ const check = (name, fn) => {
   });
 }
 
+// ── 12: NO TELEPORTS — a stranded Kay waits, he never jumps (esp. not to spawn)
+// Kay hydrated onto a walkable island (open pocket, ringed off from the town):
+// every wall is unroutable from there and he cannot route home either. The old
+// "rescues" teleported him (nearest-open across town, or straight to spawn).
+// Now the ONLY allowed correction is the ≤ few-metres local unstick — a
+// stranded Kay simply stays put.
+{
+  const model = buildModel({ wallCoords: gridWalls });
+  const s = model.cellSize, ix = 20, iz = 20;          // island centre, far from spawn
+  for (let r = 3; r <= 4; r++)                         // thick ring seals a 5×5 open pocket
+    for (let dx = -r; dx <= r; dx++)
+      for (let dz = -r; dz <= r; dz++)
+        if (Math.max(Math.abs(dx), Math.abs(dz)) === r)
+          model.cells[model.cellOf(ix + dx * s, iz + dz * s)] = 1;
+  const sim = new KaySim(model, { cooldownMin: 0.5, cooldownRange: 0.5 }, mulberry32(99));
+  sim.hydrate({ x: ix, z: iz, muralCount: 0, painted: [], defer: [] });
+  const stranded = sim._findPath(ix, iz, model.spawn.x, model.spawn.z) === null;
+
+  let maxStep = 0, prevX = sim.x, prevZ = sim.z;
+  for (let i = 0; i < 8000; i++) {
+    const sig = sim.step(0.1);
+    if (sig && sig.paint) sim.paintDone({ svg: '<svg/>', thought: 't' });
+    maxStep = Math.max(maxStep, Math.hypot(sim.x - prevX, sim.z - prevZ));
+    prevX = sim.x; prevZ = sim.z;
+  }
+  check('12. stranded Kay WAITS — no teleport, never a spawn jump', () => {
+    assert(stranded, 'test setup failed: the island was not actually sealed');
+    const unstickBound = 6 * s * Math.SQRT2 + 1e-6;    // local unstick’s search radius
+    assert(maxStep <= Math.max(sim.cfg.moveSpeed * 0.1, unstickBound),
+      `stepped ${maxStep.toFixed(2)} m in one tick — still teleporting`);
+    assert(Math.hypot(sim.x - model.spawn.x, sim.z - model.spawn.z) > 5,
+      'Kay ended up at spawn — the spawn teleport is back');
+    assert(Math.hypot(sim.x - ix, sim.z - iz) < 6, 'Kay left the island — impossible without a jump');
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);
