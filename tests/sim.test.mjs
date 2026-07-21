@@ -380,5 +380,25 @@ const check = (name, fn) => {
   });
 }
 
+// ── 13: wallReport classifies every unpainted wall ──────────────────────────
+{
+  const wallCoords = [[-12, -12, 1, 0], [12, -12, -1, 0], [4, 4, 1, 0]];
+  const model = buildModel({ wallCoords, cellSize: 0.5 });
+  const s = model.cellSize;
+  for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++)   // seal wall 2's stands
+    model.cells[model.cellOf(5.5 + dx * s, 4 + dz * s)] = 1;
+  const sim = new KaySim(model, {}, mulberry32(3));
+  sim.painted.add(0);
+  const rep = sim.wallReport();
+  check('13. wallReport separates reachable-unpainted from genuinely blocked', () => {
+    assert.equal(rep.total, 3);
+    assert.equal(rep.painted, 1);
+    assert.equal(rep.reachableUnpainted, 1, `wall 1 should be reachable, got ${rep.reachableUnpainted}`);
+    assert.equal(rep.blocked.length, 1, 'wall 2 should be the only blocked one');
+    assert.equal(rep.blocked[0].id, 2);
+    assert.ok(typeof rep.blocked[0].px === 'number' && rep.blocked[0].reason, 'blocked entry needs coords + reason');
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll sim checks passed');
 process.exit(failures ? 1 : 0);
