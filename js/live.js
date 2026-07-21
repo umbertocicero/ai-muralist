@@ -25,7 +25,7 @@ export const MODEL_VERSION = 4;   // v4: connectivity filter drops unreachable w
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 9;
+export const CLIENT_REV = 10;
 
 export function buildWorldModel(city) {
   const half     = city.HALF;

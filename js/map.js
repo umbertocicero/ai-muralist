@@ -78,21 +78,26 @@ export function drawLive(g, city, agent, trail, size, t = performance.now() / 10
   const px = (x) => (x + half) * S;
   const pz = (z) => (z + half) * S;
 
-  // mural slots — filled orange where painted, faint hollow where still blank.
-  // Unreachable slots (approach cut off from the street network — see
-  // buildWorldModel's connectivity filter) are NOT paintable, so don't draw
-  // them as blank markers that would look like forever-unpainted walls.
-  let painted = 0;
+  // Mural slots. Murals live on VERTICAL walls, so on this top-down map you
+  // never see the artwork itself — only these markers say what's done. Painted
+  // and unpainted must therefore be UNMISTAKABLY different, or every building
+  // looks blank and the whole city reads as "to paint" (it isn't). So: painted
+  // = a small MUTED dot (done, de-emphasised); still-to-paint = a bold BLUE
+  // hollow ring that pops against the orange. Unreachable slots (approach cut
+  // off from the street network — see buildWorldModel's connectivity filter)
+  // are NOT paintable, so they're skipped entirely.
+  let painted = 0, blank = 0;
   for (const s of city.wallSlots) {
     if (s.unreachable && !s.used) continue;
     const X = px(s.px), Z = pz(s.pz);
     if (s.used && s.mesh) {
       painted++;
-      g.fillStyle = '#ff6b35'; g.strokeStyle = '#1a1814'; g.lineWidth = 1.5;
-      g.fillRect(X - 4.5, Z - 4.5, 9, 9); g.strokeRect(X - 4.5, Z - 4.5, 9, 9);
+      g.fillStyle = 'rgba(255,107,53,0.75)'; g.strokeStyle = 'rgba(26,24,20,0.5)'; g.lineWidth = 1;
+      g.fillRect(X - 3, Z - 3, 6, 6); g.strokeRect(X - 3, Z - 3, 6, 6);
     } else {
-      g.strokeStyle = 'rgba(255,107,53,0.35)'; g.lineWidth = 1;
-      g.strokeRect(X - 2, Z - 2, 4, 4);
+      blank++;
+      g.strokeStyle = '#1a6fff'; g.lineWidth = 2.5;
+      g.strokeRect(X - 5, Z - 5, 10, 10);
     }
   }
 
@@ -130,12 +135,15 @@ export function drawLive(g, city, agent, trail, size, t = performance.now() / 10
     g.beginPath(); g.arc(X, Z, 7, 0, 7); g.fill(); g.stroke();
   }
 
-  // live mural counter (bottom-right, over the base frame)
+  // live legend (bottom-right, over the base frame): painted count + how many
+  // walls are still to paint, so the map's two marker styles are self-explaining.
   g.fillStyle = '#f4f1ea';
-  g.fillRect(size - 215, size - 46, 195, 30);
-  g.fillStyle = '#ff6b35';
+  g.fillRect(size - 250, size - 46, 230, 30);
   g.font = `bold ${Math.round(size * 0.022)}px "Courier New", monospace`;
-  g.fillText(`● ${painted} murals`, size - 205, size - 24);
+  g.fillStyle = '#ff6b35';
+  g.fillText(`● ${painted} painted`, size - 242, size - 24);
+  g.fillStyle = '#1a6fff';
+  g.fillText(blank ? `□ ${blank} to paint` : '✓ all done', size - 118, size - 24);
 }
 
 // Composite base + live onto `canvas` — called ~8×/s by the map overlay while
