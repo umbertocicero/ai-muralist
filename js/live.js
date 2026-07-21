@@ -19,13 +19,13 @@ import { getToken, onAuthChange } from './auth.js';
 // the wire as base64 (1 byte/cell) to keep the one-time upload small.
 // Bump when the model's shape/resolution changes — must match worker.js
 // MODEL_VERSION so a DO caching an older grid discards it and re-requests one.
-export const MODEL_VERSION = 3;   // v3: alley-wall approach fixes must reach the DO's cached grid
+export const MODEL_VERSION = 4;   // v4: connectivity filter drops unreachable wall slots from the catalogue
 
 // Client revision, logged at connect next to the worker build: answers "is the
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 8;
+export const CLIENT_REV = 9;
 
 export function buildWorldModel(city) {
   const half     = city.HALF;
@@ -50,7 +50,7 @@ export function buildWorldModel(city) {
   // Every street-facing wall is a target; carve its approach cell walkable (it
   // is, by construction — that's why it's a slot) so a coarse cell that clips a
   // corner can never make a real wall unreachable.
-  const walls = city.wallSlots.map((s, id) => {
+  const allWalls = city.wallSlots.map((s, id) => {
     const ap = city.approachPoint(s);
     cells[cellOf(ap.x, ap.z)] = 0;
     return {
@@ -59,6 +59,41 @@ export function buildWorldModel(city) {
     };
   });
   cells[cellOf(city.spawn.x, city.spawn.z)] = 0;
+
+  // CONNECTIVITY FILTER. Some edge/alley slots have an approach that's carved
+  // free yet sits on an ISLAND cut off from the street network (or is ringed by
+  // collision) — Kay can never walk there, so the slot would stay blank on the
+  // map forever. Flood-fill the walkable grid from spawn (8-connected, matching
+  // the sim's pathfinder) and keep ONLY walls whose approach cell is reachable.
+  // The dropped slots are tagged so the client marks them non-paintable (no
+  // phantom blank markers, no target Kay can't reach). `id` stays the wallSlots
+  // index, so the server's targetId → city.wallSlots mapping is untouched.
+  const reach = new Uint8Array(cols * rows);
+  {
+    const sc = cellOf(city.spawn.x, city.spawn.z);
+    const q = new Int32Array(cols * rows); let head = 0, tail = 0;
+    reach[sc] = 1; q[tail++] = sc;
+    const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    while (head < tail) {
+      const cur = q[head++], cgx = cur % cols, cgz = (cur / cols) | 0;
+      for (const [dx, dz] of NB) {
+        const ngx = cgx + dx, ngz = cgz + dz;
+        if (ngx < 0 || ngz < 0 || ngx >= cols || ngz >= rows) continue;
+        if (dx && dz && (cells[idx(cgx + dx, cgz)] !== 0 || cells[idx(cgx, cgz + dz)] !== 0)) continue; // no corner cut
+        const ni = idx(ngx, ngz);
+        if (reach[ni] || cells[ni] !== 0) continue;
+        reach[ni] = 1; q[tail++] = ni;
+      }
+    }
+  }
+  const walls = [];
+  let dropped = 0;
+  for (let i = 0; i < allWalls.length; i++) {
+    const w = allWalls[i];
+    if (reach[cellOf(w.ax, w.az)]) { walls.push(w); city.wallSlots[i].unreachable = false; }
+    else { city.wallSlots[i].unreachable = true; dropped++; }
+  }
+  if (dropped) console.info(`[live] ${dropped} unreachable wall slot(s) excluded (approach cut off from the street network)`);
 
   let bin = '';
   for (let i = 0; i < cells.length; i++) bin += String.fromCharCode(cells[i]);

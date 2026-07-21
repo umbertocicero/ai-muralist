@@ -78,9 +78,13 @@ export function drawLive(g, city, agent, trail, size, t = performance.now() / 10
   const px = (x) => (x + half) * S;
   const pz = (z) => (z + half) * S;
 
-  // mural slots — filled orange where painted, faint hollow where still blank
+  // mural slots — filled orange where painted, faint hollow where still blank.
+  // Unreachable slots (approach cut off from the street network — see
+  // buildWorldModel's connectivity filter) are NOT paintable, so don't draw
+  // them as blank markers that would look like forever-unpainted walls.
   let painted = 0;
   for (const s of city.wallSlots) {
+    if (s.unreachable && !s.used) continue;
     const X = px(s.px), Z = pz(s.pz);
     if (s.used && s.mesh) {
       painted++;

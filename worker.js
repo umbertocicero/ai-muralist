@@ -90,7 +90,10 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // local unstick, and a genuinely stranded Kay simply waits in place.
 // Build 18: GET /live?world=N&walls=1 adds a per-wall reachability report —
 // "are the free walls actually drawable?" with the stuck ones listed at coords.
-const WORKER_BUILD = 18;
+// Build 19: MODEL_VERSION → 4 — the client drops wall slots whose approach is
+// cut off from the street network, so the uploaded catalogue is all-reachable
+// (no forever-blank edge walls; the city reads as completable).
+const WORKER_BUILD = 19;
 const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -434,7 +437,10 @@ const STALE_VIEWER_MS = 75_000;
 // stand points land, but a DO with a cached v2 model kept navigating the OLD
 // grid forever (needWorld:false → never re-uploaded) — walls that are perfectly
 // reachable in the current model read as unroutable server-side.
-const MODEL_VERSION = 3;
+// v4: the client now filters unreachable wall slots out of the catalogue
+// (connectivity flood-fill from spawn) — a smaller, all-reachable wall set. A
+// DO caching a v3 model must discard it so the filtered one is re-uploaded.
+const MODEL_VERSION = 4;
 const KAY_MODEL_DEFAULT = 'claude-sonnet-4-6';
 const STYLE_NAMES = ['Ukiyo-e', 'Sumi-e', 'Manga', 'Woodblock', 'Anime', 'Kirie', 'Wabi-sabi', 'Kanji'];
 const envNum = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
