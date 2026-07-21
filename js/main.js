@@ -10,7 +10,7 @@ import { Agent }         from './agent.js';
 import { CameraRig }     from './camera-rig.js';
 import { Atmosphere }    from './atmosphere.js';
 import { Persistence }   from './persistence.js';
-import { LiveLink }      from './live.js';
+import { LiveLink, tagReachability } from './live.js';
 import { RemoteDriver }  from './remote-driver.js';
 import { applySettings } from './settings.js';
 import { initAuth, getToken } from './auth.js';
@@ -144,6 +144,10 @@ class App {
 
     // Systems
     this.city       = new City(this.scene);
+    // Tag which wall slots are reachable from spawn up front, so the map can
+    // colour them correctly on the very first render — independent of whether
+    // the live layer uploads the world model this load (needWorld may be false).
+    tagReachability(this.city);
     this.character  = new Character(this.scene, CONFIG.charStart);
     this.factory    = new MuralFactory(this.scene, this.renderer, this.city);
     this.agent      = new Agent(this.city, this.character, this.factory, ui);

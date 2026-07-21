@@ -5,7 +5,7 @@
 // Run:  node tests/worldmodel.test.mjs
 
 import assert from 'node:assert';
-import { buildWorldModel, MODEL_VERSION } from '../js/live.js';
+import { buildWorldModel, tagReachability, MODEL_VERSION } from '../js/live.js';
 
 let failures = 0;
 const check = (name, fn) => {
@@ -53,6 +53,18 @@ function makeCity() {
   check('2. open city keeps every wall, ids = wallSlots indices', () => {
     assert.deepEqual(m.walls.map((w) => w.id), [0, 1, 2]);
     assert.ok(city.wallSlots.every((s) => s.unreachable === false));
+  });
+}
+
+// tagReachability tags EVERY slot (the map reads these to colour all three
+// states), independent of building the upload model.
+{
+  const city = makeCity();
+  tagReachability(city);
+  check('3. tagReachability flags every slot for the map', () => {
+    assert.equal(city.wallSlots[0].unreachable, false);
+    assert.equal(city.wallSlots[1].unreachable, true);
+    assert.ok(city.wallSlots.every((s) => s._approach && typeof s._approach.x === 'number'));
   });
 }
 

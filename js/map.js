@@ -79,21 +79,24 @@ export function drawLive(g, city, agent, trail, size, t = performance.now() / 10
   const pz = (z) => (z + half) * S;
 
   // Mural slots. Murals live on VERTICAL walls, so on this top-down map you
-  // never see the artwork itself — only these markers say what's done. Painted
-  // and unpainted must therefore be UNMISTAKABLY different, or every building
-  // looks blank and the whole city reads as "to paint" (it isn't). So: painted
-  // = a small MUTED dot (done, de-emphasised); still-to-paint = a bold BLUE
-  // hollow ring that pops against the orange. Unreachable slots (approach cut
-  // off from the street network — see buildWorldModel's connectivity filter)
-  // are NOT paintable, so they're skipped entirely.
+  // never see the artwork itself — only these markers say what's done. The
+  // three states are drawn UNMISTAKABLY differently so no wall reads wrong:
+  //   • PAINTED       — small muted orange dot (done, de-emphasised)
+  //   • TO PAINT       — bold BLUE hollow ring (reachable + still blank) that pops
+  //   • UNREACHABLE    — faint grey hollow (approach cut off from the street
+  //                      network; can't be painted) — shown, NOT hidden, so a
+  //                      building whose only walls are these doesn't look like a
+  //                      forgotten blank house with no marker at all.
   let painted = 0, blank = 0;
   for (const s of city.wallSlots) {
-    if (s.unreachable && !s.used) continue;
     const X = px(s.px), Z = pz(s.pz);
     if (s.used && s.mesh) {
       painted++;
       g.fillStyle = 'rgba(255,107,53,0.75)'; g.strokeStyle = 'rgba(26,24,20,0.5)'; g.lineWidth = 1;
       g.fillRect(X - 3, Z - 3, 6, 6); g.strokeRect(X - 3, Z - 3, 6, 6);
+    } else if (s.unreachable) {
+      g.strokeStyle = 'rgba(120,120,120,0.55)'; g.lineWidth = 1;
+      g.strokeRect(X - 3, Z - 3, 6, 6);
     } else {
       blank++;
       g.strokeStyle = '#1a6fff'; g.lineWidth = 2.5;

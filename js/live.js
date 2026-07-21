@@ -25,74 +25,69 @@ export const MODEL_VERSION = 4;   // v4: connectivity filter drops unreachable w
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 10;
+export const CLIENT_REV = 11;
 
-export function buildWorldModel(city) {
-  const half     = city.HALF;
-  const cellSize = 0.5;   // finer than before (0.75) → narrow alleys stay open
-  const cols = Math.ceil((half * 2) / cellSize);
-  const rows = cols;
+// Build the walkability grid (with each wall's approach cell + spawn carved
+// free), flood-fill the reachable region from spawn, and TAG every wall slot
+// with s.unreachable / s.approach. Shared by buildWorldModel AND the map (via a
+// boot-time call in main.js) so the map always knows a wall's true state even
+// when the DO already has the model and buildWorldModel isn't called this load.
+// Returns the grid so buildWorldModel can serialise it without rebuilding.
+export function tagReachability(city) {
+  const half = city.HALF, cellSize = 0.5;   // finer than before → narrow alleys stay open
+  const cols = Math.ceil((half * 2) / cellSize), rows = cols;
   const cells = new Uint8Array(cols * rows);
   const idx = (gx, gz) => gz * cols + gx;
-
   for (let gz = 0; gz < rows; gz++) {
     for (let gx = 0; gx < cols; gx++) {
-      const x = -half + (gx + 0.5) * cellSize;
-      const z = -half + (gz + 0.5) * cellSize;
+      const x = -half + (gx + 0.5) * cellSize, z = -half + (gz + 0.5) * cellSize;
       if (city.isColliding(x, z)) cells[idx(gx, gz)] = 1;
     }
   }
-
   const cellOf = (x, z) => idx(
     Math.min(cols - 1, Math.max(0, ((x + half) / cellSize) | 0)),
     Math.min(rows - 1, Math.max(0, ((z + half) / cellSize) | 0)));
 
-  // Every street-facing wall is a target; carve its approach cell walkable (it
-  // is, by construction — that's why it's a slot) so a coarse cell that clips a
-  // corner can never make a real wall unreachable.
-  const allWalls = city.wallSlots.map((s, id) => {
-    const ap = city.approachPoint(s);
-    cells[cellOf(ap.x, ap.z)] = 0;
-    return {
-      id, px: s.px, py: s.py, pz: s.pz, nx: s.nx, nz: s.nz,
-      wallW: s.wallW, wallH: s.wallH, ax: ap.x, az: ap.z,
-    };
-  });
+  // Carve each wall's approach cell + the spawn free, exactly as the sim expects.
+  for (const s of city.wallSlots) { const ap = city.approachPoint(s); s._approach = ap; cells[cellOf(ap.x, ap.z)] = 0; }
   cells[cellOf(city.spawn.x, city.spawn.z)] = 0;
 
-  // CONNECTIVITY FILTER. Some edge/alley slots have an approach that's carved
-  // free yet sits on an ISLAND cut off from the street network (or is ringed by
-  // collision) — Kay can never walk there, so the slot would stay blank on the
-  // map forever. Flood-fill the walkable grid from spawn (8-connected, matching
-  // the sim's pathfinder) and keep ONLY walls whose approach cell is reachable.
-  // The dropped slots are tagged so the client marks them non-paintable (no
-  // phantom blank markers, no target Kay can't reach). `id` stays the wallSlots
-  // index, so the server's targetId → city.wallSlots mapping is untouched.
+  // 8-connected flood-fill from spawn (no corner cutting — matches the sim's BFS).
   const reach = new Uint8Array(cols * rows);
-  {
-    const sc = cellOf(city.spawn.x, city.spawn.z);
-    const q = new Int32Array(cols * rows); let head = 0, tail = 0;
-    reach[sc] = 1; q[tail++] = sc;
-    const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-    while (head < tail) {
-      const cur = q[head++], cgx = cur % cols, cgz = (cur / cols) | 0;
-      for (const [dx, dz] of NB) {
-        const ngx = cgx + dx, ngz = cgz + dz;
-        if (ngx < 0 || ngz < 0 || ngx >= cols || ngz >= rows) continue;
-        if (dx && dz && (cells[idx(cgx + dx, cgz)] !== 0 || cells[idx(cgx, cgz + dz)] !== 0)) continue; // no corner cut
-        const ni = idx(ngx, ngz);
-        if (reach[ni] || cells[ni] !== 0) continue;
-        reach[ni] = 1; q[tail++] = ni;
-      }
+  const sc = cellOf(city.spawn.x, city.spawn.z);
+  const q = new Int32Array(cols * rows); let head = 0, tail = 0;
+  reach[sc] = 1; q[tail++] = sc;
+  const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  while (head < tail) {
+    const cur = q[head++], cgx = cur % cols, cgz = (cur / cols) | 0;
+    for (const [dx, dz] of NB) {
+      const ngx = cgx + dx, ngz = cgz + dz;
+      if (ngx < 0 || ngz < 0 || ngx >= cols || ngz >= rows) continue;
+      if (dx && dz && (cells[idx(cgx + dx, cgz)] !== 0 || cells[idx(cgx, cgz + dz)] !== 0)) continue;
+      const ni = idx(ngx, ngz);
+      if (reach[ni] || cells[ni] !== 0) continue;
+      reach[ni] = 1; q[tail++] = ni;
     }
   }
-  const walls = [];
+
   let dropped = 0;
-  for (let i = 0; i < allWalls.length; i++) {
-    const w = allWalls[i];
-    if (reach[cellOf(w.ax, w.az)]) { walls.push(w); city.wallSlots[i].unreachable = false; }
-    else { city.wallSlots[i].unreachable = true; dropped++; }
+  for (const s of city.wallSlots) {
+    s.unreachable = !reach[cellOf(s._approach.x, s._approach.z)];
+    if (s.unreachable) dropped++;
   }
+  return { cells, cols, rows, cellSize, half, dropped };
+}
+
+export function buildWorldModel(city) {
+  const { cells, cols, rows, cellSize, half, dropped } = tagReachability(city);
+  // Only REACHABLE walls go in the catalogue Kay navigates; id stays the
+  // wallSlots index so the server's targetId → city.wallSlots mapping holds.
+  const walls = [];
+  city.wallSlots.forEach((s, id) => {
+    if (s.unreachable) return;
+    walls.push({ id, px: s.px, py: s.py, pz: s.pz, nx: s.nx, nz: s.nz,
+                 wallW: s.wallW, wallH: s.wallH, ax: s._approach.x, az: s._approach.z });
+  });
   if (dropped) console.info(`[live] ${dropped} unreachable wall slot(s) excluded (approach cut off from the street network)`);
 
   let bin = '';
