@@ -184,6 +184,30 @@ export class KaySim {
     }
     return null;
   }
+
+  // Per-wall reachability report (diagnostics): for every UNPAINTED wall, can it
+  // be reached from spawn — the street-network anchor — via any stand candidate?
+  // Answers "are the free walls actually drawable?" definitively, and lists the
+  // genuinely stuck ones with coordinates + reason so they can be inspected.
+  wallReport() {
+    const s = this.model.spawn;
+    const r3 = (v) => Math.round(v * 100) / 100;
+    const report = { total: this.walls.length, painted: this.painted.size,
+                     reachableUnpainted: 0, blocked: [] };
+    for (const w of this.walls) {
+      if (this.painted.has(w.id)) continue;
+      const free = this._standCandidates(w).filter((c) => !this.blocked(c.x, c.z));
+      let reachable = false;
+      for (const c of free) { if (this._findPath(s.x, s.z, c.x, c.z)) { reachable = true; break; } }
+      if (reachable) { report.reachableUnpainted++; continue; }
+      report.blocked.push({
+        id: w.id, px: r3(w.px), pz: r3(w.pz),
+        reason: free.length === 0 ? 'every stand cell is blocked' : 'stand cell free but unroutable from spawn',
+        blacklisted: this._unreachable.has(w.id),
+      });
+    }
+    return report;
+  }
   _pickWall(fromX, fromZ) {
     const free = this._freeWalls();
     if (!free.length) return null;

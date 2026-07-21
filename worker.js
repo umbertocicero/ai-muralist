@@ -88,7 +88,9 @@ const ALLOWED_MODELS = new Set([  // only models this app is meant to call
 // cost the wall its mural). Build 17: NO teleports, ever — the spawn jump and
 // the cross-town relocate are gone; the only correction left is a ≤ few-metres
 // local unstick, and a genuinely stranded Kay simply waits in place.
-const WORKER_BUILD = 17;
+// Build 18: GET /live?world=N&walls=1 adds a per-wall reachability report —
+// "are the free walls actually drawable?" with the stuck ones listed at coords.
+const WORKER_BUILD = 18;
 const MURAL_MAX_BODY = 560_000;   // svg (≤60 KB) or data-url image (≤400 KB) + prompt + metadata
 const MURAL_RATE_MS  = 3_000;     // max 1 save / 3s per IP (a paint takes ≥8s anyway)
 const MURAL_LIST_CAP = 500;       // rows returned per world
@@ -586,7 +588,12 @@ export class KayDO {
       // This is how "Kay isn't moving" gets debugged without wrangler access:
       // GET <worker>/live?world=N shows the sim state, painted vs D1 counts,
       // pathfinding failures and whether an alarm is pending.
-      return json(await this._diagnostics());
+      // ?walls=1 adds the per-wall reachability report — "are the free walls
+      // actually drawable?" with the stuck ones listed at their coordinates.
+      const wantWalls = new URL(request.url).searchParams.get('walls') != null;
+      const diag = await this._diagnostics();
+      if (wantWalls && this.sim) diag.walls = this.sim.wallReport();
+      return json(diag);
     }
 
     const pair = new WebSocketPair();
