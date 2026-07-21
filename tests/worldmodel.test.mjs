@@ -68,5 +68,23 @@ function makeCity() {
   });
 }
 
+// A noStand slot (kept by city.js only so its building isn't markerless — no
+// reachable stand point exists) is pinned unreachable regardless of the grid,
+// so it shows a grey marker on the map yet never enters the paintable catalogue.
+{
+  const city = { HALF: 10, spawn: { x: 0, z: 0 }, isColliding: () => false,
+    approachPoint: (s) => ({ x: s.px + s.nx * 1.5, z: s.pz + s.nz * 1.5 }),
+    wallSlots: [
+      { px: 2, py: 1.55, pz: 0, nx: -1, nz: 0, wallW: 3, wallH: 2.7 },              // normal
+      { px: 5, py: 1.55, pz: 0, nx: -1, nz: 0, wallW: 3, wallH: 2.7, noStand: true }, // hemmed-in fallback
+    ] };
+  const m = buildWorldModel(city);
+  check('4. noStand fallback stays on the map but out of the catalogue', () => {
+    assert.equal(city.wallSlots[0].unreachable, false);
+    assert.equal(city.wallSlots[1].unreachable, true, 'noStand slot must be pinned unreachable');
+    assert.deepEqual(m.walls.map((w) => w.id), [0], 'catalogue must exclude the noStand slot');
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll worldmodel checks passed');
 process.exit(failures ? 1 : 0);

@@ -25,7 +25,7 @@ export const MODEL_VERSION = 4;   // v4: connectivity filter drops unreachable w
 // deployed FRONTEND stale?" straight from the console — several "still broken"
 // reports turned out to be an old Pages bundle talking to a fixed Worker.
 // Bump on any behavioural change in live.js / remote-driver.js / map.js.
-export const CLIENT_REV = 11;
+export const CLIENT_REV = 12;   // r12: hemmed-in buildings keep one grey (unreachable) marker instead of vanishing
 
 // Build the walkability grid (with each wall's approach cell + spawn carved
 // free), flood-fill the reachable region from spawn, and TAG every wall slot
@@ -72,7 +72,9 @@ export function tagReachability(city) {
 
   let dropped = 0;
   for (const s of city.wallSlots) {
-    s.unreachable = !reach[cellOf(s._approach.x, s._approach.z)];
+    // noStand: a face kept only so its building isn't markerless (no reachable
+    // stand point exists) — pinned unreachable so it never enters the catalogue.
+    s.unreachable = s.noStand === true || !reach[cellOf(s._approach.x, s._approach.z)];
     if (s.unreachable) dropped++;
   }
   return { cells, cols, rows, cellSize, half, dropped };

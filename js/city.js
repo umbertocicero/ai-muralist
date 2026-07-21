@@ -846,6 +846,8 @@ export class City {
   _resolveWallSlots() {
     const minOff = CONFIG.charRadius + 0.3;   // just clear of his own plaster (~0.7 m)
     const kept = [];
+    const orphans = new Map();                // buildingIdx → one dropped face (fallback)
+    const withSlot = new Set();               // buildings that kept ≥1 reachable face
     for (const s of this.wallSlots) {
       let ap = null;
       const tx = -s.nz, tz = s.nx;            // tangent along the wall
@@ -861,11 +863,26 @@ export class City {
         }
         if (ap) break;
       }
+      const outOff = (s._half + CONFIG.approachOffset) * s._k - s._half;  // plain outward stand
       delete s._half; delete s._k;
-      if (!ap) continue;                      // house attached flush → unreachable
+      if (!ap) {
+        // Hemmed in flush on this face → no reachable stand point. Don't drop it
+        // silently: keep it as a fallback so a building that loses ALL four faces
+        // still carries ONE slot and shows a (grey, unreachable) marker instead
+        // of vanishing from the map as a "forgotten" blank house with no marker.
+        // noStand pins it unreachable (tagReachability honours it), so it never
+        // enters the paintable catalogue and Kay never targets it.
+        s.ax = s.px + s.nx * outOff; s.az = s.pz + s.nz * outOff; s.noStand = true;
+        if (!orphans.has(s.buildingIdx)) orphans.set(s.buildingIdx, s);
+        continue;
+      }
       s.ax = ap.x; s.az = ap.z;
       kept.push(s);
+      withSlot.add(s.buildingIdx);
     }
+    // Re-add one fallback face for every building that lost all four, so no built
+    // house is left markerless on the map.
+    for (const [idx, s] of orphans) if (!withSlot.has(idx)) kept.push(s);
     this.wallSlots = kept;
   }
 
